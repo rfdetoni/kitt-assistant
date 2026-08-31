@@ -1,0 +1,12 @@
+[Unit]
+Description=K.I.T.T. Assistant daemon
+After=network.target
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/kittd
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+[Install]
+WantedBy=default.target

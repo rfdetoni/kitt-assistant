@@ -1,0 +1,10 @@
+[package]
+name="kitt-domain"
+version.workspace=true
+edition.workspace=true
+rust-version.workspace=true
+license.workspace=true
+[dependencies]
+serde.workspace=true
+thiserror.workspace=true
+kitt-memory-core={path="../../../kitt-memory/crates/kitt-memory-core"}
