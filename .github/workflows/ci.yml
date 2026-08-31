@@ -1,30 +1,47 @@
 name: ci
-on: [push, pull_request]
 
-permissions:
-  contents: read
+on:
+  push:
+  pull_request:
 
 jobs:
   core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Linux audio build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
-        with: { components: rustfmt, clippy }
-      - run: cargo fmt --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --workspace
 
   hud-web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout assistant
+        uses: actions/checkout@v4
+        with:
+          path: kitt-assistant
+      - name: Checkout protocol sibling required by HUD file dependency
+        uses: actions/checkout@v4
+        with:
+          repository: rfdetoni/kitt-protocol
+          ref: 4fd1224fbbda3e45ecabc5f5eca9a0fb27546452
+          path: kitt-protocol
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 22
           cache: npm
-          cache-dependency-path: apps/kitt-hud/package-lock.json
-      - run: npm ci
-        working-directory: apps/kitt-hud
-      - run: npm run build
-        working-directory: apps/kitt-hud
+          cache-dependency-path: kitt-assistant/apps/kitt-hud/package-lock.json
+      - name: Install HUD dependencies
+        working-directory: kitt-assistant/apps/kitt-hud
+        run: npm ci
+      - name: Build HUD
+        working-directory: kitt-assistant/apps/kitt-hud
+        run: npm run build

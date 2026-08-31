@@ -11,6 +11,8 @@ pub enum AssistantError {
     Memory(String),
     #[error("transcription: {0}")]
     Transcription(String),
+    #[error("speech output: {0}")]
+    SpeechOutput(String),
     #[error("configuration: {0}")]
     Configuration(String),
     #[error("I/O: {0}")]
@@ -123,6 +125,10 @@ pub trait ModelPort: Send + Sync {
 pub trait TranscriptionPort: Send + Sync {
     fn transcribe(&self, path: &Path, locale: Option<&str>) -> Result<String>;
     fn is_local(&self) -> bool;
+}
+
+pub trait SpeechOutputPort: Send + Sync {
+    fn speak(&self, text: &str, locale: Option<&str>) -> Result<()>;
 }
 
 pub trait MemoryPort: Send + Sync {

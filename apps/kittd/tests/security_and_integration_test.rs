@@ -42,6 +42,8 @@ impl TestDaemon {
             serde_json::to_string(&config).unwrap(),
         )
         .unwrap();
+        // Integration tests must never depend on a host microphone/audio permission.
+        std::fs::write(config_dir.join("voice.json"), r#"{"enabled":false}"#).unwrap();
 
         let child = Command::new(env!("CARGO_BIN_EXE_kittd"))
             .env("XDG_CONFIG_HOME", &work_dir)

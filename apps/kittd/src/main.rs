@@ -1,9 +1,12 @@
 mod model_config;
+mod voice;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use kitt_application::AssistantService;
 use kitt_domain::{ModelTier as DomainModelTier, RouteHint, RoutingPolicy};
-use kitt_infrastructure::{AssistantMemory, OpenAiCompatibleModel, OpenAiCompatibleTranscriber};
+use kitt_infrastructure::{
+    AssistantMemory, OpenAiCompatibleModel, OpenAiCompatibleTranscriber, SystemTextToSpeech,
+};
 use kitt_memory_core::{
     MemoryKind as CoreMemoryKind, MemoryRecord, MemoryScope as CoreMemoryScope, MemoryStore,
     NewMemory, RecallQuery, Sensitivity as CoreSensitivity,
@@ -194,6 +197,7 @@ fn main() {
         )
         .unwrap_or_else(|e| fatal(e.to_string())),
     );
+    let speaker = Arc::new(SystemTextToSpeech::new());
     let memory_adapter = Arc::new(AssistantMemory::new(
         memory.clone(),
         "global".into(),
@@ -203,6 +207,7 @@ fn main() {
         fast_model,
         heavy_model,
         transcriber,
+        speaker,
         memory_adapter,
         RoutingPolicy {
             fast_max_chars: profiles.fast_max_chars,
@@ -222,6 +227,10 @@ fn main() {
     let listener = TcpListener::bind(&config.listen)
         .unwrap_or_else(|e| fatal(format!("bind {}: {e}", config.listen)));
     eprintln!("kittd listening on {}", config.listen);
+
+    if let Err(error) = voice::start(runtime.clone(), &paths.dir) {
+        eprintln!("kitt voice startup: {error}");
+    }
 
     for incoming in listener.incoming() {
         match incoming {

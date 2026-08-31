@@ -4,7 +4,7 @@ members=["crates/kitt-domain","crates/kitt-application","crates/kitt-infrastruct
 exclude=["apps/kitt-hud/src-tauri"]
 
 [workspace.package]
-version="0.2.0"
+version="0.1.0"
 edition="2024"
 rust-version="1.85"
 license="MIT"
@@ -18,3 +18,6 @@ reqwest={version="0.12",default-features=false,features=["blocking","json","mult
 dirs="6"
 base64="0.22"
 url="2"
+cpal="0.18.2"
+hound="3.5.1"
+rustpotter="3.0.2"

@@ -1,18 +1,29 @@
 use kitt_domain::{
-    AssistantError, MemoryPort, ModelAnswer, ModelPort, ModelRequest, Result, TranscriptionPort,
+    AssistantError, MemoryPort, ModelAnswer, ModelPort, ModelRequest, Result, SpeechOutputPort,
+    TranscriptionPort,
 };
 use kitt_memory_core::{
     EgressPolicy, MemoryKind, MemoryScope, MemoryStore, NewMemory, RecallQuery, Sensitivity,
 };
 use kitt_memory_sqlite::SqliteMemoryStore;
-use reqwest::blocking::{Client, multipart};
+use reqwest::blocking::{Client, Response, multipart};
 use serde_json::{Value, json};
-use std::{fs, io::Read, path::Path, sync::Arc, time::Duration};
+#[cfg(target_os = "windows")]
+use std::io::Write;
+use std::{
+    fs,
+    io::Read,
+    path::Path,
+    process::{Command, Stdio},
+    sync::Arc,
+    time::Duration,
+};
 
 const MAX_PROVIDER_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_AUDIO_BYTES: u64 = 25 * 1024 * 1024;
 
 pub struct OpenAiCompatibleModel {
+    client: Client,
     base_url: String,
     model: String,
     api_key: Option<String>,
@@ -32,6 +43,7 @@ impl OpenAiCompatibleModel {
             ));
         }
         Ok(Self {
+            client: build_client()?,
             base_url: base_url.trim_end_matches('/').to_string(),
             model,
             api_key,
@@ -42,8 +54,8 @@ impl OpenAiCompatibleModel {
 
 impl ModelPort for OpenAiCompatibleModel {
     fn complete(&self, request: &ModelRequest) -> Result<ModelAnswer> {
-        let client = bounded_client()?;
-        let mut req = client
+        let mut req = self
+            .client
             .post(format!("{}/chat/completions", self.base_url))
             .json(&json!({
                 "model": &self.model,
@@ -59,6 +71,7 @@ impl ModelPort for OpenAiCompatibleModel {
         let body = bounded_json(
             req.send()
                 .map_err(|e| AssistantError::Model(e.to_string()))?,
+            AssistantError::Model,
         )?;
         let text = body
             .pointer("/choices/0/message/content")
@@ -73,6 +86,7 @@ impl ModelPort for OpenAiCompatibleModel {
 }
 
 pub struct OpenAiCompatibleTranscriber {
+    client: Client,
     base_url: String,
     model: String,
     api_key: Option<String>,
@@ -94,6 +108,7 @@ impl OpenAiCompatibleTranscriber {
             ));
         }
         Ok(Self {
+            client: build_client()?,
             base_url: base_url.trim_end_matches('/').into(),
             model,
             api_key,
@@ -107,7 +122,7 @@ impl TranscriptionPort for OpenAiCompatibleTranscriber {
     fn transcribe(&self, path: &Path, locale: Option<&str>) -> Result<String> {
         if !self.local && !self.allow_remote {
             return Err(AssistantError::Transcription(
-                "remote voice transcription is disabled; set allow_voice_remote=true explicitly"
+                "remote voice transcription is disabled; set speech_to_text.allow_remote=true explicitly"
                     .into(),
             ));
         }
@@ -135,12 +150,12 @@ impl TranscriptionPort for OpenAiCompatibleTranscriber {
         let mut form = multipart::Form::new()
             .text("model", self.model.clone())
             .part("file", file);
-        if let Some(locale) = locale.filter(|value| !value.trim().is_empty()) {
-            form = form.text("language", locale.to_string());
+        if let Some(language) = normalize_language(locale) {
+            form = form.text("language", language);
         }
 
-        let client = bounded_client()?;
-        let mut req = client
+        let mut req = self
+            .client
             .post(format!("{}/audio/transcriptions", self.base_url))
             .multipart(form);
         if let Some(key) = &self.api_key {
@@ -149,6 +164,7 @@ impl TranscriptionPort for OpenAiCompatibleTranscriber {
         let body = bounded_json(
             req.send()
                 .map_err(|e| AssistantError::Transcription(e.to_string()))?,
+            AssistantError::Transcription,
         )?;
         body.get("text")
             .and_then(Value::as_str)
@@ -161,39 +177,193 @@ impl TranscriptionPort for OpenAiCompatibleTranscriber {
     }
 }
 
-fn bounded_client() -> Result<Client> {
+fn normalize_language(locale: Option<&str>) -> Option<String> {
+    let raw = locale?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let primary = raw.split(['-', '_']).next()?.trim().to_ascii_lowercase();
+    if (2..=3).contains(&primary.len()) && primary.chars().all(|ch| ch.is_ascii_alphabetic()) {
+        Some(primary)
+    } else {
+        None
+    }
+}
+
+fn build_client() -> Result<Client> {
     Client::builder()
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(600))
         .build()
-        .map_err(|e| AssistantError::Model(e.to_string()))
+        .map_err(|e| AssistantError::Configuration(format!("http client: {e}")))
 }
 
-fn bounded_json(response: reqwest::blocking::Response) -> Result<Value> {
+fn bounded_json(response: Response, wrap: fn(String) -> AssistantError) -> Result<Value> {
     let status = response.status();
     if response
         .content_length()
         .is_some_and(|size| size > MAX_PROVIDER_RESPONSE_BYTES)
     {
-        return Err(AssistantError::Model("provider response too large".into()));
+        return Err(wrap("provider response too large".into()));
     }
     let mut bytes = Vec::new();
     response
         .take(MAX_PROVIDER_RESPONSE_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|e| AssistantError::Model(format!("provider response read failed: {e}")))?;
+        .map_err(|e| wrap(format!("provider response read failed: {e}")))?;
     if bytes.len() as u64 > MAX_PROVIDER_RESPONSE_BYTES {
-        return Err(AssistantError::Model("provider response too large".into()));
+        return Err(wrap("provider response too large".into()));
     }
-    let body: Value = serde_json::from_slice(&bytes)
-        .map_err(|e| AssistantError::Model(format!("invalid JSON: {e}")))?;
+    let body: Value =
+        serde_json::from_slice(&bytes).map_err(|e| wrap(format!("invalid JSON: {e}")))?;
     if !status.is_success() {
-        return Err(AssistantError::Model(format!(
+        return Err(wrap(format!(
             "HTTP {status}: {}",
             body.get("error").unwrap_or(&body)
         )));
     }
     Ok(body)
+}
+
+#[derive(Default)]
+pub struct SystemTextToSpeech;
+
+impl SystemTextToSpeech {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl SpeechOutputPort for SystemTextToSpeech {
+    fn speak(&self, text: &str, _locale: Option<&str>) -> Result<()> {
+        if text.trim().is_empty() {
+            return Ok(());
+        }
+        speak_system(text)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn speak_system(text: &str) -> Result<()> {
+    let script = concat!(
+        "$text=[Console]::In.ReadToEnd();",
+        "Add-Type -AssemblyName System.Speech;",
+        "$speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer;",
+        "$speaker.Speak($text);"
+    );
+    let mut child = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| AssistantError::SpeechOutput(format!("start PowerShell TTS: {e}")))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|e| AssistantError::SpeechOutput(format!("write TTS input: {e}")))?;
+    }
+    let status = child
+        .wait()
+        .map_err(|e| AssistantError::SpeechOutput(format!("wait PowerShell TTS: {e}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(AssistantError::SpeechOutput(format!(
+            "PowerShell TTS exited with {status}"
+        )))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn speak_system(text: &str) -> Result<()> {
+    let status = Command::new("say")
+        .arg(text)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| AssistantError::SpeechOutput(format!("start macOS say: {e}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(AssistantError::SpeechOutput(format!(
+            "macOS say exited with {status}"
+        )))
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn speak_system(text: &str) -> Result<()> {
+    match Command::new("spd-say")
+        .args(["-w", "--"])
+        .arg(text)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+    {
+        Ok(status) if status.success() => return Ok(()),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(AssistantError::SpeechOutput(format!(
+                "start spd-say: {error}"
+            )));
+        }
+    }
+
+    let path = temporary_text_path();
+    fs::write(&path, text).map_err(|e| AssistantError::Io(format!("write TTS text: {e}")))?;
+    let _guard = TempFileGuard(path.clone());
+    for program in ["espeak-ng", "espeak"] {
+        match Command::new(program)
+            .args(["-f"])
+            .arg(&path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+        {
+            Ok(status) if status.success() => return Ok(()),
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(AssistantError::SpeechOutput(format!(
+                    "start {program}: {error}"
+                )));
+            }
+        }
+    }
+    Err(AssistantError::SpeechOutput(
+        "no system TTS backend found; install speech-dispatcher or espeak-ng".into(),
+    ))
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
+fn speak_system(_text: &str) -> Result<()> {
+    Err(AssistantError::SpeechOutput(
+        "system TTS is not implemented for this platform".into(),
+    ))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn temporary_text_path() -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    std::env::temp_dir().join(format!("kitt-tts-{}-{nanos}.txt", std::process::id()))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+struct TempFileGuard(std::path::PathBuf);
+
+#[cfg(all(unix, not(target_os = "macos")))]
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 pub struct AssistantMemory {
@@ -344,5 +514,14 @@ mod tests {
                 .contains("remote voice transcription is disabled")
         );
         let _ = std::fs::remove_file(&temp);
+    }
+
+    #[test]
+    fn locale_is_reduced_to_iso_639_primary_language() {
+        assert_eq!(normalize_language(Some("pt-BR")), Some("pt".into()));
+        assert_eq!(normalize_language(Some("en_US")), Some("en".into()));
+        assert_eq!(normalize_language(Some("de")), Some("de".into()));
+        assert_eq!(normalize_language(Some("")), None);
+        assert_eq!(normalize_language(Some("invalid-locale-name")), None);
     }
 }

@@ -67,34 +67,42 @@ impl ModelProfiles {
             .unwrap_or_else(|_| legacy_model.to_string());
         let heavy_model = std::env::var("KITT_HEAVY_MODEL").unwrap_or_else(|_| fast_model.clone());
         let stt_model = std::env::var("KITT_STT_MODEL").unwrap_or_else(|_| "whisper-1".into());
+
+        let fast_base_url =
+            std::env::var("KITT_FAST_BASE_URL").unwrap_or_else(|_| legacy_base_url.to_string());
+        let heavy_base_url =
+            std::env::var("KITT_HEAVY_BASE_URL").unwrap_or_else(|_| legacy_base_url.to_string());
+        let stt_base_url =
+            std::env::var("KITT_STT_BASE_URL").unwrap_or_else(|_| legacy_base_url.to_string());
+
         let profiles = Self {
             fast: ProviderProfile {
-                base_url: std::env::var("KITT_FAST_BASE_URL")
-                    .unwrap_or_else(|_| legacy_base_url.to_string()),
+                local_provider: env_bool("KITT_FAST_LOCAL_PROVIDER")
+                    .unwrap_or_else(|| infer_local(&fast_base_url).unwrap_or(legacy_local)),
+                base_url: fast_base_url,
                 model: fast_model,
                 api_key_env: std::env::var("KITT_FAST_API_KEY_ENV")
                     .ok()
                     .or_else(|| legacy_api_key_env.clone()),
-                local_provider: legacy_local,
             },
             heavy: ProviderProfile {
-                base_url: std::env::var("KITT_HEAVY_BASE_URL")
-                    .unwrap_or_else(|_| legacy_base_url.to_string()),
+                local_provider: env_bool("KITT_HEAVY_LOCAL_PROVIDER")
+                    .unwrap_or_else(|| infer_local(&heavy_base_url).unwrap_or(legacy_local)),
+                base_url: heavy_base_url,
                 model: heavy_model,
                 api_key_env: std::env::var("KITT_HEAVY_API_KEY_ENV")
                     .ok()
                     .or_else(|| legacy_api_key_env.clone()),
-                local_provider: legacy_local,
             },
             speech_to_text: SpeechProfile {
-                base_url: std::env::var("KITT_STT_BASE_URL")
-                    .unwrap_or_else(|_| legacy_base_url.to_string()),
+                local_provider: env_bool("KITT_STT_LOCAL_PROVIDER")
+                    .unwrap_or_else(|| infer_local(&stt_base_url).unwrap_or(legacy_local)),
+                allow_remote: env_bool("KITT_STT_ALLOW_REMOTE").unwrap_or(false),
+                base_url: stt_base_url,
                 model: stt_model,
                 api_key_env: std::env::var("KITT_STT_API_KEY_ENV")
                     .ok()
                     .or(legacy_api_key_env),
-                local_provider: legacy_local,
-                allow_remote: false,
             },
             fast_max_chars: default_fast_chars(),
             fast_max_lines: default_fast_lines(),
@@ -138,6 +146,20 @@ pub fn api_key(env_name: Option<&String>) -> Option<String> {
     env_name
         .and_then(|name| std::env::var(name).ok())
         .filter(|value| !value.trim().is_empty())
+}
+
+fn env_bool(name: &str) -> Option<bool> {
+    let value = std::env::var(name).ok()?;
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn infer_local(base_url: &str) -> Option<bool> {
+    let parsed = url::Url::parse(base_url).ok()?;
+    Some(is_loopback_host(parsed.host_str()))
 }
 
 fn validate_profile(name: &str, base_url: &str, model: &str, local: bool) -> Result<(), String> {
@@ -187,6 +209,12 @@ mod tests {
     #[test]
     fn test_remote_provider_accepts_remote_host() {
         assert!(validate_profile("fast", "http://192.168.1.100:11434/v1", "qwen", false).is_ok());
+    }
+
+    #[test]
+    fn test_infer_local_detects_loopback() {
+        assert_eq!(infer_local("http://127.0.0.1:8000/v1"), Some(true));
+        assert_eq!(infer_local("https://api.example.com/v1"), Some(false));
     }
 
     #[test]

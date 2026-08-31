@@ -1,6 +1,6 @@
 use kitt_domain::{
     MemoryPort, ModelPort, ModelRequest, ModelTier, Result, RouteHint, RoutedAnswer, RoutingPolicy,
-    TranscriptionPort,
+    SpeechOutputPort, TranscriptionPort,
 };
 use std::{path::Path, sync::Arc};
 
@@ -8,6 +8,7 @@ pub struct AssistantService {
     fast_model: Arc<dyn ModelPort>,
     heavy_model: Arc<dyn ModelPort>,
     transcriber: Arc<dyn TranscriptionPort>,
+    speaker: Arc<dyn SpeechOutputPort>,
     memory: Arc<dyn MemoryPort>,
     routing: RoutingPolicy,
 }
@@ -17,6 +18,7 @@ impl AssistantService {
         fast_model: Arc<dyn ModelPort>,
         heavy_model: Arc<dyn ModelPort>,
         transcriber: Arc<dyn TranscriptionPort>,
+        speaker: Arc<dyn SpeechOutputPort>,
         memory: Arc<dyn MemoryPort>,
         routing: RoutingPolicy,
     ) -> Self {
@@ -24,6 +26,7 @@ impl AssistantService {
             fast_model,
             heavy_model,
             transcriber,
+            speaker,
             memory,
             routing,
         }
@@ -66,6 +69,10 @@ impl AssistantService {
         self.transcriber.is_local()
     }
 
+    pub fn speak(&self, text: &str, locale: Option<&str>) -> Result<()> {
+        self.speaker.speak(text, locale)
+    }
+
     pub fn remember(&self, text: &str) -> Result<String> {
         self.memory.remember_explicit(text)
     }
@@ -102,7 +109,7 @@ const BASE_SYSTEM: &str = "You are K.I.T.T., a concise multilingual personal ass
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kitt_domain::{AssistantError, MemoryRecord, ModelAnswer, ModelRequest};
+    use kitt_domain::{AssistantError, MemoryRecord, ModelAnswer, ModelRequest, SpeechOutputPort};
     use std::sync::Mutex;
 
     struct FakeModel {
@@ -134,6 +141,16 @@ mod tests {
         }
     }
 
+    struct FakeSpeaker {
+        spoken: Mutex<Vec<String>>,
+    }
+    impl SpeechOutputPort for FakeSpeaker {
+        fn speak(&self, text: &str, _: Option<&str>) -> Result<()> {
+            self.spoken.lock().unwrap().push(text.to_string());
+            Ok(())
+        }
+    }
+
     struct FakeMemory;
     impl MemoryPort for FakeMemory {
         fn recall_for_model(&self, _: &str, _: bool) -> Result<Vec<MemoryRecord>> {
@@ -145,6 +162,12 @@ mod tests {
         fn remember_explicit(&self, text: &str) -> Result<String> {
             Ok(text.into())
         }
+    }
+
+    fn speaker() -> Arc<FakeSpeaker> {
+        Arc::new(FakeSpeaker {
+            spoken: Mutex::new(Vec::new()),
+        })
     }
 
     #[test]
@@ -163,6 +186,7 @@ mod tests {
             fast.clone(),
             heavy.clone(),
             Arc::new(FakeTranscriber),
+            speaker(),
             Arc::new(FakeMemory),
             RoutingPolicy::default(),
         );
@@ -188,6 +212,7 @@ mod tests {
             fast,
             heavy,
             Arc::new(FakeTranscriber),
+            speaker(),
             Arc::new(FakeMemory),
             RoutingPolicy::default(),
         );
@@ -212,6 +237,7 @@ mod tests {
             fast.clone(),
             heavy.clone(),
             Arc::new(FakeTranscriber),
+            speaker(),
             Arc::new(FakeMemory),
             RoutingPolicy::default(),
         );
@@ -237,6 +263,7 @@ mod tests {
             fast.clone(),
             heavy.clone(),
             Arc::new(FakeTranscriber),
+            speaker(),
             Arc::new(FakeMemory),
             RoutingPolicy::default(),
         );
@@ -244,5 +271,30 @@ mod tests {
         assert_eq!(result.tier, ModelTier::Heavy);
         assert_eq!(*heavy.calls.lock().unwrap(), 1);
         assert_eq!(*fast.calls.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn speak_delegates_to_speaker() {
+        let fast = Arc::new(FakeModel {
+            answer: Ok("fast".into()),
+            local: true,
+            calls: Mutex::new(0),
+        });
+        let heavy = Arc::new(FakeModel {
+            answer: Ok("heavy".into()),
+            local: true,
+            calls: Mutex::new(0),
+        });
+        let speaker = speaker();
+        let service = AssistantService::new(
+            fast,
+            heavy,
+            Arc::new(FakeTranscriber),
+            speaker.clone(),
+            Arc::new(FakeMemory),
+            RoutingPolicy::default(),
+        );
+        service.speak("Olá", Some("pt-BR")).unwrap();
+        assert_eq!(speaker.spoken.lock().unwrap().as_slice(), ["Olá"]);
     }
 }
