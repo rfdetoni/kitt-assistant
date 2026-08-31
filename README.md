@@ -1,6 +1,6 @@
 # KITT Assistant
 
-> 24/7 personal assistant daemon with authenticated loopback IPC and ephemeral HUD overlay.
+> 24/7 personal assistant daemon with authenticated loopback IPC, embedded KITT Control Center Web SPA, and ephemeral HUD overlay.
 
 Follows **Clean Architecture** with strict dependency boundaries:
 `domain <- application <- infrastructure <- apps`
@@ -9,9 +9,33 @@ Follows **Clean Architecture** with strict dependency boundaries:
 
 ## 🏛️ Components
 
-- **`kittd`**: Low-footprint Rust daemon (~5 MB RAM, 0% CPU idle). Manages memory storage, local/remote model requests, auth tokens, and ephemeral HUD lifecycle.
-- **`kittctl`**: Authenticated command-line client for OS hotkeys, scripts, and terminal interaction.
-- **`kitt-hud`**: Transparent, borderless, always-on-top desktop overlay (Tauri + TypeScript + Vite) spawned on demand and automatically terminated after response TTL.
+- **`kittd`**: Low-footprint Rust daemon (~5-8 MB RAM, 0% CPU idle).
+  - Serves authenticated IPC on `127.0.0.1:41827`.
+  - Serves **KITT Control Center Web SPA** on `127.0.0.1:41828`.
+  - Manages Fast/Heavy model routing, Hands-free Voice pipeline, memory integration, and ephemeral HUD lifecycle.
+- **`kittctl`**: Authenticated command-line client for OS hotkeys, terminal queries, and automation scripts.
+- **`kitt-hud`**: Transparent, borderless, always-on-top desktop overlay (Tauri + TypeScript + Vite) spawned on demand and automatically closed after response TTL.
+
+---
+
+## 🎛️ KITT Control Center Web GUI
+
+`kittd` embeds and serves the **KITT Control Center** directly on loopback:
+
+- **URL**: `http://127.0.0.1:41828/`
+- **Features**: Single-page dark theme dashboard, global settings search, dynamic catalog generation, health checks, live diff viewer before persisting changes, and revisioned atomic configuration overlay.
+- **Security**: Loopback only (`127.0.0.1`, `localhost`, `[::1]`), CSRF tokens on mutation methods, strict CSP headers, `X-Frame-Options: DENY`, `no-store` caching.
+
+---
+
+## 🎙️ Voice & Audio Pipeline
+
+- **Activation Modes**:
+  - `auto`: Uses local wakeword model if present; falls back gracefully to local transcript prefix matching.
+  - `wakeword`: Uses `.rpw` Rustpotter model.
+  - `transcript_prefix`: Prefix detection ("kitt", "hey kitt", "ei kitt").
+- **Resilience**: Automatic microphone stream recovery with exponential backoff on device disconnection.
+- **Privacy & Cleanup**: Audio utterance cache cleaned automatically; system TTS temporary files created with strict `0600` permissions.
 
 ---
 
@@ -23,62 +47,67 @@ Follows **Clean Architecture** with strict dependency boundaries:
 cargo build --release --workspace
 ```
 
-### 2. Build Ephemeral HUD
+### 2. Build Ephemeral HUD (Optional)
 
 ```bash
 cd apps/kitt-hud
 npm install
 npm run build
+cd ../..
 ```
 
 ### 3. Start Daemon
 
 ```bash
-# Starts kittd listening on 127.0.0.1:41827
+# Starts kittd (IPC on 127.0.0.1:41827 and Control Center on 127.0.0.1:41828)
 ./target/release/kittd
 ```
 
-### 4. Client CLI Interaction
+### 4. Interacting with `kittctl`
 
 ```bash
-# Ping daemon
+# Ping daemon health
 ./target/release/kittctl ping
 
-# Ask question
-./target/release/kittctl ask "Olá, KITT"
+# Query assistant (routes to Fast or Heavy model automatically)
+./target/release/kittctl ask "Olá KITT"
 
-# Store explicit memory
-./target/release/kittctl remember "Reunião toda segunda às 10h"
+# Explicit routing hint
+./target/release/kittctl ask --route heavy "Escreva um algoritmo de ordenação em Rust"
 
-# Display image on HUD
-./target/release/kittctl image /path/to/image.png
+# Store memory
+./target/release/kittctl remember "Prefiro respostas concisas em português"
+
+# Show image on HUD overlay
+./target/release/kittctl image /path/to/screenshot.png
 ```
+
+---
+
+## ⚙️ Configuration & Overlay
+
+Configuration files are loaded from `${XDG_CONFIG_HOME:-~/.config}/kitt/assistant/`:
+- `config.json`: Core daemon settings (`listen`, `base_url`, `model`, `api_key_env`, `allow_personal_remote`, `hud_ttl_ms`).
+- `models.json`: Fast/Heavy/STT routing profiles (`fast`, `heavy`, `speech_to_text`).
+- `voice.json`: Voice parameters (`enabled`, `locale`, `activation_mode`, `min_rms`, `silence_ms`, `tts_enabled`).
+
+Overrides applied in the Control Center GUI are layered atomically from `${XDG_CONFIG_HOME:-~/.config}/kitt/control-center/overrides.json`.
 
 ---
 
 ## 🔒 Security & Loopback Isolation
 
-- Daemon binds strictly to loopback (`127.0.0.1`). External addresses are rejected.
+- Daemon binds strictly to loopback (`127.0.0.1`, `[::1]`). External addresses are rejected.
 - All IPC calls require the secret auth token stored at `~/.config/kitt/assistant/auth.token` (permissions `0600`).
-- Model requests use an OpenAI-compatible adapter supporting local Ollama (`http://127.0.0.1:11434/v1`) or remote providers.
 - Secret and private memories are stripped before calling remote providers.
-- 1 MiB bounded stream reader protects against memory overflow attacks.
+- 1 MiB bounded stream reader protects against memory exhaustion attacks.
 
 ---
 
-## ⚙️ Autostart & Packaging
-
-Platform service templates are provided in [`packaging/`](packaging/):
-- **Linux**: `packaging/linux/kitt-assistant.service` (systemd user unit)
-- **macOS**: `packaging/macos/com.kitt.assistant.plist` (LaunchAgent)
-- **Windows**: `packaging/windows/install-autostart.ps1` (Task Scheduler)
-
----
-
-## 🧪 Testing
+## 🧪 Testing & Linting
 
 ```bash
-cargo fmt --check
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
