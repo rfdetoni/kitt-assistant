@@ -1,4 +1,6 @@
 mod model_config;
+mod settings_overlay;
+mod settings_web;
 mod voice;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -154,14 +156,15 @@ impl HudBroadcaster {
 
 fn main() {
     let paths = Paths::load();
-    let config = load_config(&paths).unwrap_or_else(|e| fatal(e));
+    let mut config = load_config(&paths).unwrap_or_else(|e| fatal(e));
+    settings_overlay::apply_core(&paths.dir, &mut config).unwrap_or_else(|e| fatal(e));
     validate_loopback(&config.listen).unwrap_or_else(|e| fatal(e));
     validate_provider_locality(&config).unwrap_or_else(|e| fatal(e));
     let token = load_or_create_token(&paths).unwrap_or_else(|e| fatal(e));
     let memory = Arc::new(
         SqliteMemoryStore::open(&paths.memory_db).unwrap_or_else(|e| fatal(e.to_string())),
     );
-    let profiles = ModelProfiles::load_or_create(
+    let mut profiles = ModelProfiles::load_or_create(
         &paths.dir,
         &config.base_url,
         &config.model,
@@ -169,6 +172,8 @@ fn main() {
         config.local_provider,
     )
     .unwrap_or_else(|e| fatal(e));
+    settings_overlay::apply_models(&paths.dir, &mut profiles).unwrap_or_else(|e| fatal(e));
+    profiles.validate().unwrap_or_else(|e| fatal(e));
     let fast_model = Arc::new(
         OpenAiCompatibleModel::new(
             profiles.fast.base_url.clone(),
@@ -230,6 +235,10 @@ fn main() {
 
     if let Err(error) = voice::start(runtime.clone(), &paths.dir) {
         eprintln!("kitt voice startup: {error}");
+    }
+    let kitt_root = paths.dir.parent().unwrap_or(&paths.dir);
+    if let Err(error) = settings_web::start(kitt_root) {
+        eprintln!("KITT Control Center startup: {error}");
     }
 
     for incoming in listener.incoming() {

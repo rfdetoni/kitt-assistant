@@ -314,7 +314,7 @@ fn speak_system(text: &str) -> Result<()> {
     }
 
     let path = temporary_text_path();
-    fs::write(&path, text).map_err(|e| AssistantError::Io(format!("write TTS text: {e}")))?;
+    write_private_tts_text(&path, text)?;
     let _guard = TempFileGuard(path.clone());
     for program in ["espeak-ng", "espeak"] {
         match Command::new(program)
@@ -354,6 +354,22 @@ fn temporary_text_path() -> std::path::PathBuf {
         .unwrap_or_default()
         .as_nanos();
     std::env::temp_dir().join(format!("kitt-tts-{}-{nanos}.txt", std::process::id()))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn write_private_tts_text(path: &Path, text: &str) -> Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|e| AssistantError::Io(format!("create private TTS text: {e}")))?;
+    file.write_all(text.as_bytes())
+        .map_err(|e| AssistantError::Io(format!("write TTS text: {e}")))?;
+    file.flush()
+        .map_err(|e| AssistantError::Io(format!("flush TTS text: {e}")))
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]

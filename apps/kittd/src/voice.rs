@@ -1,4 +1,4 @@
-use crate::{Runtime, ensure_hud, run_ask};
+use crate::{Runtime, ensure_hud, run_ask, settings_overlay};
 use cpal::{
     FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -26,6 +26,9 @@ use std::{
 const AUDIO_CHUNK_QUEUE: usize = 32;
 const EVENT_QUEUE: usize = 2;
 const WAKEWORD_KEY: &str = "kitt";
+const CAPTURE_RESTART_MIN: Duration = Duration::from_secs(1);
+const CAPTURE_RESTART_MAX: Duration = Duration::from_secs(30);
+const STALE_AUDIO_MAX_AGE: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -171,13 +174,22 @@ enum CaptureEvent {
 }
 
 pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
-    let config = VoiceConfig::load_or_create(config_dir)?;
+    let mut config = VoiceConfig::load_or_create(config_dir)?;
+    settings_overlay::apply_voice(config_dir, &mut config)?;
+    config.validate()?;
     if !config.enabled {
         eprintln!("kitt voice disabled by voice.json");
         return Ok(());
     }
 
     let mode = config.resolved_mode(config_dir);
+    if config.activation_mode == ActivationMode::Auto && mode == ActivationMode::TranscriptPrefix {
+        eprintln!(
+            "kitt voice: wakeword model unavailable; auto mode is using local transcript-prefix fallback (higher CPU/STT usage)"
+        );
+    }
+    let _ = cleanup_stale_voice_cache(config_dir, STALE_AUDIO_MAX_AGE);
+
     if mode == ActivationMode::TranscriptPrefix && !runtime.service.transcriber_is_local() {
         return Err(
             "hands-free transcript_prefix activation requires a local STT provider; use a local wakeword model before allowing remote STT"
@@ -202,13 +214,32 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
     let capture_config = config.clone();
     let capture_dir = config_dir.to_path_buf();
     let capture_paused = paused.clone();
+    let capture_events = events_tx.clone();
     thread::Builder::new()
         .name("kitt-voice-capture".into())
         .spawn(move || {
-            if let Err(error) =
-                capture_loop(capture_config, capture_dir, mode, capture_paused, events_tx)
-            {
-                eprintln!("kitt voice capture stopped: {error}");
+            let mut retry = CAPTURE_RESTART_MIN;
+            loop {
+                let started = Instant::now();
+                let result = capture_loop(
+                    capture_config.clone(),
+                    capture_dir.clone(),
+                    mode,
+                    capture_paused.clone(),
+                    capture_events.clone(),
+                );
+                match result {
+                    Ok(()) => eprintln!("kitt voice capture stream ended; reopening microphone"),
+                    Err(error) => {
+                        eprintln!("kitt voice capture failed: {error}; reopening microphone")
+                    }
+                }
+                if started.elapsed() >= Duration::from_secs(60) {
+                    retry = CAPTURE_RESTART_MIN;
+                } else {
+                    retry = (retry * 2).min(CAPTURE_RESTART_MAX);
+                }
+                thread::sleep(retry);
             }
         })
         .map_err(|e| format!("spawn voice capture: {e}"))?;
@@ -763,6 +794,36 @@ fn write_wav(config_dir: &Path, sample_rate: usize, samples: &[f32]) -> Result<P
         .finalize()
         .map_err(|e| format!("finalize WAV: {e}"))?;
     Ok(path)
+}
+
+fn cleanup_stale_voice_cache(config_dir: &Path, max_age: Duration) -> Result<usize, String> {
+    let cache_dir = config_dir.join("voice-cache");
+    if !cache_dir.exists() {
+        return Ok(0);
+    }
+    ensure_private_directory(&cache_dir)?;
+    let now = SystemTime::now();
+    let mut removed = 0usize;
+    for entry in fs::read_dir(&cache_dir).map_err(|e| format!("read voice cache: {e}"))? {
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("utterance-") || !name.ends_with(".wav") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= max_age);
+        if stale && fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }
 
 #[cfg(unix)]

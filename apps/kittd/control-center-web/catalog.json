@@ -1,0 +1,676 @@
+{
+  "schema_version": 1,
+  "sections": [
+    {
+      "id": "assistant.core",
+      "component": "kitt-assistant",
+      "title": "Assistant / Daemon",
+      "description": "Runtime headless e conexão com provedores.",
+      "version": 1,
+      "fields": [
+        {
+          "key": "listen",
+          "label": "IPC Listen",
+          "type": "string",
+          "default": "127.0.0.1:41827",
+          "description": "Somente loopback é permitido.",
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "base_url",
+          "label": "Legacy provider base URL",
+          "type": "url",
+          "default": "http://127.0.0.1:11434/v1",
+          "description": "Bootstrap legado usado ao criar models.json pela primeira vez.",
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "model",
+          "label": "Legacy model",
+          "type": "string",
+          "default": "qwen3:4b",
+          "description": "Bootstrap legado usado ao criar models.json pela primeira vez.",
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "api_key_env",
+          "label": "Legacy API key env",
+          "type": "secret_ref",
+          "default": "",
+          "sensitive": true,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "local_provider",
+          "label": "Legacy provider is local",
+          "type": "boolean",
+          "default": true,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "allow_personal_remote",
+          "label": "Permitir memória pessoal em modelo remoto",
+          "type": "boolean",
+          "default": false,
+          "description": "Mantém desligado por padrão para evitar egress de dados pessoais.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "hud_ttl_ms",
+          "label": "HUD TTL (ms)",
+          "type": "integer",
+          "default": 8000,
+          "minimum": 500,
+          "maximum": 120000,
+          "apply_mode": "live"
+        }
+      ]
+    },
+    {
+      "id": "assistant.models",
+      "component": "kitt-assistant",
+      "title": "Models / Routing",
+      "description": "Perfis fast/heavy e roteamento OpenAI-compatible.",
+      "version": 1,
+      "fields": [
+        {
+          "key": "fast.base_url",
+          "label": "Fast base URL",
+          "type": "url",
+          "default": "http://127.0.0.1:11434/v1",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "fast.model",
+          "label": "Fast model",
+          "type": "string",
+          "default": "qwen3:4b",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "fast.local_provider",
+          "label": "Fast local",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "fast.api_key_env",
+          "label": "Fast API key env",
+          "type": "secret_ref",
+          "default": "",
+          "sensitive": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "heavy.base_url",
+          "label": "Heavy base URL",
+          "type": "url",
+          "default": "http://127.0.0.1:11434/v1",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "heavy.model",
+          "label": "Heavy model",
+          "type": "string",
+          "default": "qwen3:4b",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "heavy.local_provider",
+          "label": "Heavy local",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "speech_to_text.model",
+          "label": "STT model",
+          "type": "string",
+          "default": "whisper-1",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "speech_to_text.allow_remote",
+          "label": "Permitir STT remoto",
+          "type": "boolean",
+          "default": false,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "fast_max_chars",
+          "label": "Fast max chars",
+          "type": "integer",
+          "default": 360,
+          "minimum": 32,
+          "maximum": 10000,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "fast_max_lines",
+          "label": "Fast max lines",
+          "type": "integer",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 200,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "heavy.api_key_env",
+          "label": "Heavy API key env",
+          "type": "secret_ref",
+          "default": "",
+          "sensitive": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "speech_to_text.base_url",
+          "label": "STT base URL",
+          "type": "url",
+          "default": "http://127.0.0.1:11434/v1",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "speech_to_text.api_key_env",
+          "label": "STT API key env",
+          "type": "secret_ref",
+          "default": "",
+          "sensitive": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "speech_to_text.local_provider",
+          "label": "STT local",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "daemon_restart"
+        }
+      ]
+    },
+    {
+      "id": "assistant.voice",
+      "component": "kitt-assistant",
+      "title": "Voice / Wake word",
+      "description": "Hands-free, VAD, wake word, STT e TTS.",
+      "version": 1,
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Voice enabled",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "locale",
+          "label": "Locale",
+          "type": "string",
+          "default": "pt-BR",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "activation_mode",
+          "label": "Activation mode",
+          "type": "enum",
+          "default": "auto",
+          "options": [
+            "auto",
+            "wakeword",
+            "transcript_prefix"
+          ],
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wakeword_model_path",
+          "label": "Wake word model",
+          "type": "path",
+          "default": "wakewords/kitt.rpw",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "min_rms",
+          "label": "Minimum RMS",
+          "type": "number",
+          "default": 0.015,
+          "minimum": 0.0001,
+          "maximum": 0.5,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "noise_multiplier",
+          "label": "Noise multiplier",
+          "type": "number",
+          "default": 3.0,
+          "minimum": 1.1,
+          "maximum": 20,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "silence_ms",
+          "label": "Silence (ms)",
+          "type": "integer",
+          "default": 650,
+          "minimum": 50,
+          "maximum": 5000,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "max_utterance_ms",
+          "label": "Max utterance (ms)",
+          "type": "integer",
+          "default": 12000,
+          "minimum": 1000,
+          "maximum": 120000,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_enabled",
+          "label": "TTS enabled",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "live"
+        },
+        {
+          "key": "wake_phrases",
+          "label": "Wake phrases",
+          "type": "string_list",
+          "default": [
+            "kitt",
+            "kit",
+            "hey kitt",
+            "ei kitt"
+          ],
+          "description": "Lista de prefixos aceitos no fallback por transcrição.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "pre_roll_ms",
+          "label": "Pre-roll (ms)",
+          "type": "integer",
+          "default": 200,
+          "minimum": 0,
+          "maximum": 5000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "min_speech_ms",
+          "label": "Minimum speech (ms)",
+          "type": "integer",
+          "default": 250,
+          "minimum": 1,
+          "maximum": 10000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "command_timeout_ms",
+          "label": "Command timeout (ms)",
+          "type": "integer",
+          "default": 7000,
+          "minimum": 100,
+          "maximum": 120000,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "echo_guard_ms",
+          "label": "Echo guard (ms)",
+          "type": "integer",
+          "default": 350,
+          "minimum": 0,
+          "maximum": 10000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        }
+      ]
+    },
+    {
+      "id": "agent.runtime",
+      "component": "kitt-agent-cli",
+      "title": "Agent / Runtime",
+      "description": "Execução, persistência e daemon do agente.",
+      "version": 1,
+      "fields": [
+        {
+          "key": "history_enabled",
+          "label": "History",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "persistence_enabled",
+          "label": "Persistence",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "privacy_mode",
+          "label": "Privacy mode",
+          "type": "enum",
+          "default": "hybrid_redacted",
+          "options": [
+            "hybrid_redacted",
+            "local_only",
+            "ephemeral"
+          ],
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_tool_calls_per_turn",
+          "label": "Tool calls / turn",
+          "type": "integer",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 64,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "process_timeout_seconds",
+          "label": "Process timeout (s)",
+          "type": "integer",
+          "default": 120,
+          "minimum": 1,
+          "maximum": 3600,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "safe_runtime_enabled",
+          "label": "Safe runtime",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "daemon_enabled",
+          "label": "Agent daemon",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "daemon_auto_start",
+          "label": "Daemon auto-start",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "scheduler_enabled",
+          "label": "Scheduler",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "executable_skills_enabled",
+          "label": "Executable skills",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
+        }
+      ]
+    },
+    {
+      "id": "agent.context",
+      "component": "kitt-agent-cli",
+      "title": "Agent / Context & Compaction",
+      "description": "Orçamento de contexto para modelos pequenos e repositórios grandes.",
+      "version": 1,
+      "fields": [
+        {
+          "key": "context_window_default",
+          "label": "Default context window",
+          "type": "integer",
+          "default": 8192,
+          "minimum": 2048,
+          "maximum": 1048576,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "reserved_output_tokens",
+          "label": "Reserved output tokens",
+          "type": "integer",
+          "default": 1200,
+          "minimum": 128,
+          "maximum": 32768,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_tool_output_chars",
+          "label": "Max tool output chars",
+          "type": "integer",
+          "default": 4000,
+          "minimum": 512,
+          "maximum": 100000,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "context_retrieval_token_ratio",
+          "label": "Retrieval token ratio",
+          "type": "number",
+          "default": 0.25,
+          "minimum": 0.05,
+          "maximum": 0.8,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "compaction_keep_recent",
+          "label": "Keep recent turns",
+          "type": "integer",
+          "default": 6,
+          "minimum": 1,
+          "maximum": 50,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_compaction_cycles",
+          "label": "Compaction cycles",
+          "type": "integer",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 10,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "dream_enabled",
+          "label": "Dreaming mode",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "dream_auto_enabled",
+          "label": "Automatic dreaming",
+          "type": "boolean",
+          "default": false,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "dream_min_interval_hours",
+          "label": "Dream min interval (h)",
+          "type": "integer",
+          "default": 24,
+          "minimum": 1,
+          "maximum": 720,
+          "apply_mode": "component_restart"
+        }
+      ]
+    },
+    {
+      "id": "agent.security",
+      "component": "kitt-agent-cli",
+      "title": "Agent / Security",
+      "description": "Approval, limites e execução segura.",
+      "version": 1,
+      "fields": [
+        {
+          "key": "approval_ttl_seconds",
+          "label": "Approval TTL (s)",
+          "type": "number",
+          "default": 300,
+          "minimum": 15,
+          "maximum": 3600,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_read_bytes",
+          "label": "Max read bytes",
+          "type": "integer",
+          "default": 262144,
+          "minimum": 4096,
+          "maximum": 16777216,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_search_results",
+          "label": "Max search results",
+          "type": "integer",
+          "default": 200,
+          "minimum": 10,
+          "maximum": 5000,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_search_time_ms",
+          "label": "Search timeout (ms)",
+          "type": "integer",
+          "default": 3000,
+          "minimum": 100,
+          "maximum": 60000,
+          "apply_mode": "component_restart"
+        }
+      ]
+    },
+    {
+      "id": "memory.policy",
+      "component": "kitt-memory",
+      "title": "Shared Memory",
+      "description": "Health e capabilities do kitt-memory. A main atual não possui knobs persistentes próprios; políticas consumidoras permanecem no Assistant/Agent.",
+      "version": 1,
+      "fields": []
+    },
+    {
+      "id": "workers.lifecycle",
+      "component": "kitt-ai-workers",
+      "title": "AI Workers",
+      "description": "Health/capabilities. A main atual executa workers por protocolo e ainda não publica configurações persistentes próprias.",
+      "version": 1,
+      "fields": []
+    },
+    {
+      "id": "toolbox.runtime",
+      "component": "kitt-toolbox",
+      "title": "Toolbox",
+      "description": "Health/capabilities. A main atual do toolbox não publica configurações persistentes próprias.",
+      "version": 1,
+      "fields": []
+    },
+    {
+      "id": "reverse_proxy.runtime",
+      "component": "kitt-reverse-proxy",
+      "title": "Reverse Proxy",
+      "description": "Defaults globais; URL alvo/perfil continuam por instância.",
+      "version": 1,
+      "fields": [
+        {
+          "key": "model",
+          "label": "Mapping model",
+          "type": "string",
+          "default": "qwen2.5-coder:7b",
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "ollama_url",
+          "label": "Ollama URL",
+          "type": "url",
+          "default": "http://127.0.0.1:11434/api/generate",
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "host",
+          "label": "Bind host",
+          "type": "string",
+          "default": "127.0.0.1",
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "port",
+          "label": "Port",
+          "type": "integer",
+          "default": 3000,
+          "minimum": 1,
+          "maximum": 65535,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "provider",
+          "label": "Provider",
+          "type": "enum",
+          "default": "auto",
+          "options": [
+            "auto",
+            "generic",
+            "chatgpt",
+            "claude",
+            "gemini",
+            "kimi",
+            "deepseek"
+          ],
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "transport",
+          "label": "Transport",
+          "type": "enum",
+          "default": "auto",
+          "options": [
+            "auto",
+            "network",
+            "ui"
+          ],
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "headed",
+          "label": "Headed browser",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "follow_redirects",
+          "label": "Follow redirects",
+          "type": "boolean",
+          "default": false,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_queue",
+          "label": "Max queue",
+          "type": "integer",
+          "default": 64,
+          "minimum": 1,
+          "maximum": 4096,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "api_key_env",
+          "label": "Proxy API key env",
+          "type": "secret_ref",
+          "default": "PROXY_API_KEY",
+          "sensitive": true,
+          "apply_mode": "component_restart"
+        }
+      ]
+    }
+  ]
+}
