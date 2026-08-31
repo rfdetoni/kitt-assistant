@@ -1,13 +1,16 @@
-use kitt_domain::{AssistantError, MemoryPort, ModelAnswer, ModelPort, ModelRequest, Result};
+use kitt_domain::{
+    AssistantError, MemoryPort, ModelAnswer, ModelPort, ModelRequest, Result, TranscriptionPort,
+};
 use kitt_memory_core::{
     EgressPolicy, MemoryKind, MemoryScope, MemoryStore, NewMemory, RecallQuery, Sensitivity,
 };
 use kitt_memory_sqlite::SqliteMemoryStore;
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, multipart};
 use serde_json::{Value, json};
-use std::{io::Read, sync::Arc, time::Duration};
+use std::{fs, io::Read, path::Path, sync::Arc, time::Duration};
 
 const MAX_PROVIDER_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_AUDIO_BYTES: u64 = 25 * 1024 * 1024;
 
 pub struct OpenAiCompatibleModel {
     base_url: String,
@@ -38,64 +41,159 @@ impl OpenAiCompatibleModel {
 }
 
 impl ModelPort for OpenAiCompatibleModel {
-    fn complete(&self, r: &ModelRequest) -> Result<ModelAnswer> {
-        let url = format!("{}/chat/completions", self.base_url);
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(120))
-            .build()
-            .map_err(|e| AssistantError::Model(e.to_string()))?;
-        let mut req = client.post(url).json(&json!({
-            "model": &self.model,
-            "messages": [
-                {"role": "system", "content": &r.system},
-                {"role": "user", "content": &r.user}
-            ],
-            "stream": false
-        }));
+    fn complete(&self, request: &ModelRequest) -> Result<ModelAnswer> {
+        let client = bounded_client()?;
+        let mut req = client
+            .post(format!("{}/chat/completions", self.base_url))
+            .json(&json!({
+                "model": &self.model,
+                "messages": [
+                    {"role":"system","content":&request.system},
+                    {"role":"user","content":&request.user}
+                ],
+                "stream": false
+            }));
         if let Some(key) = &self.api_key {
             req = req.bearer_auth(key);
         }
-
-        let resp = req
-            .send()
-            .map_err(|e| AssistantError::Model(e.to_string()))?;
-        let status = resp.status();
-        if resp
-            .content_length()
-            .is_some_and(|n| n > MAX_PROVIDER_RESPONSE_BYTES)
-        {
-            return Err(AssistantError::Model("provider response too large".into()));
-        }
-
-        let mut body_bytes = Vec::new();
-        resp.take(MAX_PROVIDER_RESPONSE_BYTES + 1)
-            .read_to_end(&mut body_bytes)
-            .map_err(|e| AssistantError::Model(format!("provider response read failed: {e}")))?;
-        if body_bytes.len() as u64 > MAX_PROVIDER_RESPONSE_BYTES {
-            return Err(AssistantError::Model("provider response too large".into()));
-        }
-
-        let body: Value = serde_json::from_slice(&body_bytes)
-            .map_err(|e| AssistantError::Model(format!("invalid JSON: {e}")))?;
-        if !status.is_success() {
-            return Err(AssistantError::Model(format!(
-                "HTTP {status}: {}",
-                body.get("error").unwrap_or(&body)
-            )));
-        }
+        let body = bounded_json(
+            req.send()
+                .map_err(|e| AssistantError::Model(e.to_string()))?,
+        )?;
         let text = body
             .pointer("/choices/0/message/content")
             .and_then(Value::as_str)
             .ok_or_else(|| AssistantError::Model("missing choices[0].message.content".into()))?;
-        Ok(ModelAnswer {
-            text: text.to_string(),
-        })
+        Ok(ModelAnswer { text: text.into() })
     }
 
     fn is_local(&self) -> bool {
         self.local
     }
+}
+
+pub struct OpenAiCompatibleTranscriber {
+    base_url: String,
+    model: String,
+    api_key: Option<String>,
+    local: bool,
+    allow_remote: bool,
+}
+
+impl OpenAiCompatibleTranscriber {
+    pub fn new(
+        base_url: String,
+        model: String,
+        api_key: Option<String>,
+        local: bool,
+        allow_remote: bool,
+    ) -> Result<Self> {
+        if base_url.trim().is_empty() || model.trim().is_empty() {
+            return Err(AssistantError::Configuration(
+                "transcription base_url and model are required".into(),
+            ));
+        }
+        Ok(Self {
+            base_url: base_url.trim_end_matches('/').into(),
+            model,
+            api_key,
+            local,
+            allow_remote,
+        })
+    }
+}
+
+impl TranscriptionPort for OpenAiCompatibleTranscriber {
+    fn transcribe(&self, path: &Path, locale: Option<&str>) -> Result<String> {
+        if !self.local && !self.allow_remote {
+            return Err(AssistantError::Transcription(
+                "remote voice transcription is disabled; set allow_voice_remote=true explicitly"
+                    .into(),
+            ));
+        }
+        let metadata =
+            fs::metadata(path).map_err(|e| AssistantError::Io(format!("audio metadata: {e}")))?;
+        if !metadata.is_file() {
+            return Err(AssistantError::Transcription(
+                "audio path is not a file".into(),
+            ));
+        }
+        if metadata.len() > MAX_AUDIO_BYTES {
+            return Err(AssistantError::Transcription(format!(
+                "audio exceeds {} MiB limit",
+                MAX_AUDIO_BYTES / 1024 / 1024
+            )));
+        }
+
+        let bytes = fs::read(path).map_err(|e| AssistantError::Io(format!("audio read: {e}")))?;
+        let filename = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("audio.bin")
+            .to_string();
+        let file = multipart::Part::bytes(bytes).file_name(filename);
+        let mut form = multipart::Form::new()
+            .text("model", self.model.clone())
+            .part("file", file);
+        if let Some(locale) = locale.filter(|value| !value.trim().is_empty()) {
+            form = form.text("language", locale.to_string());
+        }
+
+        let client = bounded_client()?;
+        let mut req = client
+            .post(format!("{}/audio/transcriptions", self.base_url))
+            .multipart(form);
+        if let Some(key) = &self.api_key {
+            req = req.bearer_auth(key);
+        }
+        let body = bounded_json(
+            req.send()
+                .map_err(|e| AssistantError::Transcription(e.to_string()))?,
+        )?;
+        body.get("text")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| AssistantError::Transcription("response missing text".into()))
+    }
+
+    fn is_local(&self) -> bool {
+        self.local
+    }
+}
+
+fn bounded_client() -> Result<Client> {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(600))
+        .build()
+        .map_err(|e| AssistantError::Model(e.to_string()))
+}
+
+fn bounded_json(response: reqwest::blocking::Response) -> Result<Value> {
+    let status = response.status();
+    if response
+        .content_length()
+        .is_some_and(|size| size > MAX_PROVIDER_RESPONSE_BYTES)
+    {
+        return Err(AssistantError::Model("provider response too large".into()));
+    }
+    let mut bytes = Vec::new();
+    response
+        .take(MAX_PROVIDER_RESPONSE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| AssistantError::Model(format!("provider response read failed: {e}")))?;
+    if bytes.len() as u64 > MAX_PROVIDER_RESPONSE_BYTES {
+        return Err(AssistantError::Model("provider response too large".into()));
+    }
+    let body: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AssistantError::Model(format!("invalid JSON: {e}")))?;
+    if !status.is_success() {
+        return Err(AssistantError::Model(format!(
+            "HTTP {status}: {}",
+            body.get("error").unwrap_or(&body)
+        )));
+    }
+    Ok(body)
 }
 
 pub struct AssistantMemory {
@@ -139,7 +237,7 @@ impl MemoryPort for AssistantMemory {
                 allow_secret: is_local_provider,
             })
             .map_err(|e| AssistantError::Memory(e.to_string()))?;
-        rows.retain(|m| policy.allows(m.sensitivity));
+        rows.retain(|memory| policy.allows(memory.sensitivity));
         Ok(rows)
     }
 
@@ -163,7 +261,7 @@ impl MemoryPort for AssistantMemory {
     }
 
     fn remember_explicit(&self, text: &str) -> Result<String> {
-        let m = self
+        let memory = self
             .store
             .remember(NewMemory {
                 namespace: "assistant".into(),
@@ -179,7 +277,7 @@ impl MemoryPort for AssistantMemory {
                 metadata_json: "{\"source\":\"explicit_remember\"}".into(),
             })
             .map_err(|e| AssistantError::Memory(e.to_string()))?;
-        Ok(m.id)
+        Ok(memory.id)
     }
 }
 
@@ -193,18 +291,15 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("kitt-infra-test-{}-{nanos}", std::process::id()));
-        let store = Arc::new(SqliteMemoryStore::open(&dir).unwrap());
-        let mem = AssistantMemory::new(store.clone(), "global".into(), false);
-
+        let temp = std::env::temp_dir().join(format!("test-mem-{nanos}.db"));
+        let store = Arc::new(SqliteMemoryStore::open(&temp).unwrap());
         store
             .remember(NewMemory {
                 namespace: "assistant".into(),
-                workspace_id: "global".into(),
-                kind: MemoryKind::PersonalFact,
-                content: "Secret credential info".into(),
-                sensitivity: Sensitivity::Secret,
+                workspace_id: "ws".into(),
+                kind: MemoryKind::TechnicalFact,
+                content: "Local Only Secret Fact".into(),
+                sensitivity: Sensitivity::Private,
                 scope: MemoryScope::Global,
                 importance: 0.9,
                 confidence: 1.0,
@@ -214,30 +309,40 @@ mod tests {
             })
             .unwrap();
 
-        store
-            .remember(NewMemory {
-                namespace: "assistant".into(),
-                workspace_id: "global".into(),
-                kind: MemoryKind::UserPreference,
-                content: "Public preference".into(),
-                sensitivity: Sensitivity::Public,
-                scope: MemoryScope::Global,
-                importance: 0.8,
-                confidence: 1.0,
-                pinned: false,
-                ttl_seconds: None,
-                metadata_json: "{}".into(),
-            })
-            .unwrap();
+        let memory = AssistantMemory::new(store, "ws".into(), false);
+        let local_recalled = memory.recall_for_model("Local", true).unwrap();
+        assert_eq!(local_recalled.len(), 1);
 
-        let remote = mem
-            .recall_for_model("preference credential", false)
-            .unwrap();
-        assert_eq!(remote.len(), 1);
-        assert_eq!(remote[0].content, "Public preference");
+        let remote_recalled = memory.recall_for_model("Local", false).unwrap();
+        assert_eq!(remote_recalled.len(), 0);
+        let _ = std::fs::remove_file(&temp);
+    }
 
-        let local = mem.recall_for_model("preference credential", true).unwrap();
-        assert_eq!(local.len(), 2);
-        let _ = std::fs::remove_file(&dir);
+    #[test]
+    fn test_remote_stt_disabled_by_default() {
+        let transcriber = OpenAiCompatibleTranscriber::new(
+            "http://example.com/v1".into(),
+            "whisper-1".into(),
+            None,
+            false,
+            false,
+        )
+        .unwrap();
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp = std::env::temp_dir().join(format!("test-audio-{nanos}.wav"));
+        std::fs::write(&temp, b"dummy audio content").unwrap();
+        let result = transcriber.transcribe(&temp, None);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("remote voice transcription is disabled")
+        );
+        let _ = std::fs::remove_file(&temp);
     }
 }

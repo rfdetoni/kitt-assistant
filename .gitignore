@@ -1,2 +1,6 @@
 target/
 .DS_Store
+node_modules/
+**/node_modules/
+apps/kitt-hud/dist/
+apps/kitt-hud/src-tauri/gen/

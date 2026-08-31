@@ -195,3 +195,37 @@ fn oversized_request_is_bounded() {
     assert_eq!(response.kind, kinds::SYSTEM_ERROR);
     assert_eq!(response.payload["code"], "request_too_large");
 }
+
+#[test]
+fn routed_ask_and_transcribe_correlation() {
+    let daemon = TestDaemon::start(41934);
+
+    let empty_ask = daemon.call(
+        Envelope::new(
+            kinds::ASSISTANT_ASK_ROUTED_REQUEST,
+            kitt_protocol::RoutedAskRequest {
+                text: "   ".into(),
+                locale: None,
+                route: kitt_protocol::ModelRoute::Auto,
+                show_hud: false,
+            },
+        )
+        .unwrap(),
+    );
+    assert_eq!(empty_ask.kind, kinds::SYSTEM_ERROR);
+    assert_eq!(empty_ask.payload["code"], "empty_text");
+
+    let empty_transcribe = daemon.call(
+        Envelope::new(
+            kinds::ASSISTANT_TRANSCRIBE_REQUEST,
+            kitt_protocol::TranscribeRequest {
+                path: "".into(),
+                locale: None,
+                show_hud: false,
+            },
+        )
+        .unwrap(),
+    );
+    assert_eq!(empty_transcribe.kind, kinds::SYSTEM_ERROR);
+    assert_eq!(empty_transcribe.payload["code"], "empty_path");
+}

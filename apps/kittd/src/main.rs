@@ -1,6 +1,9 @@
+mod model_config;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use kitt_application::AssistantService;
-use kitt_infrastructure::{AssistantMemory, OpenAiCompatibleModel};
+use kitt_domain::{ModelTier as DomainModelTier, RouteHint, RoutingPolicy};
+use kitt_infrastructure::{AssistantMemory, OpenAiCompatibleModel, OpenAiCompatibleTranscriber};
 use kitt_memory_core::{
     MemoryKind as CoreMemoryKind, MemoryRecord, MemoryScope as CoreMemoryScope, MemoryStore,
     NewMemory, RecallQuery, Sensitivity as CoreSensitivity,
@@ -10,8 +13,10 @@ use kitt_protocol::{
     AskRequest, AskResponse, AssistantRememberRequest, AuthenticatedFrame, DeleteResponse,
     Envelope, HudEvent, HudImageRequest, HudState, IdResponse, MAX_FRAME_BYTES, MemoryDto,
     MemoryForgetRequest, MemoryKind, MemoryRecallRequest, MemoryRecallResponse,
-    MemoryRememberRequest, MemoryScope, Sensitivity, ShownResponse, StatusResponse, kinds,
+    MemoryRememberRequest, MemoryScope, ModelRoute, ModelTier, RoutedAskRequest, RoutedAskResponse,
+    Sensitivity, ShownResponse, StatusResponse, TranscribeRequest, TranscribeResponse, kinds,
 };
+use model_config::{ModelProfiles, api_key};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::{
@@ -153,17 +158,39 @@ fn main() {
     let memory = Arc::new(
         SqliteMemoryStore::open(&paths.memory_db).unwrap_or_else(|e| fatal(e.to_string())),
     );
-    let key = config
-        .api_key_env
-        .as_ref()
-        .and_then(|name| std::env::var(name).ok())
-        .filter(|value| !value.is_empty());
-    let model = Arc::new(
+    let profiles = ModelProfiles::load_or_create(
+        &paths.dir,
+        &config.base_url,
+        &config.model,
+        config.api_key_env.clone(),
+        config.local_provider,
+    )
+    .unwrap_or_else(|e| fatal(e));
+    let fast_model = Arc::new(
         OpenAiCompatibleModel::new(
-            config.base_url.clone(),
-            config.model.clone(),
-            key,
-            config.local_provider,
+            profiles.fast.base_url.clone(),
+            profiles.fast.model.clone(),
+            api_key(profiles.fast.api_key_env.as_ref()),
+            profiles.fast.local_provider,
+        )
+        .unwrap_or_else(|e| fatal(e.to_string())),
+    );
+    let heavy_model = Arc::new(
+        OpenAiCompatibleModel::new(
+            profiles.heavy.base_url.clone(),
+            profiles.heavy.model.clone(),
+            api_key(profiles.heavy.api_key_env.as_ref()),
+            profiles.heavy.local_provider,
+        )
+        .unwrap_or_else(|e| fatal(e.to_string())),
+    );
+    let transcriber = Arc::new(
+        OpenAiCompatibleTranscriber::new(
+            profiles.speech_to_text.base_url.clone(),
+            profiles.speech_to_text.model.clone(),
+            api_key(profiles.speech_to_text.api_key_env.as_ref()),
+            profiles.speech_to_text.local_provider,
+            profiles.speech_to_text.allow_remote,
         )
         .unwrap_or_else(|e| fatal(e.to_string())),
     );
@@ -172,7 +199,16 @@ fn main() {
         "global".into(),
         config.allow_personal_remote,
     ));
-    let service = Arc::new(AssistantService::new(model, memory_adapter));
+    let service = Arc::new(AssistantService::new(
+        fast_model,
+        heavy_model,
+        transcriber,
+        memory_adapter,
+        RoutingPolicy {
+            fast_max_chars: profiles.fast_max_chars,
+            fast_max_lines: profiles.fast_max_lines,
+        },
+    ));
     let runtime = Arc::new(Runtime {
         token,
         service,
@@ -295,6 +331,26 @@ fn dispatch(
             let response = ask(runtime, payload)?;
             reply_response(stream, kinds::ASSISTANT_ASK_RESPONSE, &request.id, response)
         }
+        kinds::ASSISTANT_ASK_ROUTED_REQUEST => {
+            let payload: RoutedAskRequest = payload_as(&request.payload)?;
+            let response = ask_routed(runtime, payload)?;
+            reply_response(
+                stream,
+                kinds::ASSISTANT_ASK_ROUTED_RESPONSE,
+                &request.id,
+                response,
+            )
+        }
+        kinds::ASSISTANT_TRANSCRIBE_REQUEST => {
+            let payload: TranscribeRequest = payload_as(&request.payload)?;
+            let response = transcribe(runtime, payload)?;
+            reply_response(
+                stream,
+                kinds::ASSISTANT_TRANSCRIBE_RESPONSE,
+                &request.id,
+                response,
+            )
+        }
         kinds::ASSISTANT_REMEMBER_REQUEST => {
             let payload: AssistantRememberRequest = payload_as(&request.payload)?;
             let id = runtime
@@ -381,31 +437,64 @@ fn ensure_empty_payload(value: &Value) -> Result<(), (&'static str, String)> {
 }
 
 fn ask(runtime: &Arc<Runtime>, request: AskRequest) -> Result<AskResponse, (&'static str, String)> {
-    let text = request.text.trim();
+    let routed = run_ask(
+        runtime,
+        request.text.trim(),
+        RouteHint::Auto,
+        request.show_hud,
+    )?;
+    Ok(AskResponse { text: routed.text })
+}
+
+fn ask_routed(
+    runtime: &Arc<Runtime>,
+    request: RoutedAskRequest,
+) -> Result<RoutedAskResponse, (&'static str, String)> {
+    let hint = match request.route {
+        ModelRoute::Auto => RouteHint::Auto,
+        ModelRoute::Fast => RouteHint::Fast,
+        ModelRoute::Heavy => RouteHint::Heavy,
+    };
+    let routed = run_ask(runtime, request.text.trim(), hint, request.show_hud)?;
+    let tier = match routed.tier {
+        DomainModelTier::Fast => ModelTier::Fast,
+        DomainModelTier::Heavy => ModelTier::Heavy,
+    };
+    Ok(RoutedAskResponse {
+        text: routed.text,
+        tier,
+        fallback_used: routed.fallback_used,
+    })
+}
+
+fn run_ask(
+    runtime: &Arc<Runtime>,
+    text: &str,
+    hint: RouteHint,
+    show_hud: bool,
+) -> Result<kitt_domain::RoutedAnswer, (&'static str, String)> {
     if text.is_empty() {
         return Err(("empty_text", "text cannot be empty".into()));
     }
-
-    if request.show_hud {
+    if show_hud {
         ensure_hud(runtime);
         runtime.hud.send(HudEvent::Status {
             state: HudState::Thinking,
             message: Some("K.I.T.T.".into()),
         });
     }
-
-    match runtime.service.ask(text) {
+    match runtime.service.ask(text, hint) {
         Ok(answer) => {
-            if request.show_hud {
+            if show_hud {
                 runtime.hud.send(HudEvent::Text {
-                    content: answer.clone(),
+                    content: answer.text.clone(),
                     ttl_ms: runtime.config.hud_ttl_ms,
                 });
             }
-            Ok(AskResponse { text: answer })
+            Ok(answer)
         }
         Err(error) => {
-            if request.show_hud {
+            if show_hud {
                 runtime.hud.send(HudEvent::Status {
                     state: HudState::Error,
                     message: Some(error.to_string()),
@@ -414,6 +503,34 @@ fn ask(runtime: &Arc<Runtime>, request: AskRequest) -> Result<AskResponse, (&'st
             Err(("assistant_error", error.to_string()))
         }
     }
+}
+
+fn transcribe(
+    runtime: &Arc<Runtime>,
+    request: TranscribeRequest,
+) -> Result<TranscribeResponse, (&'static str, String)> {
+    let path = Path::new(request.path.trim());
+    if request.path.trim().is_empty() {
+        return Err(("empty_path", "audio path cannot be empty".into()));
+    }
+    if request.show_hud {
+        ensure_hud(runtime);
+        runtime.hud.send(HudEvent::Status {
+            state: HudState::Listening,
+            message: Some("Transcrevendo…".into()),
+        });
+    }
+    let text = runtime
+        .service
+        .transcribe(path, request.locale.as_deref())
+        .map_err(|e| ("transcription_error", e.to_string()))?;
+    if request.show_hud {
+        runtime.hud.send(HudEvent::Text {
+            content: text.clone(),
+            ttl_ms: runtime.config.hud_ttl_ms,
+        });
+    }
+    Ok(TranscribeResponse { text })
 }
 
 fn memory_recall(
