@@ -1,13 +1,12 @@
-# Cross-repository dependency during development
+# Cross-repository dependencies
 
-The bundle uses sibling path dependencies (`../kitt-memory`) so all code can be reviewed together. After repositories are created, replace the sibling `kitt-memory` and `kitt-protocol` path/file dependencies with immutable Git tags or published packages, e.g.:
+KITT Assistant is a separate repository. It must not require sibling repository folders.
 
-```toml
-kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", tag = "v0.1.0" }
-kitt-memory-sqlite = { git = "https://github.com/rfdetoni/kitt-memory", tag = "v0.1.0" }
-kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", tag = "v0.1.0" }
-```
+Shared ecosystem components are consumed from their own Git repositories:
 
-For the HUD, replace `file:../../../kitt-protocol` with an immutable Git tag such as `github:rfdetoni/kitt-protocol#v0.1.0`, or a published `@kitt/protocol` package.
+- `kitt-protocol`: canonical IPC/data contracts.
+- `kitt-memory-core` and `kitt-memory-sqlite`: memory domain/storage.
 
-Do not depend on `main` in release builds.
+During laboratory development, dependencies track `main` and `Cargo.lock` pins the exact Git commits resolved by Cargo. Before a public release, replace branch dependencies with signed release tags or published crates.
+
+There is no legacy IPC compatibility layer. `kittd`, `kittctl`, HUD and external clients use KITT Protocol v1 exclusively.

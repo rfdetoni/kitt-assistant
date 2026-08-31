@@ -1,13 +1,14 @@
 [package]
-name="kitt-infrastructure"
-version.workspace=true
-edition.workspace=true
-rust-version.workspace=true
-license.workspace=true
+name = "kitt-infrastructure"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
 [dependencies]
-kitt-domain={path="../kitt-domain"}
-kitt-memory-core={path="../../../kitt-memory/crates/kitt-memory-core"}
-kitt-memory-sqlite={path="../../../kitt-memory/crates/kitt-memory-sqlite"}
-serde.workspace=true
-serde_json.workspace=true
-reqwest.workspace=true
+kitt-domain = { path = "../kitt-domain" }
+kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", branch = "main" }
+kitt-memory-sqlite = { git = "https://github.com/rfdetoni/kitt-memory", branch = "main" }
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true

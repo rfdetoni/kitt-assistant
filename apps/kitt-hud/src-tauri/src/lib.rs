@@ -1,7 +1,9 @@
+use kitt_protocol::{AuthenticatedFrame, Envelope, MAX_FRAME_BYTES, kinds};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
     thread,
+    time::Duration,
 };
 use tauri::{Emitter, Manager};
 
@@ -20,30 +22,85 @@ pub fn run() {
             }
             let handle = app.handle().clone();
             thread::spawn(move || {
-                let addr =
-                    std::env::var("KITT_DAEMON_ADDR").unwrap_or_else(|_| "127.0.0.1:41827".into());
+                let addr = std::env::var("KITT_DAEMON_ADDR")
+                    .unwrap_or_else(|_| "127.0.0.1:41827".into());
                 let token = std::env::var("KITT_DAEMON_TOKEN").unwrap_or_default();
+                if token.trim().is_empty() {
+                    handle.exit(2);
+                    return;
+                }
+
                 let Ok(mut stream) = TcpStream::connect(addr) else {
                     handle.exit(2);
                     return;
                 };
-                let req = serde_json::json!({"token":token,"command":"subscribe_hud"});
-                if writeln!(stream, "{req}").is_err() {
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+
+                let request =
+                    match Envelope::new(kinds::HUD_SUBSCRIBE_REQUEST, serde_json::json!({})) {
+                        Ok(request) => request,
+                        Err(_) => {
+                            handle.exit(2);
+                            return;
+                        }
+                    };
+                let request_id = request.id.clone();
+                let frame = match AuthenticatedFrame::new(token, request) {
+                    Ok(frame) => frame,
+                    Err(_) => {
+                        handle.exit(2);
+                        return;
+                    }
+                };
+                let line = match serde_json::to_string(&frame) {
+                    Ok(line) if line.len() <= MAX_FRAME_BYTES => line,
+                    _ => {
+                        handle.exit(2);
+                        return;
+                    }
+                };
+                if writeln!(stream, "{line}").is_err() {
                     handle.exit(2);
                     return;
                 }
+
                 let mut reader = BufReader::new(stream);
-                let mut first = String::new();
-                if reader.read_line(&mut first).is_err() {
-                    handle.exit(2);
-                    return;
-                }
-                for line in reader.lines().map_while(Result::ok) {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
-                        let _ = handle.emit("hud-event", value);
+                let mut subscribed = false;
+                loop {
+                    let mut limited = reader.by_ref().take(MAX_FRAME_BYTES as u64 + 1);
+                    let mut bytes = Vec::new();
+                    match limited.read_until(b'\n', &mut bytes) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) if bytes.len() > MAX_FRAME_BYTES => break,
+                        Ok(_) => {}
+                    }
+                    if !bytes.ends_with(b"\n") {
+                        break;
+                    }
+                    while bytes.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
+                        bytes.pop();
+                    }
+                    let Ok(envelope) = Envelope::decode(&bytes) else {
+                        break;
+                    };
+
+                    if envelope.kind == kinds::SYSTEM_ERROR
+                        && envelope.correlation_id.as_deref() == Some(request_id.as_str())
+                    {
+                        break;
+                    }
+                    if envelope.kind == kinds::HUD_SUBSCRIBE_RESPONSE
+                        && envelope.correlation_id.as_deref() == Some(request_id.as_str())
+                    {
+                        subscribed = true;
+                        continue;
+                    }
+                    if envelope.kind == kinds::HUD_EVENT && subscribed {
+                        let _ = handle.emit("hud-event", envelope.payload);
                     }
                 }
-                handle.exit(0);
+                handle.exit(if subscribed { 0 } else { 2 });
             });
             Ok(())
         })

@@ -5,7 +5,9 @@ use kitt_memory_core::{
 use kitt_memory_sqlite::SqliteMemoryStore;
 use reqwest::blocking::Client;
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::{io::Read, sync::Arc, time::Duration};
+
+const MAX_PROVIDER_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
 
 pub struct OpenAiCompatibleModel {
     base_url: String,
@@ -13,6 +15,7 @@ pub struct OpenAiCompatibleModel {
     api_key: Option<String>,
     local: bool,
 }
+
 impl OpenAiCompatibleModel {
     pub fn new(
         base_url: String,
@@ -33,24 +36,47 @@ impl OpenAiCompatibleModel {
         })
     }
 }
+
 impl ModelPort for OpenAiCompatibleModel {
     fn complete(&self, r: &ModelRequest) -> Result<ModelAnswer> {
         let url = format!("{}/chat/completions", self.base_url);
-        // Client lifetime is per request by design: no HTTP pool/runtime remains resident while KITT is idle.
         let client = Client::builder()
+            .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(120))
             .build()
             .map_err(|e| AssistantError::Model(e.to_string()))?;
-        let mut req=client.post(url).json(&json!({"model":&self.model,"messages":[{"role":"system","content":&r.system},{"role":"user","content":&r.user}],"stream":false}));
+        let mut req = client.post(url).json(&json!({
+            "model": &self.model,
+            "messages": [
+                {"role": "system", "content": &r.system},
+                {"role": "user", "content": &r.user}
+            ],
+            "stream": false
+        }));
         if let Some(key) = &self.api_key {
-            req = req.bearer_auth(key)
+            req = req.bearer_auth(key);
         }
+
         let resp = req
             .send()
             .map_err(|e| AssistantError::Model(e.to_string()))?;
         let status = resp.status();
-        let body: Value = resp
-            .json()
+        if resp
+            .content_length()
+            .is_some_and(|n| n > MAX_PROVIDER_RESPONSE_BYTES)
+        {
+            return Err(AssistantError::Model("provider response too large".into()));
+        }
+
+        let mut body_bytes = Vec::new();
+        resp.take(MAX_PROVIDER_RESPONSE_BYTES + 1)
+            .read_to_end(&mut body_bytes)
+            .map_err(|e| AssistantError::Model(format!("provider response read failed: {e}")))?;
+        if body_bytes.len() as u64 > MAX_PROVIDER_RESPONSE_BYTES {
+            return Err(AssistantError::Model("provider response too large".into()));
+        }
+
+        let body: Value = serde_json::from_slice(&body_bytes)
             .map_err(|e| AssistantError::Model(format!("invalid JSON: {e}")))?;
         if !status.is_success() {
             return Err(AssistantError::Model(format!(
@@ -66,6 +92,7 @@ impl ModelPort for OpenAiCompatibleModel {
             text: text.to_string(),
         })
     }
+
     fn is_local(&self) -> bool {
         self.local
     }
@@ -76,6 +103,7 @@ pub struct AssistantMemory {
     workspace_id: String,
     allow_personal_remote: bool,
 }
+
 impl AssistantMemory {
     pub fn new(
         store: Arc<SqliteMemoryStore>,
@@ -89,6 +117,7 @@ impl AssistantMemory {
         }
     }
 }
+
 impl MemoryPort for AssistantMemory {
     fn recall_for_model(
         &self,
@@ -113,6 +142,7 @@ impl MemoryPort for AssistantMemory {
         rows.retain(|m| policy.allows(m.sensitivity));
         Ok(rows)
     }
+
     fn remember_episode(&self, text: &str) -> Result<()> {
         self.store
             .remember(NewMemory {
@@ -131,6 +161,7 @@ impl MemoryPort for AssistantMemory {
             .map_err(|e| AssistantError::Memory(e.to_string()))?;
         Ok(())
     }
+
     fn remember_explicit(&self, text: &str) -> Result<String> {
         let m = self
             .store
@@ -158,8 +189,12 @@ mod tests {
 
     #[test]
     fn test_assistant_memory_egress_filter() {
-        let dir = std::env::temp_dir().join(format!("kitt-infra-test-{}", std::process::id()));
-        let _ = std::fs::remove_file(&dir);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("kitt-infra-test-{}-{nanos}", std::process::id()));
         let store = Arc::new(SqliteMemoryStore::open(&dir).unwrap());
         let mem = AssistantMemory::new(store.clone(), "global".into(), false);
 
@@ -195,17 +230,14 @@ mod tests {
             })
             .unwrap();
 
-        // When remote provider is used, secret memory is omitted:
-        let remote_recalled = mem
+        let remote = mem
             .recall_for_model("preference credential", false)
             .unwrap();
-        assert_eq!(remote_recalled.len(), 1);
-        assert_eq!(remote_recalled[0].content, "Public preference");
+        assert_eq!(remote.len(), 1);
+        assert_eq!(remote[0].content, "Public preference");
 
-        // When local provider is used, secret memory is allowed:
-        let local_recalled = mem.recall_for_model("preference credential", true).unwrap();
-        assert_eq!(local_recalled.len(), 2);
-
+        let local = mem.recall_for_model("preference credential", true).unwrap();
+        assert_eq!(local.len(), 2);
         let _ = std::fs::remove_file(&dir);
     }
 }

@@ -1,9 +1,11 @@
 [package]
-name="kittctl"
-version.workspace=true
-edition.workspace=true
-rust-version.workspace=true
-license.workspace=true
+name = "kittctl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
 [dependencies]
-serde_json.workspace=true
-dirs.workspace=true
+kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", branch = "main" }
+serde_json.workspace = true
+dirs.workspace = true

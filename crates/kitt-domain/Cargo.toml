@@ -7,4 +7,5 @@ license.workspace=true
 [dependencies]
 serde.workspace=true
 thiserror.workspace=true
-kitt-memory-core={path="../../../kitt-memory/crates/kitt-memory-core"}
+kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory.git", branch = "main" }
+

@@ -1,5 +1,9 @@
 name: ci
 on: [push, pull_request]
+
+permissions:
+  contents: read
+
 jobs:
   core:
     runs-on: ubuntu-latest
@@ -10,13 +14,17 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
   hud-web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
-      - run: npm install
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/kitt-hud/package-lock.json
+      - run: npm ci
         working-directory: apps/kitt-hud
       - run: npm run build
         working-directory: apps/kitt-hud

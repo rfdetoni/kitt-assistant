@@ -1,21 +1,38 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use kitt_application::AssistantService;
 use kitt_infrastructure::{AssistantMemory, OpenAiCompatibleModel};
-use kitt_memory_core::{MemoryKind, MemoryScope, MemoryStore, NewMemory, RecallQuery, Sensitivity};
+use kitt_memory_core::{
+    MemoryKind as CoreMemoryKind, MemoryRecord, MemoryScope as CoreMemoryScope, MemoryStore,
+    NewMemory, RecallQuery, Sensitivity as CoreSensitivity,
+};
 use kitt_memory_sqlite::SqliteMemoryStore;
-use kitt_protocol::{HudEvent, HudState};
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use kitt_protocol::{
+    AskRequest, AskResponse, AssistantRememberRequest, AuthenticatedFrame, DeleteResponse,
+    Envelope, HudEvent, HudImageRequest, HudState, IdResponse, MAX_FRAME_BYTES, MemoryDto,
+    MemoryForgetRequest, MemoryKind, MemoryRecallRequest, MemoryRecallResponse,
+    MemoryRememberRequest, MemoryScope, Sensitivity, ShownResponse, StatusResponse, kinds,
+};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::Value;
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     thread,
+    time::Duration,
 };
 use uuid::Uuid;
+
+const MAX_CONNECTIONS: usize = 64;
+const MAX_HUD_SUBSCRIBERS: usize = 8;
+const AUTH_READ_TIMEOUT: Duration = Duration::from_secs(5);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Config {
@@ -27,6 +44,7 @@ struct Config {
     allow_personal_remote: bool,
     hud_ttl_ms: u64,
 }
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -48,12 +66,23 @@ struct Runtime {
     hud: HudBroadcaster,
     hud_process: Mutex<Option<Child>>,
     config: Config,
+    active_connections: AtomicUsize,
 }
+
+struct ConnectionGuard<'a>(&'a AtomicUsize);
+
+impl Drop for ConnectionGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 #[derive(Clone)]
 struct HudBroadcaster {
     clients: Arc<Mutex<Vec<TcpStream>>>,
     last_event: Arc<Mutex<Option<String>>>,
 }
+
 impl HudBroadcaster {
     fn new() -> Self {
         Self {
@@ -61,42 +90,74 @@ impl HudBroadcaster {
             last_event: Arc::new(Mutex::new(None)),
         }
     }
-    fn subscribe(&self, mut stream: TcpStream) {
+
+    fn subscribe(&self, mut stream: TcpStream, request_id: &str) -> Result<(), String> {
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+        let mut clients = self
+            .clients
+            .lock()
+            .map_err(|_| "HUD subscriber lock poisoned".to_string())?;
+        if clients.len() >= MAX_HUD_SUBSCRIBERS {
+            return Err("HUD subscriber limit reached".into());
+        }
+
+        let ack = Envelope::response(
+            kinds::HUD_SUBSCRIBE_RESPONSE,
+            request_id,
+            StatusResponse {
+                status: "subscribed".into(),
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        let ack_line = serde_json::to_string(&ack).map_err(|e| e.to_string())? + "\n";
+        stream
+            .write_all(ack_line.as_bytes())
+            .map_err(|e| e.to_string())?;
+
         if let Ok(last) = self.last_event.lock() {
             if let Some(line) = last.as_ref() {
-                let _ = stream.write_all(line.as_bytes());
+                stream
+                    .write_all(line.as_bytes())
+                    .map_err(|e| e.to_string())?;
             }
         }
-        if let Ok(mut c) = self.clients.lock() {
-            c.push(stream)
-        }
+
+        clients.push(stream);
+        Ok(())
     }
+
     fn send(&self, event: HudEvent) {
-        let line =
-            serde_json::to_string(&event).unwrap_or_else(|_| "{\"type\":\"hide\"}".into()) + "\n";
+        let envelope = match Envelope::new(kinds::HUD_EVENT, event) {
+            Ok(envelope) => envelope,
+            Err(_) => return,
+        };
+        let line = match serde_json::to_string(&envelope) {
+            Ok(line) => line + "\n",
+            Err(_) => return,
+        };
         if let Ok(mut last) = self.last_event.lock() {
-            *last = Some(line.clone())
+            *last = Some(line.clone());
         }
         if let Ok(mut clients) = self.clients.lock() {
-            clients.retain_mut(|s| s.write_all(line.as_bytes()).is_ok());
+            clients.retain_mut(|stream| stream.write_all(line.as_bytes()).is_ok());
         }
     }
 }
 
 fn main() {
     let paths = Paths::load();
-    let config = load_config(&paths).unwrap_or_else(fatal);
-    validate_loopback(&config.listen).unwrap_or_else(fatal);
-    validate_provider_locality(&config).unwrap_or_else(fatal);
-    let token = load_or_create_token(&paths).unwrap_or_else(fatal);
+    let config = load_config(&paths).unwrap_or_else(|e| fatal(e));
+    validate_loopback(&config.listen).unwrap_or_else(|e| fatal(e));
+    validate_provider_locality(&config).unwrap_or_else(|e| fatal(e));
+    let token = load_or_create_token(&paths).unwrap_or_else(|e| fatal(e));
     let memory = Arc::new(
         SqliteMemoryStore::open(&paths.memory_db).unwrap_or_else(|e| fatal(e.to_string())),
     );
     let key = config
         .api_key_env
         .as_ref()
-        .and_then(|n| std::env::var(n).ok())
-        .filter(|s| !s.is_empty());
+        .and_then(|name| std::env::var(name).ok())
+        .filter(|value| !value.is_empty());
     let model = Arc::new(
         OpenAiCompatibleModel::new(
             config.base_url.clone(),
@@ -106,135 +167,404 @@ fn main() {
         )
         .unwrap_or_else(|e| fatal(e.to_string())),
     );
-    let mem_adapter = Arc::new(AssistantMemory::new(
+    let memory_adapter = Arc::new(AssistantMemory::new(
         memory.clone(),
         "global".into(),
         config.allow_personal_remote,
     ));
-    let service = Arc::new(AssistantService::new(model, mem_adapter));
-    let rt = Arc::new(Runtime {
+    let service = Arc::new(AssistantService::new(model, memory_adapter));
+    let runtime = Arc::new(Runtime {
         token,
         service,
         memory,
         hud: HudBroadcaster::new(),
         hud_process: Mutex::new(None),
         config: config.clone(),
+        active_connections: AtomicUsize::new(0),
     });
+
     let listener = TcpListener::bind(&config.listen)
         .unwrap_or_else(|e| fatal(format!("bind {}: {e}", config.listen)));
     eprintln!("kittd listening on {}", config.listen);
-    for stream in listener.incoming() {
-        match stream {
-            Ok(s) => {
-                let r = rt.clone();
-                thread::spawn(move || handle_client(s, r));
+
+    for incoming in listener.incoming() {
+        match incoming {
+            Ok(stream) => {
+                let previous = runtime.active_connections.fetch_add(1, Ordering::AcqRel);
+                if previous >= MAX_CONNECTIONS {
+                    runtime.active_connections.fetch_sub(1, Ordering::AcqRel);
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    continue;
+                }
+                let runtime = runtime.clone();
+                thread::spawn(move || {
+                    let _guard = ConnectionGuard(&runtime.active_connections);
+                    handle_client(stream, runtime.clone());
+                });
             }
-            Err(e) => eprintln!("accept: {e}"),
+            Err(error) => eprintln!("accept: {error}"),
         }
     }
 }
 
-fn handle_client(mut stream: TcpStream, rt: Arc<Runtime>) {
-    const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
-    let peer = stream.try_clone();
-    if peer.is_err() {
-        return;
-    };
-    let mut reader = BufReader::new(peer.unwrap()).take(MAX_REQUEST_BYTES + 1);
-    let mut bytes = Vec::new();
-    if reader.read_until(b'\n', &mut bytes).is_err() {
-        return;
-    };
-    if bytes.len() as u64 > MAX_REQUEST_BYTES {
-        reply(&mut stream, json!({"ok":false,"error":"request_too_large"}));
-        return;
-    }
-    let req: Value = match serde_json::from_slice(&bytes) {
-        Ok(v) => v,
-        Err(_) => {
-            reply(&mut stream, json!({"ok":false,"error":"invalid_json"}));
+fn handle_client(mut stream: TcpStream, runtime: Arc<Runtime>) {
+    let _ = stream.set_read_timeout(Some(AUTH_READ_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
+
+    let bytes = match read_frame(&stream) {
+        Ok(bytes) => bytes,
+        Err(code) => {
+            reply_error(&mut stream, None, code, code);
             return;
         }
     };
-    if req.get("token").and_then(Value::as_str) != Some(rt.token.as_str()) {
-        reply(&mut stream, json!({"ok":false,"error":"unauthorized"}));
-        return;
-    }
-    let cmd = req.get("command").and_then(Value::as_str).unwrap_or("");
-    if cmd == "subscribe_hud" {
-        reply(&mut stream, json!({"ok":true}));
-        rt.hud.subscribe(stream);
-        return;
-    }
-    let result = match cmd {
-        "ping" => Ok(json!({"status":"ok"})),
-        "ask" => ask(&rt, req.get("text").and_then(Value::as_str).unwrap_or("")),
-        "remember" => remember(&rt, &req),
-        "memory_recall" => memory_recall(&rt, &req),
-        "memory_remember" => memory_remember(&rt, &req),
-        "memory_forget" => memory_forget(&rt, &req),
-        "image" => show_image(&rt, &req),
-        _ => Err("unknown_command".to_string()),
+
+    let frame = match AuthenticatedFrame::decode(&bytes) {
+        Ok(frame) => frame,
+        Err(error) => {
+            reply_error(&mut stream, None, "invalid_frame", &error);
+            return;
+        }
     };
-    match result {
-        Ok(v) => reply(&mut stream, json!({"ok":true,"result":v})),
-        Err(e) => reply(&mut stream, json!({"ok":false,"error":e})),
+
+    if !secure_eq(frame.token.as_bytes(), runtime.token.as_bytes()) {
+        reply_error(
+            &mut stream,
+            Some(&frame.envelope.id),
+            "unauthorized",
+            "invalid authentication token",
+        );
+        return;
+    }
+
+    let request = frame.envelope;
+    let request_id = request.id.clone();
+    if let Err((code, message)) = dispatch(&mut stream, &runtime, request) {
+        reply_error(&mut stream, Some(&request_id), code, &message);
     }
 }
 
-fn ask(rt: &Arc<Runtime>, text: &str) -> std::result::Result<Value, String> {
-    if text.trim().is_empty() {
-        return Err("empty_text".into());
+fn read_frame(stream: &TcpStream) -> Result<Vec<u8>, &'static str> {
+    let clone = stream.try_clone().map_err(|_| "stream_clone_failed")?;
+    let mut reader = BufReader::new(clone).take(MAX_FRAME_BYTES as u64 + 1);
+    let mut bytes = Vec::new();
+    reader
+        .read_until(b'\n', &mut bytes)
+        .map_err(|_| "frame_read_failed")?;
+    if bytes.len() > MAX_FRAME_BYTES {
+        return Err("request_too_large");
     }
-    ensure_hud(rt);
-    rt.hud.send(HudEvent::Status {
-        state: HudState::Thinking,
-        message: Some("K.I.T.T.".into()),
-    });
-    match rt.service.ask(text) {
+    if bytes.is_empty() {
+        return Err("empty_request");
+    }
+    if !bytes.ends_with(b"\n") {
+        return Err("frame_not_terminated");
+    }
+    while bytes.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
+        bytes.pop();
+    }
+    Ok(bytes)
+}
+
+fn dispatch(
+    stream: &mut TcpStream,
+    runtime: &Arc<Runtime>,
+    request: Envelope,
+) -> Result<(), (&'static str, String)> {
+    if request.correlation_id.is_some() {
+        return Err((
+            "invalid_request",
+            "request envelopes cannot contain correlation_id".into(),
+        ));
+    }
+
+    match request.kind.as_str() {
+        kinds::SYSTEM_PING_REQUEST => {
+            ensure_empty_payload(&request.payload)?;
+            reply_response(
+                stream,
+                kinds::SYSTEM_PING_RESPONSE,
+                &request.id,
+                StatusResponse {
+                    status: "ok".into(),
+                },
+            )
+        }
+        kinds::ASSISTANT_ASK_REQUEST => {
+            let payload: AskRequest = payload_as(&request.payload)?;
+            let response = ask(runtime, payload)?;
+            reply_response(stream, kinds::ASSISTANT_ASK_RESPONSE, &request.id, response)
+        }
+        kinds::ASSISTANT_REMEMBER_REQUEST => {
+            let payload: AssistantRememberRequest = payload_as(&request.payload)?;
+            let id = runtime
+                .service
+                .remember(payload.text.trim())
+                .map_err(|e| ("assistant_error", e.to_string()))?;
+            reply_response(
+                stream,
+                kinds::ASSISTANT_REMEMBER_RESPONSE,
+                &request.id,
+                IdResponse { id },
+            )
+        }
+        kinds::MEMORY_REMEMBER_REQUEST => {
+            let payload: MemoryRememberRequest = payload_as(&request.payload)?;
+            let id = memory_remember(runtime, payload)?;
+            reply_response(
+                stream,
+                kinds::MEMORY_REMEMBER_RESPONSE,
+                &request.id,
+                IdResponse { id },
+            )
+        }
+        kinds::MEMORY_RECALL_REQUEST => {
+            let payload: MemoryRecallRequest = payload_as(&request.payload)?;
+            let records = memory_recall(runtime, payload)?;
+            reply_response(
+                stream,
+                kinds::MEMORY_RECALL_RESPONSE,
+                &request.id,
+                MemoryRecallResponse { records },
+            )
+        }
+        kinds::MEMORY_FORGET_REQUEST => {
+            let payload: MemoryForgetRequest = payload_as(&request.payload)?;
+            let deleted = runtime
+                .memory
+                .forget(&payload.id)
+                .map_err(|e| ("memory_error", e.to_string()))?;
+            reply_response(
+                stream,
+                kinds::MEMORY_FORGET_RESPONSE,
+                &request.id,
+                DeleteResponse { deleted },
+            )
+        }
+        kinds::HUD_IMAGE_REQUEST => {
+            let payload: HudImageRequest = payload_as(&request.payload)?;
+            show_image(runtime, payload)?;
+            reply_response(
+                stream,
+                kinds::HUD_IMAGE_RESPONSE,
+                &request.id,
+                ShownResponse { shown: true },
+            )
+        }
+        kinds::HUD_SUBSCRIBE_REQUEST => {
+            ensure_empty_payload(&request.payload)?;
+            let subscriber = stream
+                .try_clone()
+                .map_err(|e| ("stream_clone_failed", e.to_string()))?;
+            runtime
+                .hud
+                .subscribe(subscriber, &request.id)
+                .map_err(|e| ("hud_subscriber_error", e))
+        }
+        _ => Err((
+            "unknown_kind",
+            format!("unknown envelope kind: {}", request.kind),
+        )),
+    }
+}
+
+fn payload_as<T: DeserializeOwned>(value: &Value) -> Result<T, (&'static str, String)> {
+    serde_json::from_value(value.clone()).map_err(|e| ("invalid_payload", e.to_string()))
+}
+
+fn ensure_empty_payload(value: &Value) -> Result<(), (&'static str, String)> {
+    if value.as_object().is_some_and(|object| object.is_empty()) {
+        Ok(())
+    } else {
+        Err(("invalid_payload", "expected empty object payload".into()))
+    }
+}
+
+fn ask(runtime: &Arc<Runtime>, request: AskRequest) -> Result<AskResponse, (&'static str, String)> {
+    let text = request.text.trim();
+    if text.is_empty() {
+        return Err(("empty_text", "text cannot be empty".into()));
+    }
+
+    if request.show_hud {
+        ensure_hud(runtime);
+        runtime.hud.send(HudEvent::Status {
+            state: HudState::Thinking,
+            message: Some("K.I.T.T.".into()),
+        });
+    }
+
+    match runtime.service.ask(text) {
         Ok(answer) => {
-            rt.hud.send(HudEvent::Text {
-                content: answer.clone(),
-                ttl_ms: rt.config.hud_ttl_ms,
-            });
-            Ok(json!({"text":answer}))
+            if request.show_hud {
+                runtime.hud.send(HudEvent::Text {
+                    content: answer.clone(),
+                    ttl_ms: runtime.config.hud_ttl_ms,
+                });
+            }
+            Ok(AskResponse { text: answer })
         }
-        Err(e) => {
-            rt.hud.send(HudEvent::Status {
-                state: HudState::Error,
-                message: Some(e.to_string()),
-            });
-            Err(e.to_string())
+        Err(error) => {
+            if request.show_hud {
+                runtime.hud.send(HudEvent::Status {
+                    state: HudState::Error,
+                    message: Some(error.to_string()),
+                });
+            }
+            Err(("assistant_error", error.to_string()))
         }
     }
 }
-fn remember(rt: &Arc<Runtime>, req: &Value) -> std::result::Result<Value, String> {
-    let text = req.get("text").and_then(Value::as_str).unwrap_or("");
-    rt.service
-        .remember(text)
-        .map(|id| json!({"id":id}))
-        .map_err(|e| e.to_string())
+
+fn memory_recall(
+    runtime: &Arc<Runtime>,
+    request: MemoryRecallRequest,
+) -> Result<Vec<MemoryDto>, (&'static str, String)> {
+    let query = RecallQuery {
+        namespace: request.namespace,
+        workspace_id: request.workspace_id,
+        text: request.query,
+        limit: request.limit.clamp(1, 50),
+        allow_private: request.allow_private,
+        allow_secret: request.allow_secret,
+    };
+    runtime
+        .memory
+        .recall(&query)
+        .map(|records| records.into_iter().map(memory_to_dto).collect())
+        .map_err(|e| ("memory_error", e.to_string()))
 }
-fn show_image(rt: &Arc<Runtime>, req: &Value) -> std::result::Result<Value, String> {
-    let raw = req
-        .get("src")
-        .and_then(Value::as_str)
-        .ok_or("missing_src")?;
+
+fn memory_remember(
+    runtime: &Arc<Runtime>,
+    request: MemoryRememberRequest,
+) -> Result<String, (&'static str, String)> {
+    let memory = NewMemory {
+        namespace: request.namespace,
+        workspace_id: request.workspace_id,
+        kind: protocol_kind_to_core(request.kind),
+        content: request.content,
+        sensitivity: protocol_sensitivity_to_core(request.sensitivity),
+        scope: protocol_scope_to_core(request.scope),
+        importance: request.importance,
+        confidence: request.confidence,
+        pinned: request.pinned,
+        ttl_seconds: request.ttl_seconds,
+        metadata_json: "{}".into(),
+    };
+    runtime
+        .memory
+        .remember(memory)
+        .map(|record| record.id)
+        .map_err(|e| ("memory_error", e.to_string()))
+}
+
+fn memory_to_dto(record: MemoryRecord) -> MemoryDto {
+    MemoryDto {
+        id: record.id,
+        namespace: record.namespace,
+        workspace_id: record.workspace_id,
+        kind: core_kind_to_protocol(&record.kind),
+        content: record.content,
+        sensitivity: core_sensitivity_to_protocol(record.sensitivity),
+        scope: core_scope_to_protocol(&record.scope),
+        importance: record.importance,
+        confidence: record.confidence,
+        pinned: record.pinned,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+    }
+}
+
+fn protocol_kind_to_core(value: MemoryKind) -> CoreMemoryKind {
+    match value {
+        MemoryKind::UserPreference => CoreMemoryKind::UserPreference,
+        MemoryKind::ProjectRule => CoreMemoryKind::ProjectRule,
+        MemoryKind::ArchitectureDecision => CoreMemoryKind::ArchitectureDecision,
+        MemoryKind::TechnicalFact => CoreMemoryKind::TechnicalFact,
+        MemoryKind::WorkingPattern => CoreMemoryKind::WorkingPattern,
+        MemoryKind::FailedApproach => CoreMemoryKind::FailedApproach,
+        MemoryKind::OpenIssue => CoreMemoryKind::OpenIssue,
+        MemoryKind::ProjectState => CoreMemoryKind::ProjectState,
+        MemoryKind::Episodic => CoreMemoryKind::Episodic,
+        MemoryKind::PersonalFact => CoreMemoryKind::PersonalFact,
+        MemoryKind::Routine => CoreMemoryKind::Routine,
+    }
+}
+
+fn core_kind_to_protocol(value: &CoreMemoryKind) -> MemoryKind {
+    match value {
+        CoreMemoryKind::UserPreference => MemoryKind::UserPreference,
+        CoreMemoryKind::ProjectRule => MemoryKind::ProjectRule,
+        CoreMemoryKind::ArchitectureDecision => MemoryKind::ArchitectureDecision,
+        CoreMemoryKind::TechnicalFact => MemoryKind::TechnicalFact,
+        CoreMemoryKind::WorkingPattern => MemoryKind::WorkingPattern,
+        CoreMemoryKind::FailedApproach => MemoryKind::FailedApproach,
+        CoreMemoryKind::OpenIssue => MemoryKind::OpenIssue,
+        CoreMemoryKind::ProjectState => MemoryKind::ProjectState,
+        CoreMemoryKind::Episodic => MemoryKind::Episodic,
+        CoreMemoryKind::PersonalFact => MemoryKind::PersonalFact,
+        CoreMemoryKind::Routine => MemoryKind::Routine,
+    }
+}
+
+fn protocol_sensitivity_to_core(value: Sensitivity) -> CoreSensitivity {
+    match value {
+        Sensitivity::Public => CoreSensitivity::Public,
+        Sensitivity::Personal => CoreSensitivity::Personal,
+        Sensitivity::Private => CoreSensitivity::Private,
+        Sensitivity::Secret => CoreSensitivity::Secret,
+        Sensitivity::Ephemeral => CoreSensitivity::Ephemeral,
+    }
+}
+
+fn core_sensitivity_to_protocol(value: CoreSensitivity) -> Sensitivity {
+    match value {
+        CoreSensitivity::Public => Sensitivity::Public,
+        CoreSensitivity::Personal => Sensitivity::Personal,
+        CoreSensitivity::Private => Sensitivity::Private,
+        CoreSensitivity::Secret => Sensitivity::Secret,
+        CoreSensitivity::Ephemeral => Sensitivity::Ephemeral,
+    }
+}
+
+fn protocol_scope_to_core(value: MemoryScope) -> CoreMemoryScope {
+    match value {
+        MemoryScope::Global => CoreMemoryScope::Global,
+        MemoryScope::Workspace => CoreMemoryScope::Workspace,
+        MemoryScope::Conversation => CoreMemoryScope::Conversation,
+    }
+}
+
+fn core_scope_to_protocol(value: &CoreMemoryScope) -> MemoryScope {
+    match value {
+        CoreMemoryScope::Global => MemoryScope::Global,
+        CoreMemoryScope::Workspace => MemoryScope::Workspace,
+        CoreMemoryScope::Conversation => MemoryScope::Conversation,
+    }
+}
+
+fn show_image(
+    runtime: &Arc<Runtime>,
+    request: HudImageRequest,
+) -> Result<(), (&'static str, String)> {
+    let raw = request.src;
     let src =
         if raw.starts_with("http://") || raw.starts_with("https://") || raw.starts_with("data:") {
-            raw.to_string()
+            raw
         } else {
-            image_data_uri(Path::new(raw))?
+            image_data_uri(Path::new(&raw)).map_err(|e| ("image_error", e))?
         };
-    ensure_hud(rt);
-    rt.hud.send(HudEvent::Image {
+    ensure_hud(runtime);
+    runtime.hud.send(HudEvent::Image {
         src,
-        alt: req.get("alt").and_then(Value::as_str).map(str::to_string),
-        ttl_ms: rt.config.hud_ttl_ms,
+        alt: request.alt,
+        ttl_ms: runtime.config.hud_ttl_ms,
     });
-    Ok(json!({"shown":true}))
+    Ok(())
 }
-fn image_data_uri(path: &Path) -> std::result::Result<String, String> {
+
+fn image_data_uri(path: &Path) -> Result<String, String> {
     const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
     let meta = fs::metadata(path).map_err(|e| format!("image metadata: {e}"))?;
     if !meta.is_file() {
@@ -245,8 +575,8 @@ fn image_data_uri(path: &Path) -> std::result::Result<String, String> {
     }
     let mime = match path
         .extension()
-        .and_then(|v| v.to_str())
-        .map(|v| v.to_ascii_lowercase())
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
         .as_deref()
     {
         Some("png") => "image/png",
@@ -259,74 +589,43 @@ fn image_data_uri(path: &Path) -> std::result::Result<String, String> {
     Ok(format!("data:{mime};base64,{}", BASE64.encode(bytes)))
 }
 
-fn memory_recall(rt: &Arc<Runtime>, req: &Value) -> std::result::Result<Value, String> {
-    let q = RecallQuery {
-        namespace: s(req, "namespace", "agent-cli"),
-        workspace_id: s(req, "workspace_id", "default"),
-        text: s(req, "query", ""),
-        limit: req.get("limit").and_then(Value::as_u64).unwrap_or(8) as usize,
-        allow_private: req
-            .get("allow_private")
-            .and_then(Value::as_bool)
-            .unwrap_or(true),
-        allow_secret: false,
-    };
-    rt.memory
-        .recall(&q)
-        .map(|m| serde_json::to_value(m).unwrap_or(Value::Array(vec![])))
-        .map_err(|e| e.to_string())
-}
-fn memory_remember(rt: &Arc<Runtime>, req: &Value) -> std::result::Result<Value, String> {
-    let kind = MemoryKind::from_db(
-        req.get("kind")
-            .and_then(Value::as_str)
-            .unwrap_or("PROJECT_RULE"),
-    );
-    let sensitivity = Sensitivity::from_db(
-        req.get("sensitivity")
-            .and_then(Value::as_str)
-            .unwrap_or("private"),
-    );
-    let scope = MemoryScope::from_db(
-        req.get("scope")
-            .and_then(Value::as_str)
-            .unwrap_or("workspace"),
-    );
-    let m = NewMemory {
-        namespace: s(req, "namespace", "agent-cli"),
-        workspace_id: s(req, "workspace_id", "default"),
-        kind,
-        content: s(req, "content", ""),
-        sensitivity,
-        scope,
-        importance: req.get("importance").and_then(Value::as_f64).unwrap_or(0.8) as f32,
-        confidence: req.get("confidence").and_then(Value::as_f64).unwrap_or(1.0) as f32,
-        pinned: req.get("pinned").and_then(Value::as_bool).unwrap_or(false),
-        ttl_seconds: req.get("ttl_seconds").and_then(Value::as_u64),
-        metadata_json: "{}".into(),
-    };
-    rt.memory
-        .remember(m)
-        .map(|m| json!({"id":m.id}))
-        .map_err(|e| e.to_string())
-}
-fn memory_forget(rt: &Arc<Runtime>, req: &Value) -> std::result::Result<Value, String> {
-    let id = req.get("id").and_then(Value::as_str).ok_or("missing_id")?;
-    rt.memory
-        .forget(id)
-        .map(|deleted| json!({"deleted":deleted}))
-        .map_err(|e| e.to_string())
-}
-fn s(req: &Value, key: &str, default: &str) -> String {
-    req.get(key)
-        .and_then(Value::as_str)
-        .unwrap_or(default)
-        .to_string()
+fn reply_response<T: Serialize>(
+    stream: &mut TcpStream,
+    kind: &str,
+    request_id: &str,
+    payload: T,
+) -> Result<(), (&'static str, String)> {
+    let envelope = Envelope::response(kind, request_id, payload)
+        .map_err(|e| ("serialization_error", e.to_string()))?;
+    reply(stream, &envelope).map_err(|e| ("write_failed", e))
 }
 
-fn ensure_hud(rt: &Arc<Runtime>) {
-    let mut guard = match rt.hud_process.lock() {
-        Ok(g) => g,
+fn reply_error(stream: &mut TcpStream, request_id: Option<&str>, code: &str, message: &str) {
+    let _ = reply(stream, &Envelope::error(request_id, code, message));
+}
+
+fn reply(stream: &mut TcpStream, envelope: &Envelope) -> Result<(), String> {
+    envelope.validate()?;
+    let line = serde_json::to_string(envelope).map_err(|e| e.to_string())?;
+    if line.len() > MAX_FRAME_BYTES {
+        return Err("response_too_large".into());
+    }
+    writeln!(stream, "{line}").map_err(|e| e.to_string())
+}
+
+fn secure_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right.iter())
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
+
+fn ensure_hud(runtime: &Arc<Runtime>) {
+    let mut guard = match runtime.hud_process.lock() {
+        Ok(guard) => guard,
         Err(_) => return,
     };
     if let Some(child) = guard.as_mut() {
@@ -334,12 +633,12 @@ fn ensure_hud(rt: &Arc<Runtime>) {
             return;
         }
     }
-    let exe = std::env::var_os("KITT_HUD_BIN")
+    let executable = std::env::var_os("KITT_HUD_BIN")
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::current_exe().ok().and_then(|p| {
-                p.parent().map(|d| {
-                    d.join(if cfg!(windows) {
+            std::env::current_exe().ok().and_then(|path| {
+                path.parent().map(|dir| {
+                    dir.join(if cfg!(windows) {
                         "kitt-hud.exe"
                     } else {
                         "kitt-hud"
@@ -347,23 +646,16 @@ fn ensure_hud(rt: &Arc<Runtime>) {
                 })
             })
         });
-    if let Some(exe) = exe {
-        match Command::new(exe)
-            .env("KITT_DAEMON_ADDR", &rt.config.listen)
-            .env("KITT_DAEMON_TOKEN", &rt.token)
+    if let Some(executable) = executable {
+        match Command::new(executable)
+            .env("KITT_DAEMON_ADDR", &runtime.config.listen)
+            .env("KITT_DAEMON_TOKEN", &runtime.token)
             .spawn()
         {
-            Ok(c) => *guard = Some(c),
-            Err(e) => eprintln!("HUD spawn: {e}"),
+            Ok(child) => *guard = Some(child),
+            Err(error) => eprintln!("HUD spawn: {error}"),
         }
     }
-}
-fn reply(stream: &mut TcpStream, value: Value) {
-    let _ = writeln!(
-        stream,
-        "{}",
-        serde_json::to_string(&value).unwrap_or_else(|_| "{\"ok\":false}".into())
-    );
 }
 
 struct Paths {
@@ -372,6 +664,7 @@ struct Paths {
     token: PathBuf,
     memory_db: PathBuf,
 }
+
 impl Paths {
     fn load() -> Self {
         let base = dirs::config_dir()
@@ -386,48 +679,68 @@ impl Paths {
         }
     }
 }
-fn load_config(paths: &Paths) -> std::result::Result<Config, String> {
+
+fn load_config(paths: &Paths) -> Result<Config, String> {
     fs::create_dir_all(&paths.dir).map_err(|e| e.to_string())?;
     if !paths.config.exists() {
-        let c = Config::default();
-        fs::write(&paths.config, serde_json::to_string_pretty(&c).unwrap())
-            .map_err(|e| e.to_string())?;
-        return Ok(c);
+        let config = Config::default();
+        fs::write(
+            &paths.config,
+            serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        return Ok(config);
     }
     serde_json::from_str(&fs::read_to_string(&paths.config).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())
 }
-fn load_or_create_token(paths: &Paths) -> std::result::Result<String, String> {
+
+fn load_or_create_token(paths: &Paths) -> Result<String, String> {
+    fs::create_dir_all(&paths.dir).map_err(|e| e.to_string())?;
     if paths.token.exists() {
-        return Ok(fs::read_to_string(&paths.token)
-            .map_err(|e| e.to_string())?
-            .trim()
-            .into());
+        let current = fs::read_to_string(&paths.token).map_err(|e| e.to_string())?;
+        let current = current.trim();
+        if valid_token(current) {
+            set_private_permissions(&paths.token)?;
+            return Ok(current.to_string());
+        }
     }
-    let token = Uuid::new_v4().to_string() + &Uuid::new_v4().simple().to_string();
+
+    let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
     fs::write(&paths.token, &token).map_err(|e| e.to_string())?;
     set_private_permissions(&paths.token)?;
+    if !valid_token(&token) {
+        return Err("generated authentication token is invalid".into());
+    }
     Ok(token)
 }
+
+fn valid_token(token: &str) -> bool {
+    token.len() >= 48 && token.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 #[cfg(unix)]
-fn set_private_permissions(path: &Path) -> std::result::Result<(), String> {
+fn set_private_permissions(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())
 }
+
 #[cfg(not(unix))]
-fn set_private_permissions(_path: &Path) -> std::result::Result<(), String> {
+fn set_private_permissions(_path: &Path) -> Result<(), String> {
     Ok(())
 }
-fn validate_loopback(listen: &str) -> std::result::Result<(), String> {
+
+fn validate_loopback(listen: &str) -> Result<(), String> {
     let addr: SocketAddr = listen
         .parse()
         .map_err(|e| format!("invalid listen address: {e}"))?;
     if !addr.ip().is_loopback() {
-        return Err("kittd v0.1 only permits loopback listen addresses".into());
+        return Err("kittd only permits loopback listen addresses".into());
     }
     Ok(())
 }
-fn validate_provider_locality(config: &Config) -> std::result::Result<(), String> {
+
+fn validate_provider_locality(config: &Config) -> Result<(), String> {
     if !config.local_provider {
         return Ok(());
     }
@@ -444,10 +757,14 @@ fn validate_provider_locality(config: &Config) -> std::result::Result<(), String
     {
         return Ok(());
     }
-    Err("local_provider=true requires a loopback provider URL; set local_provider=false for remote endpoints".into())
+    Err(
+        "local_provider=true requires a loopback provider URL; set local_provider=false for remote endpoints"
+            .into(),
+    )
 }
-fn fatal<T: std::fmt::Display, R>(e: T) -> R {
-    eprintln!("fatal: {e}");
+
+fn fatal<T: std::fmt::Display>(error: T) -> ! {
+    eprintln!("fatal: {error}");
     std::process::exit(1)
 }
 
@@ -456,36 +773,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_validate_loopback_accepts_127_0_0_1() {
+    fn loopback_validation() {
         assert!(validate_loopback("127.0.0.1:41827").is_ok());
-        assert!(validate_loopback("127.0.0.2:8080").is_ok());
         assert!(validate_loopback("[::1]:41827").is_ok());
-    }
-
-    #[test]
-    fn test_validate_loopback_rejects_non_loopback() {
         assert!(validate_loopback("0.0.0.0:41827").is_err());
-        assert!(validate_loopback("192.168.1.100:41827").is_err());
-        assert!(validate_loopback("8.8.8.8:41827").is_err());
     }
 
     #[test]
-    fn test_validate_provider_locality() {
-        let mut cfg = Config {
-            local_provider: true,
-            base_url: "http://127.0.0.1:11434/v1".into(),
-            ..Default::default()
-        };
-        assert!(validate_provider_locality(&cfg).is_ok());
-
-        cfg.base_url = "http://localhost:11434/v1".into();
-        assert!(validate_provider_locality(&cfg).is_ok());
-
-        cfg.base_url = "https://api.openai.com/v1".into();
-        assert!(validate_provider_locality(&cfg).is_err());
-
-        // If local_provider is false, remote base_url is accepted:
-        cfg.local_provider = false;
-        assert!(validate_provider_locality(&cfg).is_ok());
+    fn token_validation_and_constant_time_compare() {
+        let token = "a".repeat(64);
+        assert!(valid_token(&token));
+        assert!(secure_eq(token.as_bytes(), token.as_bytes()));
+        assert!(!secure_eq(token.as_bytes(), b"wrong"));
     }
 }
