@@ -376,12 +376,14 @@ fn run_wakeword_capture(
         .to_str()
         .ok_or_else(|| "wakeword model path is not valid UTF-8".to_string())?;
 
-    let mut potter_config = RustpotterConfig::default();
-    potter_config.fmt = AudioFmt {
-        sample_rate,
-        sample_format: PotterSampleFormat::F32,
-        channels: 1,
-        ..AudioFmt::default()
+    let mut potter_config = RustpotterConfig {
+        fmt: AudioFmt {
+            sample_rate,
+            sample_format: PotterSampleFormat::F32,
+            channels: 1,
+            ..AudioFmt::default()
+        },
+        ..RustpotterConfig::default()
     };
     potter_config.detector.eager = true;
     let mut potter = Rustpotter::new(&potter_config)
@@ -826,8 +828,8 @@ mod tests {
             ..VoiceConfig::default()
         };
         let mut segmenter = Segmenter::new(1_000, config);
-        assert!(segmenter.push(&vec![0.2; 20]).is_none());
-        let result = segmenter.push(&vec![0.0; 20]);
+        assert!(segmenter.push(&[0.2; 20]).is_none());
+        let result = segmenter.push(&[0.0; 20]);
         assert!(result.is_some());
     }
 

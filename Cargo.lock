@@ -1045,16 +1045,6 @@ dependencies = [
 [[package]]
 name = "kitt-protocol"
 version = "0.1.0"
-source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#4fd1224fbbda3e45ecabc5f5eca9a0fb27546452"
-dependencies = [
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "kitt-protocol"
-version = "0.1.0"
 source = "git+https://github.com/rfdetoni/kitt-protocol?rev=4fd1224fbbda3e45ecabc5f5eca9a0fb27546452#4fd1224fbbda3e45ecabc5f5eca9a0fb27546452"
 dependencies = [
  "serde",
@@ -1067,7 +1057,7 @@ name = "kittctl"
 version = "0.1.0"
 dependencies = [
  "dirs",
- "kitt-protocol 0.1.0 (git+https://github.com/rfdetoni/kitt-protocol?branch=main)",
+ "kitt-protocol",
  "serde_json",
 ]
 
@@ -1084,7 +1074,7 @@ dependencies = [
  "kitt-infrastructure",
  "kitt-memory-core",
  "kitt-memory-sqlite",
- "kitt-protocol 0.1.0 (git+https://github.com/rfdetoni/kitt-protocol?rev=4fd1224fbbda3e45ecabc5f5eca9a0fb27546452)",
+ "kitt-protocol",
  "rustpotter",
  "serde",
  "serde_json",
