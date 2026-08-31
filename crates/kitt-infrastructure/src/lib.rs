@@ -85,6 +85,83 @@ impl ModelPort for OpenAiCompatibleModel {
     }
 }
 
+pub fn discover_models_from_url(base_url: &str, api_key: Option<&str>) -> Result<Vec<String>> {
+    let base = base_url.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|e| AssistantError::Model(e.to_string()))?;
+
+    // 1. Try standard OpenAI /v1/models (or {base}/models)
+    let models_url = if base.ends_with("/v1") {
+        format!("{base}/models")
+    } else {
+        format!("{base}/v1/models")
+    };
+
+    let mut req = client.get(&models_url);
+    if let Some(key) = api_key {
+        if !key.trim().is_empty() {
+            req = req.bearer_auth(key);
+        }
+    }
+
+    if let Ok(resp) = req.send() {
+        if resp.status().is_success() {
+            if let Ok(body) = resp.json::<Value>() {
+                if let Some(data) = body.get("data").and_then(Value::as_array) {
+                    let mut list: Vec<String> = data
+                        .iter()
+                        .filter_map(|m| m.get("id").and_then(Value::as_str))
+                        .map(str::to_string)
+                        .collect();
+                    if !list.is_empty() {
+                        list.sort();
+                        list.dedup();
+                        return Ok(list);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Try Ollama native /api/tags
+    let root_base = if let Some(stripped) = base.strip_suffix("/v1") {
+        stripped.trim_end_matches('/')
+    } else {
+        base
+    };
+    let tags_url = format!("{root_base}/api/tags");
+    if let Ok(resp) = client.get(&tags_url).send() {
+        if resp.status().is_success() {
+            if let Ok(body) = resp.json::<Value>() {
+                if let Some(models) = body.get("models").and_then(Value::as_array) {
+                    let mut list: Vec<String> = models
+                        .iter()
+                        .filter_map(|m| {
+                            m.get("name")
+                                .or_else(|| m.get("model"))
+                                .and_then(Value::as_str)
+                        })
+                        .map(str::to_string)
+                        .collect();
+                    if !list.is_empty() {
+                        list.sort();
+                        list.dedup();
+                        return Ok(list);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Vec::new())
+}
+
 pub struct OpenAiCompatibleTranscriber {
     client: Client,
     base_url: String,

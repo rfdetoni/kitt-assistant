@@ -222,6 +222,31 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
                 ),
             }
         }
+        ("POST", "/api/v1/models/discover") => {
+            let result = (|| -> Result<Value, String> {
+                let payload = parse_json_body(&request.body)?;
+                let base_url = payload
+                    .get("base_url")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
+                let api_key_env = payload.get("api_key_env").and_then(Value::as_str);
+                let api_key = api_key_env.and_then(|var| std::env::var(var).ok());
+                let models =
+                    kitt_infrastructure::discover_models_from_url(base_url, api_key.as_deref())
+                        .unwrap_or_default();
+                Ok(json!({ "status": "ok", "models": models }))
+            })();
+            match result {
+                Ok(value) => write_json(&mut stream, 200, value, None),
+                Err(error) => write_json(
+                    &mut stream,
+                    400,
+                    json!({"error": error, "models": []}),
+                    None,
+                ),
+            }
+        }
         _ => write_json(&mut stream, 404, json!({"error":"not found"}), None),
     }
 }
