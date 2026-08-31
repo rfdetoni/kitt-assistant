@@ -56,11 +56,28 @@ npm run build
 cd ../..
 ```
 
-### 3. Start Daemon
+### 3. Native Background Service Management
+
+`kittctl` provides native commands to manage `kittd` as a background OS service (systemd on Linux, LaunchAgent on macOS, Scheduled Tasks on Windows):
 
 ```bash
-# Starts kittd (IPC on 127.0.0.1:41827 and Control Center on 127.0.0.1:41828)
-./target/release/kittd
+# Install and register the background service
+./target/release/kittctl service install
+
+# Start the background service
+./target/release/kittctl service start
+
+# Check service status & daemon health
+./target/release/kittctl service status
+
+# Restart the service
+./target/release/kittctl service restart
+
+# Stop the service
+./target/release/kittctl service stop
+
+# Uninstall the service
+./target/release/kittctl service uninstall
 ```
 
 ### 4. Interacting with `kittctl`

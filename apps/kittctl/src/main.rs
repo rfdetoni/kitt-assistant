@@ -10,10 +10,17 @@ use std::{
     time::Duration,
 };
 
+mod service;
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         usage();
+    }
+
+    if args[1] == "service" {
+        service::handle_service_command(&args[2..]);
+        return;
     }
 
     let (kind, payload) = match args[1].as_str() {
@@ -152,7 +159,7 @@ fn call(addr: &str, token: &str, request: Envelope) -> Envelope {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: kittctl ask <text> | ask-fast <text> | ask-heavy <text> | transcribe <audio-path> [locale] | remember <text> | image <path-or-url> [alt] | ping"
+        "usage: kittctl ask <text> | ask-fast <text> | ask-heavy <text> | transcribe <audio-path> [locale] | remember <text> | image <path-or-url> [alt] | ping | service <install|uninstall|start|stop|restart|status>"
     );
     std::process::exit(2)
 }
