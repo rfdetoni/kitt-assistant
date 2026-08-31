@@ -523,8 +523,21 @@ fn pipeline_loop(
                 {
                     Ok(text) => text.trim().to_string(),
                     Err(error) => {
-                        eprintln!("voice transcription failed: {error}");
-                        thread::sleep(Duration::from_millis(250));
+                        static LAST_STT_ERROR_LOG: std::sync::atomic::AtomicU64 =
+                            std::sync::atomic::AtomicU64::new(0);
+                        let now_secs = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        let last = LAST_STT_ERROR_LOG.load(std::sync::atomic::Ordering::Relaxed);
+                        if now_secs.saturating_sub(last) >= 15 {
+                            LAST_STT_ERROR_LOG
+                                .store(now_secs, std::sync::atomic::Ordering::Relaxed);
+                            eprintln!(
+                                "kitt voice: STT endpoint unreachable ({error}). Start a local Whisper server on port 8000 or disable voice in Control Center (http://127.0.0.1:41828)."
+                            );
+                        }
+                        thread::sleep(Duration::from_millis(500));
                         continue;
                     }
                 };
