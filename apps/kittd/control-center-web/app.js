@@ -23,19 +23,39 @@ function isModelField(field){
   return k==="model" || k.endsWith(".model") || k.endsWith("_model");
 }
 
+function modelCacheKey(sectionId,fieldKey){
+  return `${sectionId}::${fieldKey}`;
+}
+
+function modelBaseUrlCandidates(modelFieldKey){
+  const candidates=[];
+  if(modelFieldKey.endsWith(".model")){
+    candidates.push(`${modelFieldKey.slice(0,-".model".length)}.base_url`);
+  }else if(modelFieldKey.endsWith("_model")){
+    candidates.push(`${modelFieldKey.slice(0,-"_model".length)}_base_url`);
+  }
+  candidates.push("base_url","ollama_url");
+  return candidates;
+}
+
+function modelBaseUrlFieldKey(section,modelFieldKey){
+  return modelBaseUrlCandidates(modelFieldKey)
+    .find(candidate=>section.fields.some(field=>field.key===candidate))||null;
+}
+
+function invalidateModelCachesForChangedField(section,changedFieldKey){
+  for(const modelField of section.fields.filter(isModelField)){
+    if(modelBaseUrlFieldKey(section,modelField.key)===changedFieldKey){
+      state.modelsCache.delete(modelCacheKey(section.id,modelField.key));
+    }
+  }
+}
+
 function getSectionBaseUrl(sectionId, modelFieldKey){
   const s=state.catalog?.sections.find(sec=>sec.id===sectionId);
   if(!s) return "http://127.0.0.1:11434/v1";
 
-  const exactCandidates=[];
-  if(modelFieldKey.endsWith(".model")){
-    exactCandidates.push(`${modelFieldKey.slice(0,-".model".length)}.base_url`);
-  }else if(modelFieldKey.endsWith("_model")){
-    exactCandidates.push(`${modelFieldKey.slice(0,-"_model".length)}_base_url`);
-  }
-  exactCandidates.push("base_url","ollama_url");
-
-  for(const candidate of exactCandidates){
+  for(const candidate of modelBaseUrlCandidates(modelFieldKey)){
     const f=s.fields.find(field=>field.key===candidate);
     if(f){
       const val=current(s,f);
@@ -55,7 +75,7 @@ function control(section,field){
 
   if(isModelField(field)){
     const listId=`list-${esc(k.replace(/::/g,"_"))}`;
-    const cachedModels=state.modelsCache.get(section.id)||[];
+    const cachedModels=state.modelsCache.get(modelCacheKey(section.id,field.key))||[];
     const datalistOptions=cachedModels.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join("");
     return `<input type="${inputType}" ${attr} list="${listId}" ${min} ${max} ${step} value="${esc(shown)}" placeholder="${esc(field.placeholder||"Selecione ou digite o modelo")}" autocomplete="off"><datalist id="${listId}">${datalistOptions}</datalist><button type="button" class="btn-discover" data-discover-section="${esc(section.id)}" data-discover-field="${esc(field.key)}" title="Listar modelos disponíveis na URL do provider">🔍 Listar Modelos</button>`;
   }
@@ -72,7 +92,7 @@ async function discoverModels(sectionId, fieldKey, btnEl=null){
       body:JSON.stringify({base_url:baseUrl})
     });
     const models=result.models||[];
-    state.modelsCache.set(sectionId, models);
+    state.modelsCache.set(modelCacheKey(sectionId,fieldKey), models);
     const listId=`list-${sectionId}_${fieldKey}`;
     const datalist=$(listId);
     if(datalist){
@@ -118,6 +138,7 @@ function bindInputs(){
     if(field.type==="number")value=Number(value);
     if(field.type==="string_list")value=value.split(",").map(v=>v.trim()).filter(Boolean);
     state.pending.set(el.dataset.key,value);
+    invalidateModelCachesForChangedField(section,field.key);
 
     // Network discovery is explicit-only. Editing a URL must not cause
     // unexpected provider traffic or accidental credential egress.
