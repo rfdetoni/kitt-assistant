@@ -288,8 +288,8 @@ fn normalize_language(locale: Option<&str>) -> Option<String> {
 
 fn build_client() -> Result<Client> {
     Client::builder()
-        .connect_timeout(Duration::from_secs(30))
-        .timeout(Duration::from_secs(600))
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(45))
         .build()
         .map_err(|e| AssistantError::Configuration(format!("http client: {e}")))
 }

@@ -976,6 +976,7 @@ fn pipeline_loop(
                     Err((_, error)) => eprintln!("voice assistant request failed: {error}"),
                 }
                 thread::sleep(Duration::from_millis(config.echo_guard_ms));
+                eprintln!("kitt voice: ready and listening");
             }
         }
     }
