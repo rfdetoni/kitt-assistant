@@ -129,16 +129,28 @@ cargo run --release --bin kittd
 ### 2. Controlar o Assistente via Linha de Comando (`kittctl`):
 
 ```bash
-# Verificar status do serviço
-cargo run --release --bin kittctl -- service status
+# Testar conectividade (ping)
+cargo run --release --bin kittctl -- ping
 
-# Enviar comando de texto para o assistente
+# Fazer uma pergunta com roteamento inteligente
 cargo run --release --bin kittctl -- ask "Qual é o status da bateria e memória?"
 
-# Reiniciar após alterar configurações de voz
-cargo run --release --bin kittctl -- service restart
+# Forçar modelo leve (Fast) ou pesado (Heavy)
+cargo run --release --bin kittctl -- ask-fast "Responda em uma palavra: tudo bem?"
+cargo run --release --bin kittctl -- ask-heavy "Escreva uma arquitetura de microserviços completa"
 
-# Parar o serviço
+# Transcrever arquivo de áudio
+cargo run --release --bin kittctl -- transcribe /caminho/do/audio.wav pt
+
+# Gravar uma memória persistente
+cargo run --release --bin kittctl -- remember "Minha linguagem preferida para tooling é Rust"
+
+# Exibir imagem no HUD
+cargo run --release --bin kittctl -- image /caminho/da/imagem.png "Legenda da imagem"
+
+# Gerenciar o serviço em segundo plano (install, start, stop, restart, status)
+cargo run --release --bin kittctl -- service status
+cargo run --release --bin kittctl -- service restart
 cargo run --release --bin kittctl -- service stop
 ```
 
