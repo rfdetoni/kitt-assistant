@@ -13,19 +13,38 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
-async function api(path, options = {}) {
+async function api(path, options = {}, isRetry = false) {
   const headers = {
     "Accept": "application/json",
     ...(options.body ? { "Content-Type": "application/json" } : {}),
     ...(options.headers || {})
   };
-  if (options.method && !["GET", "HEAD"].includes(options.method) && state.csrf) {
-    headers["X-KITT-CSRF"] = state.csrf;
+  if (options.method && !["GET", "HEAD"].includes(options.method)) {
+    if (!state.csrf) {
+      try {
+        const h = await fetch("/api/v1/health", { headers: { "Accept": "application/json" }, credentials: "same-origin" }).then((r) => r.json());
+        if (h.csrf_token) state.csrf = h.csrf_token;
+      } catch (_) {}
+    }
+    if (state.csrf) {
+      headers["X-KITT-CSRF"] = state.csrf;
+    }
   }
   const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
   if (payload.csrf_token) state.csrf = payload.csrf_token;
+  if (!response.ok) {
+    if (response.status === 403 && payload.error && payload.error.includes("CSRF") && !isRetry) {
+      try {
+        const h = await fetch("/api/v1/health", { headers: { "Accept": "application/json" }, credentials: "same-origin" }).then((r) => r.json());
+        if (h.csrf_token) {
+          state.csrf = h.csrf_token;
+          return await api(path, options, true);
+        }
+      } catch (_) {}
+    }
+    throw new Error(payload.error || `HTTP ${response.status}`);
+  }
   return payload;
 }
 
