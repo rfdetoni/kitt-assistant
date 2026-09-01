@@ -1,6 +1,6 @@
 "use strict";
 
-const state={catalog:null,snapshot:null,pending:new Map(),section:null,csrf:null,modelsCache:new Map()};
+const state={catalog:null,snapshot:null,pending:new Map(),section:null,csrf:null,modelsCache:new Map(),modelDiscoveryGeneration:new Map()};
 const $=(id)=>document.getElementById(id);
 
 async function api(path,options={}){
@@ -27,6 +27,17 @@ function modelCacheKey(sectionId,fieldKey){
   return `${sectionId}::${fieldKey}`;
 }
 
+function bumpModelDiscoveryGeneration(sectionId,fieldKey){
+  const cacheKey=modelCacheKey(sectionId,fieldKey);
+  const next=(state.modelDiscoveryGeneration.get(cacheKey)||0)+1;
+  state.modelDiscoveryGeneration.set(cacheKey,next);
+  return next;
+}
+
+function isCurrentModelDiscovery(sectionId,fieldKey,generation){
+  return state.modelDiscoveryGeneration.get(modelCacheKey(sectionId,fieldKey))===generation;
+}
+
 function modelBaseUrlCandidates(modelFieldKey){
   const candidates=[];
   if(modelFieldKey.endsWith(".model")){
@@ -47,6 +58,7 @@ function invalidateModelCachesForChangedField(section,changedFieldKey){
   for(const modelField of section.fields.filter(isModelField)){
     if(modelBaseUrlFieldKey(section,modelField.key)===changedFieldKey){
       state.modelsCache.delete(modelCacheKey(section.id,modelField.key));
+      bumpModelDiscoveryGeneration(section.id,modelField.key);
     }
   }
 }
@@ -85,12 +97,14 @@ function control(section,field){
 
 async function discoverModels(sectionId, fieldKey, btnEl=null){
   const baseUrl=getSectionBaseUrl(sectionId, fieldKey);
+  const generation=bumpModelDiscoveryGeneration(sectionId,fieldKey);
   if(btnEl){btnEl.classList.add("loading");btnEl.textContent="⏳ Buscando...";}
   try{
     const result=await api("/api/v1/models/discover",{
       method:"POST",
       body:JSON.stringify({base_url:baseUrl})
     });
+    if(!isCurrentModelDiscovery(sectionId,fieldKey,generation)) return;
     const models=result.models||[];
     state.modelsCache.set(modelCacheKey(sectionId,fieldKey), models);
     const listId=`list-${sectionId}_${fieldKey}`;
@@ -108,9 +122,13 @@ async function discoverModels(sectionId, fieldKey, btnEl=null){
       toast(`Nenhum modelo retornado por ${baseUrl}. Verifique se o servidor está ativo.`, "bad");
     }
   }catch(e){
-    toast(`Falha ao listar modelos de ${baseUrl}: ${e.message}`, "bad");
+    if(isCurrentModelDiscovery(sectionId,fieldKey,generation)){
+      toast(`Falha ao listar modelos de ${baseUrl}: ${e.message}`, "bad");
+    }
   }finally{
-    if(btnEl){btnEl.classList.remove("loading");btnEl.textContent="🔍 Listar Modelos";}
+    if(btnEl&&isCurrentModelDiscovery(sectionId,fieldKey,generation)){
+      btnEl.classList.remove("loading");btnEl.textContent="🔍 Listar Modelos";
+    }
   }
 }
 
