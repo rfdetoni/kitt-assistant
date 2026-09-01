@@ -19,31 +19,30 @@ function current(section,field){const k=key(section,field);if(state.pending.has(
 function isChanged(section,field){return state.pending.has(key(section,field));}
 
 function isModelField(field){
-  return field.key==="model" || field.key.endsWith("_model") || field.key.includes("model");
+  const k=field.key||"";
+  return k==="model" || k.endsWith(".model") || k.endsWith("_model");
 }
 
-function getSectionBaseUrl(sectionId){
+function getSectionBaseUrl(sectionId, modelFieldKey){
   const s=state.catalog?.sections.find(sec=>sec.id===sectionId);
   if(!s) return "http://127.0.0.1:11434/v1";
-  for(const f of s.fields){
-    if(f.key.includes("base_url")||f.key.includes("ollama_url")||f.key.includes("url")){
+
+  const exactCandidates=[];
+  if(modelFieldKey.endsWith(".model")){
+    exactCandidates.push(`${modelFieldKey.slice(0,-".model".length)}.base_url`);
+  }else if(modelFieldKey.endsWith("_model")){
+    exactCandidates.push(`${modelFieldKey.slice(0,-"_model".length)}_base_url`);
+  }
+  exactCandidates.push("base_url","ollama_url");
+
+  for(const candidate of exactCandidates){
+    const f=s.fields.find(field=>field.key===candidate);
+    if(f){
       const val=current(s,f);
       if(val&&typeof val==="string"&&val.trim()) return val.trim();
     }
   }
   return "http://127.0.0.1:11434/v1";
-}
-
-function getSectionApiKeyEnv(sectionId){
-  const s=state.catalog?.sections.find(sec=>sec.id===sectionId);
-  if(!s) return null;
-  for(const f of s.fields){
-    if(f.key.includes("api_key_env")){
-      const val=current(s,f);
-      if(val&&typeof val==="string"&&val.trim()) return val.trim();
-    }
-  }
-  return null;
 }
 
 function control(section,field){
@@ -65,13 +64,12 @@ function control(section,field){
 }
 
 async function discoverModels(sectionId, fieldKey, btnEl=null){
-  const baseUrl=getSectionBaseUrl(sectionId);
-  const apiKeyEnv=getSectionApiKeyEnv(sectionId);
+  const baseUrl=getSectionBaseUrl(sectionId, fieldKey);
   if(btnEl){btnEl.classList.add("loading");btnEl.textContent="⏳ Buscando...";}
   try{
     const result=await api("/api/v1/models/discover",{
       method:"POST",
-      body:JSON.stringify({base_url:baseUrl,api_key_env:apiKeyEnv})
+      body:JSON.stringify({base_url:baseUrl})
     });
     const models=result.models||[];
     state.modelsCache.set(sectionId, models);
@@ -121,13 +119,8 @@ function bindInputs(){
     if(field.type==="string_list")value=value.split(",").map(v=>v.trim()).filter(Boolean);
     state.pending.set(el.dataset.key,value);
 
-    // If a base_url was changed, automatically discover models for model fields in this section
-    if(field.key.includes("base_url")||field.key.includes("ollama_url")){
-      const modelField=section.fields.find(f=>isModelField(f));
-      if(modelField){
-        discoverModels(section.id, modelField.key);
-      }
-    }
+    // Network discovery is explicit-only. Editing a URL must not cause
+    // unexpected provider traffic or accidental credential egress.
     render();
   }));
 

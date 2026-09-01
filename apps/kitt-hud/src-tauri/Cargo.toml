@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", rev = "4fd1224fbbda3e45ecabc5f5eca9a0fb27546452" }
+kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", rev = "90882e9a44001e96fa84bc30e235d86687e08825" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

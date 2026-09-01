@@ -230,11 +230,10 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .trim();
-                let api_key_env = payload.get("api_key_env").and_then(Value::as_str);
-                let api_key = api_key_env.and_then(|var| std::env::var(var).ok());
-                let models =
-                    kitt_infrastructure::discover_models_from_url(base_url, api_key.as_deref())
-                        .unwrap_or_default();
+                // A browser request must never choose an environment
+                // variable for kittd to read and forward to an arbitrary URL.
+                let models = kitt_infrastructure::discover_models_from_url(base_url, None)
+                    .map_err(|e| e.to_string())?;
                 Ok(json!({ "status": "ok", "models": models }))
             })();
             match result {

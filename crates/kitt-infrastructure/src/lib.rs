@@ -85,75 +85,94 @@ impl ModelPort for OpenAiCompatibleModel {
     }
 }
 
-pub fn discover_models_from_url(base_url: &str, api_key: Option<&str>) -> Result<Vec<String>> {
-    let base = base_url.trim().trim_end_matches('/');
-    if base.is_empty() {
-        return Ok(Vec::new());
+fn normalize_discovery_base_url(base_url: &str) -> Result<String> {
+    let raw = base_url.trim();
+    if raw.is_empty() {
+        return Err(AssistantError::Configuration(
+            "model discovery base_url is required".into(),
+        ));
     }
+    let parsed = reqwest::Url::parse(raw)
+        .map_err(|e| AssistantError::Configuration(format!("invalid discovery URL: {e}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(AssistantError::Configuration(
+            "model discovery only permits http/https URLs".into(),
+        ));
+    }
+    if parsed.host_str().is_none() {
+        return Err(AssistantError::Configuration(
+            "model discovery URL requires a host".into(),
+        ));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AssistantError::Configuration(
+            "credentials embedded in model discovery URLs are forbidden".into(),
+        ));
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(AssistantError::Configuration(
+            "model discovery base_url cannot contain query or fragment".into(),
+        ));
+    }
+    Ok(parsed.to_string().trim_end_matches('/').to_string())
+}
 
+pub fn discover_models_from_url(base_url: &str, api_key: Option<&str>) -> Result<Vec<String>> {
+    let base = normalize_discovery_base_url(base_url)?;
     let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(2))
         .timeout(Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| AssistantError::Model(e.to_string()))?;
 
-    // 1. Try standard OpenAI /v1/models (or {base}/models)
     let models_url = if base.ends_with("/v1") {
         format!("{base}/models")
     } else {
         format!("{base}/v1/models")
     };
-
     let mut req = client.get(&models_url);
-    if let Some(key) = api_key {
-        if !key.trim().is_empty() {
-            req = req.bearer_auth(key);
-        }
+    if let Some(key) = api_key.filter(|key| !key.trim().is_empty()) {
+        req = req.bearer_auth(key);
     }
-
     if let Ok(resp) = req.send() {
-        if resp.status().is_success() {
-            if let Ok(body) = resp.json::<Value>() {
-                if let Some(data) = body.get("data").and_then(Value::as_array) {
-                    let mut list: Vec<String> = data
-                        .iter()
-                        .filter_map(|m| m.get("id").and_then(Value::as_str))
-                        .map(str::to_string)
-                        .collect();
-                    if !list.is_empty() {
-                        list.sort();
-                        list.dedup();
-                        return Ok(list);
-                    }
+        if let Ok(body) = bounded_json(resp, AssistantError::Model) {
+            if let Some(data) = body.get("data").and_then(Value::as_array) {
+                let mut list: Vec<String> = data
+                    .iter()
+                    .filter_map(|m| m.get("id").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect();
+                if !list.is_empty() {
+                    list.sort();
+                    list.dedup();
+                    return Ok(list);
                 }
             }
         }
     }
 
-    // 2. Try Ollama native /api/tags
-    let root_base = if let Some(stripped) = base.strip_suffix("/v1") {
-        stripped.trim_end_matches('/')
-    } else {
-        base
-    };
+    let root_base = base
+        .strip_suffix("/v1")
+        .unwrap_or(&base)
+        .trim_end_matches('/');
     let tags_url = format!("{root_base}/api/tags");
     if let Ok(resp) = client.get(&tags_url).send() {
-        if resp.status().is_success() {
-            if let Ok(body) = resp.json::<Value>() {
-                if let Some(models) = body.get("models").and_then(Value::as_array) {
-                    let mut list: Vec<String> = models
-                        .iter()
-                        .filter_map(|m| {
-                            m.get("name")
-                                .or_else(|| m.get("model"))
-                                .and_then(Value::as_str)
-                        })
-                        .map(str::to_string)
-                        .collect();
-                    if !list.is_empty() {
-                        list.sort();
-                        list.dedup();
-                        return Ok(list);
-                    }
+        if let Ok(body) = bounded_json(resp, AssistantError::Model) {
+            if let Some(models) = body.get("models").and_then(Value::as_array) {
+                let mut list: Vec<String> = models
+                    .iter()
+                    .filter_map(|m| {
+                        m.get("name")
+                            .or_else(|| m.get("model"))
+                            .and_then(Value::as_str)
+                    })
+                    .map(str::to_string)
+                    .collect();
+                if !list.is_empty() {
+                    list.sort();
+                    list.dedup();
+                    return Ok(list);
                 }
             }
         }
@@ -547,6 +566,15 @@ impl MemoryPort for AssistantMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovery_url_validation_rejects_credential_and_non_http_urls() {
+        assert!(normalize_discovery_base_url("http://127.0.0.1:11434/v1").is_ok());
+        assert!(normalize_discovery_base_url("https://api.example.com/v1").is_ok());
+        assert!(normalize_discovery_base_url("file:///tmp/models").is_err());
+        assert!(normalize_discovery_base_url("https://user:secret@example.com/v1").is_err());
+        assert!(normalize_discovery_base_url("https://example.com/v1?token=secret").is_err());
+    }
 
     #[test]
     fn test_assistant_memory_egress_filter() {

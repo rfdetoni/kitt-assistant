@@ -7,8 +7,8 @@ license.workspace = true
 
 [dependencies]
 kitt-domain = { path = "../kitt-domain" }
-kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", rev = "be6b254fd48b7c7a7a9bbe9f5b98fb579fbd5279" }
-kitt-memory-sqlite = { git = "https://github.com/rfdetoni/kitt-memory", rev = "be6b254fd48b7c7a7a9bbe9f5b98fb579fbd5279" }
+kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", rev = "53d4d3325992ddd3505a1ac6fe59357dcf901a97" }
+kitt-memory-sqlite = { git = "https://github.com/rfdetoni/kitt-memory", rev = "53d4d3325992ddd3505a1ac6fe59357dcf901a97" }
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true

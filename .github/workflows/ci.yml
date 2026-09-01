@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rfdetoni/kitt-protocol
-          ref: 4fd1224fbbda3e45ecabc5f5eca9a0fb27546452
+          ref: 90882e9a44001e96fa84bc30e235d86687e08825
           path: kitt-protocol
       - uses: actions/setup-node@v4
         with:

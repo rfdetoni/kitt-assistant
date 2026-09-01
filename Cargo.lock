@@ -1022,7 +1022,7 @@ dependencies = [
 [[package]]
 name = "kitt-memory-core"
 version = "0.1.0"
-source = "git+https://github.com/rfdetoni/kitt-memory.git?rev=be6b254fd48b7c7a7a9bbe9f5b98fb579fbd5279#be6b254fd48b7c7a7a9bbe9f5b98fb579fbd5279"
+source = "git+https://github.com/rfdetoni/kitt-memory?rev=53d4d3325992ddd3505a1ac6fe59357dcf901a97#53d4d3325992ddd3505a1ac6fe59357dcf901a97"
 dependencies = [
  "hex",
  "serde",
@@ -1035,7 +1035,7 @@ dependencies = [
 [[package]]
 name = "kitt-memory-sqlite"
 version = "0.1.0"
-source = "git+https://github.com/rfdetoni/kitt-memory.git?rev=be6b254fd48b7c7a7a9bbe9f5b98fb579fbd5279#be6b254fd48b7c7a7a9bbe9f5b98fb579fbd5279"
+source = "git+https://github.com/rfdetoni/kitt-memory?rev=53d4d3325992ddd3505a1ac6fe59357dcf901a97#53d4d3325992ddd3505a1ac6fe59357dcf901a97"
 dependencies = [
  "kitt-memory-core",
  "rusqlite",
@@ -1045,7 +1045,7 @@ dependencies = [
 [[package]]
 name = "kitt-protocol"
 version = "0.1.0"
-source = "git+https://github.com/rfdetoni/kitt-protocol?rev=4fd1224fbbda3e45ecabc5f5eca9a0fb27546452#4fd1224fbbda3e45ecabc5f5eca9a0fb27546452"
+source = "git+https://github.com/rfdetoni/kitt-protocol?rev=90882e9a44001e96fa84bc30e235d86687e08825#90882e9a44001e96fa84bc30e235d86687e08825"
 dependencies = [
  "serde",
  "serde_json",
