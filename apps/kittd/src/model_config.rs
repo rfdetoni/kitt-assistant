@@ -170,6 +170,12 @@ fn validate_profile(name: &str, base_url: &str, model: &str, local: bool) -> Res
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(format!("{name} provider must use http or https"));
     }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(format!("{name} base_url must not embed credentials"));
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(format!("{name} base_url cannot contain query or fragment"));
+    }
     if local && !is_loopback_host(parsed.host_str()) {
         return Err(format!(
             "{name}.local_provider=true requires localhost/loopback base_url"
@@ -209,6 +215,30 @@ mod tests {
     #[test]
     fn test_remote_provider_accepts_remote_host() {
         assert!(validate_profile("fast", "http://192.168.1.100:11434/v1", "qwen", false).is_ok());
+    }
+
+    #[test]
+    fn test_provider_base_url_rejects_embedded_credentials() {
+        let result = validate_profile("fast", "http://user:pass@127.0.0.1:11434/v1", "qwen", true);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must not embed credentials"));
+    }
+
+    #[test]
+    fn test_provider_base_url_rejects_query_and_fragment() {
+        assert!(
+            validate_profile(
+                "fast",
+                "http://127.0.0.1:11434/v1?token=secret",
+                "qwen",
+                true,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_profile("fast", "http://127.0.0.1:11434/v1#unexpected", "qwen", true,)
+                .is_err()
+        );
     }
 
     #[test]
