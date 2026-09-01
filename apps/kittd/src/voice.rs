@@ -915,6 +915,8 @@ fn pipeline_loop(
                     continue;
                 }
 
+                eprintln!("kitt voice heard transcript: {:?}", transcript);
+
                 let now = Instant::now();
                 let waiting = awaiting_command_until.is_some_and(|deadline| now < deadline);
                 if awaiting_command_until.is_some() && !waiting {
@@ -937,6 +939,7 @@ fn pipeline_loop(
                         } else if let Some(command) = matcher.strip_prefix(&transcript) {
                             command
                         } else {
+                            eprintln!("kitt voice: no wake phrase matched in {:?}", transcript);
                             continue;
                         }
                     }
@@ -944,15 +947,18 @@ fn pipeline_loop(
 
                 let command = command.trim();
                 if command.is_empty() {
+                    eprintln!("kitt voice: wake phrase matched! Listening for command...");
                     awaiting_command_until =
                         Some(Instant::now() + Duration::from_millis(config.command_timeout_ms));
                     show_listening(&runtime, config.command_timeout_ms);
                     continue;
                 }
                 awaiting_command_until = None;
+                eprintln!("kitt voice: executing command: {:?}", command);
 
                 match run_ask(&runtime, command, RouteHint::Auto, true) {
                     Ok(answer) => {
+                        eprintln!("kitt voice answer: {:?}", answer.text);
                         if config.tts_enabled {
                             if let Err(error) = runtime
                                 .service
