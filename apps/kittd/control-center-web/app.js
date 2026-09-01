@@ -89,7 +89,19 @@ function control(section,field){
     const listId=`list-${esc(k.replace(/::/g,"_"))}`;
     const cachedModels=state.modelsCache.get(modelCacheKey(section.id,field.key))||[];
     const datalistOptions=cachedModels.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join("");
-    return `<input type="${inputType}" ${attr} list="${listId}" ${min} ${max} ${step} value="${esc(shown)}" placeholder="${esc(field.placeholder||"Selecione ou digite o modelo")}" autocomplete="off"><datalist id="${listId}">${datalistOptions}</datalist><button type="button" class="btn-discover" data-discover-section="${esc(section.id)}" data-discover-field="${esc(field.key)}" title="Listar modelos disponíveis na URL do provider">🔍 Listar Modelos</button>`;
+    return `<div class="model-picker-wrap" style="display:flex;flex-direction:column;gap:6px;width:100%;">
+      <div style="display:flex;gap:6px;align-items:center;width:100%;">
+        <input type="${inputType}" ${attr} list="${listId}" ${min} ${max} ${step} value="${esc(shown)}" placeholder="${esc(field.placeholder||"Selecione ou digite o modelo")}" autocomplete="off" style="flex:1;">
+        <button type="button" class="btn-discover" data-discover-section="${esc(section.id)}" data-discover-field="${esc(field.key)}" title="Listar modelos disponíveis na URL do provider">🔍 Listar Modelos</button>
+      </div>
+      ${cachedModels.length > 0 ? `
+        <select class="model-picker-select" data-target-key="${esc(k)}" style="font-size:12px;padding:6px 8px;background:#14191e;color:#42d392;border:1px solid #2e3e4d;border-radius:7px;cursor:pointer;">
+          <option value="">▼ Selecionar modelo encontrado (${cachedModels.length} disponíveis)...</option>
+          ${cachedModels.map(m=>`<option value="${esc(m)}" ${String(shown)===m?"selected":""}>${esc(m)}</option>`).join("")}
+        </select>
+      ` : ""}
+      <datalist id="${listId}">${datalistOptions}</datalist>
+    </div>`;
   }
 
   return `<input type="${inputType}" ${attr} ${min} ${max} ${step} value="${esc(shown)}" placeholder="${esc(field.placeholder||"")}" autocomplete="off">`;
@@ -112,12 +124,13 @@ async function discoverModels(sectionId, fieldKey, btnEl=null){
     if(datalist){
       datalist.innerHTML=models.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join("");
     }
+    render();
     const inputEl=document.querySelector(`[data-section="${sectionId}"][data-field="${fieldKey}"]`);
     if(inputEl){
       inputEl.focus();
     }
     if(models.length){
-      toast(`✨ ${models.length} modelos encontrados em ${baseUrl}! Escolha no campo.`);
+      toast(`✨ ${models.length} modelos encontrados em ${baseUrl}! Escolha na lista.`);
     }else{
       toast(`Nenhum modelo retornado por ${baseUrl}. Verifique se o servidor está ativo.`, "bad");
     }
@@ -149,17 +162,36 @@ function render(){
 }
 
 function bindInputs(){
-  document.querySelectorAll("[data-key]").forEach(el=>el.addEventListener("change",()=>{
-    const section=state.catalog.sections.find(s=>s.id===el.dataset.section),field=section.fields.find(f=>f.key===el.dataset.field);
-    let value=el.type==="checkbox"?el.checked:el.value;
-    if(field.type==="integer")value=Number.parseInt(value,10);
-    if(field.type==="number")value=Number(value);
-    if(field.type==="string_list")value=value.split(",").map(v=>v.trim()).filter(Boolean);
-    state.pending.set(el.dataset.key,value);
-    invalidateModelCachesForChangedField(section,field.key);
+  document.querySelectorAll("[data-key]").forEach(el=>{
+    const handleValue=()=>{
+      const section=state.catalog.sections.find(s=>s.id===el.dataset.section),field=section.fields.find(f=>f.key===el.dataset.field);
+      let value=el.type==="checkbox"?el.checked:el.value;
+      if(field.type==="integer")value=Number.parseInt(value,10);
+      if(field.type==="number")value=Number(value);
+      if(field.type==="string_list")value=value.split(",").map(v=>v.trim()).filter(Boolean);
+      state.pending.set(el.dataset.key,value);
+      invalidateModelCachesForChangedField(section,field.key);
+      $("apply-all").disabled=state.pending.size===0;$("reset-all").disabled=state.pending.size===0;
+    };
+    el.addEventListener("input",handleValue);
+    el.addEventListener("change",()=>{
+      handleValue();
+      render();
+    });
+  });
 
-    // Network discovery is explicit-only. Editing a URL must not cause
-    // unexpected provider traffic or accidental credential egress.
+  document.querySelectorAll(".model-picker-select").forEach(sel=>sel.addEventListener("change",(e)=>{
+    const val=e.target.value;
+    if(!val) return;
+    const targetKey=sel.dataset.targetKey;
+    state.pending.set(targetKey,val);
+    const split=targetKey.indexOf("::");
+    const sectionId=targetKey.slice(0,split);
+    const fieldKey=targetKey.slice(split+2);
+    const section=state.catalog.sections.find(s=>s.id===sectionId);
+    if(section){
+      invalidateModelCachesForChangedField(section,fieldKey);
+    }
     render();
   }));
 
