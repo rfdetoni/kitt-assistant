@@ -105,7 +105,7 @@ ExecStart={}
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
-PrivateTmp=true
+PrivateTmp=false
 
 [Install]
 WantedBy=default.target

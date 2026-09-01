@@ -627,9 +627,68 @@ fn worker_launch_candidates() -> Vec<(String, Vec<String>)> {
     }
     candidates.push(("kitt-stt".into(), Vec::new()));
 
+    // Automatically probe candidate virtualenv locations in the workspace / system
+    let mut probe_dirs: Vec<PathBuf> = Vec::new();
+    if let Ok(curr) = std::env::current_dir() {
+        probe_dirs.push(curr.clone());
+        if let Some(p) = curr.parent() {
+            probe_dirs.push(p.to_path_buf());
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(p) = exe.parent() {
+            probe_dirs.push(p.to_path_buf());
+            if let Some(p2) = p.parent() {
+                probe_dirs.push(p2.to_path_buf());
+                if let Some(p3) = p2.parent() {
+                    probe_dirs.push(p3.to_path_buf());
+                }
+            }
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        probe_dirs.push(home.join("otherProjects/kitt"));
+        probe_dirs.push(home.join(".local/bin"));
+    }
+
+    for dir in &probe_dirs {
+        for rel in [
+            "kitt-agent-cli/.venv/bin/kitt-stt",
+            "kitt-ai-workers/.venv/bin/kitt-stt",
+            ".venv/bin/kitt-stt",
+            "kitt-agent-cli/.venv/Scripts/kitt-stt.exe",
+            "kitt-ai-workers/.venv/Scripts/kitt-stt.exe",
+            ".venv/Scripts/kitt-stt.exe",
+        ] {
+            let path = dir.join(rel);
+            if path.is_file() {
+                candidates.push((path.to_string_lossy().to_string(), Vec::new()));
+            }
+        }
+    }
+
     if let Ok(python) = std::env::var("KITT_STT_PYTHON") {
         if !python.trim().is_empty() {
             candidates.push((python, vec!["-m".into(), "kitt_workers.stt_server".into()]));
+        }
+    }
+
+    for dir in &probe_dirs {
+        for rel in [
+            "kitt-agent-cli/.venv/bin/python3",
+            "kitt-agent-cli/.venv/bin/python",
+            "kitt-ai-workers/.venv/bin/python3",
+            "kitt-ai-workers/.venv/bin/python",
+            ".venv/bin/python3",
+            ".venv/bin/python",
+            "kitt-agent-cli/.venv/Scripts/python.exe",
+            "kitt-ai-workers/.venv/Scripts/python.exe",
+            ".venv/Scripts/python.exe",
+        ] {
+            let path = dir.join(rel);
+            if path.is_file() {
+                candidates.push((path.to_string_lossy().to_string(), vec!["-m".into(), "kitt_workers.stt_server".into()]));
+            }
         }
     }
 
@@ -960,11 +1019,18 @@ impl WakePhraseMatcher {
             .map(|token| normalize_token(token))
             .collect();
         for phrase in &self.phrases {
-            if normalized.len() < phrase.len() {
+            if phrase.is_empty() {
                 continue;
             }
-            if normalized[..phrase.len()] == phrase[..] {
+            if normalized.len() >= phrase.len() && normalized[..phrase.len()] == phrase[..] {
                 return Some(original[phrase.len()..].join(" "));
+            }
+            for offset in 1..=2 {
+                if normalized.len() >= offset + phrase.len()
+                    && normalized[offset..offset + phrase.len()] == phrase[..]
+                {
+                    return Some(original[offset + phrase.len()..].join(" "));
+                }
             }
         }
         None
@@ -981,6 +1047,15 @@ fn normalize_tokens(text: &str) -> Vec<String> {
 fn normalize_token(token: &str) -> String {
     token
         .chars()
+        .map(|ch| match ch.to_ascii_lowercase() {
+            'á' | 'à' | 'ã' | 'â' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'õ' | 'ô' | 'ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            other => other,
+        })
         .filter(|ch| ch.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
