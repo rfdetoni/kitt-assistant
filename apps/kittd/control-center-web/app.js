@@ -1,227 +1,406 @@
 "use strict";
 
-const state={catalog:null,snapshot:null,pending:new Map(),section:null,csrf:null,modelsCache:new Map(),modelDiscoveryGeneration:new Map()};
-const $=(id)=>document.getElementById(id);
+const state = {
+  catalog: null,
+  snapshot: null,
+  pending: new Map(),
+  section: null,
+  csrf: null,
+  modelsCache: new Map(),
+  modelDiscoveryGeneration: new Map(),
+  customInputMode: new Set()
+};
 
-async function api(path,options={}){
-  const headers={"Accept":"application/json",...(options.body?{"Content-Type":"application/json"}:{}),...(options.headers||{})};
-  if(options.method && !["GET","HEAD"].includes(options.method) && state.csrf) headers["X-KITT-CSRF"]=state.csrf;
-  const response=await fetch(path,{...options,headers,credentials:"same-origin"});
-  const payload=await response.json().catch(()=>({}));
-  if(!response.ok) throw new Error(payload.error||`HTTP ${response.status}`);
-  if(payload.csrf_token) state.csrf=payload.csrf_token;
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const headers = {
+    "Accept": "application/json",
+    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(options.headers || {})
+  };
+  if (options.method && !["GET", "HEAD"].includes(options.method) && state.csrf) {
+    headers["X-KITT-CSRF"] = state.csrf;
+  }
+  const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+  if (payload.csrf_token) state.csrf = payload.csrf_token;
   return payload;
 }
 
-function esc(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
-function key(section,field){return `${section.id}::${field.key}`;}
-function current(section,field){const k=key(section,field);if(state.pending.has(k))return state.pending.get(k);return state.snapshot?.values?.[section.id]?.[field.key]??field.default??null;}
-function isChanged(section,field){return state.pending.has(key(section,field));}
-
-function isModelField(field){
-  const k=field.key||"";
-  return k==="model" || k.endsWith(".model") || k.endsWith("_model");
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  }[c]));
 }
 
-function modelCacheKey(sectionId,fieldKey){
+function key(section, field) {
+  return `${section.id}::${field.key}`;
+}
+
+function current(section, field) {
+  const k = key(section, field);
+  if (state.pending.has(k)) return state.pending.get(k);
+  return state.snapshot?.values?.[section.id]?.[field.key] ?? field.default ?? null;
+}
+
+function isChanged(section, field) {
+  return state.pending.has(key(section, field));
+}
+
+function isModelField(field) {
+  const k = field.key || "";
+  return k === "model" || k.endsWith(".model") || k.endsWith("_model");
+}
+
+function modelCacheKey(sectionId, fieldKey) {
   return `${sectionId}::${fieldKey}`;
 }
 
-function bumpModelDiscoveryGeneration(sectionId,fieldKey){
-  const cacheKey=modelCacheKey(sectionId,fieldKey);
-  const next=(state.modelDiscoveryGeneration.get(cacheKey)||0)+1;
-  state.modelDiscoveryGeneration.set(cacheKey,next);
+function bumpModelDiscoveryGeneration(sectionId, fieldKey) {
+  const cacheKey = modelCacheKey(sectionId, fieldKey);
+  const next = (state.modelDiscoveryGeneration.get(cacheKey) || 0) + 1;
+  state.modelDiscoveryGeneration.set(cacheKey, next);
   return next;
 }
 
-function isCurrentModelDiscovery(sectionId,fieldKey,generation){
-  return state.modelDiscoveryGeneration.get(modelCacheKey(sectionId,fieldKey))===generation;
+function isCurrentModelDiscovery(sectionId, fieldKey, generation) {
+  return state.modelDiscoveryGeneration.get(modelCacheKey(sectionId, fieldKey)) === generation;
 }
 
-function modelBaseUrlCandidates(modelFieldKey){
-  const candidates=[];
-  if(modelFieldKey.endsWith(".model")){
-    candidates.push(`${modelFieldKey.slice(0,-".model".length)}.base_url`);
-  }else if(modelFieldKey.endsWith("_model")){
-    candidates.push(`${modelFieldKey.slice(0,-"_model".length)}_base_url`);
+function modelBaseUrlCandidates(modelFieldKey) {
+  const candidates = [];
+  if (modelFieldKey.endsWith(".model")) {
+    candidates.push(`${modelFieldKey.slice(0, -".model".length)}.base_url`);
+  } else if (modelFieldKey.endsWith("_model")) {
+    candidates.push(`${modelFieldKey.slice(0, -"_model".length)}_base_url`);
   }
-  candidates.push("base_url","ollama_url");
+  candidates.push("base_url", "ollama_url");
   return candidates;
 }
 
-function modelBaseUrlFieldKey(section,modelFieldKey){
+function modelBaseUrlFieldKey(section, modelFieldKey) {
   return modelBaseUrlCandidates(modelFieldKey)
-    .find(candidate=>section.fields.some(field=>field.key===candidate))||null;
+    .find((candidate) => section.fields.some((field) => field.key === candidate)) || null;
 }
 
-function invalidateModelCachesForChangedField(section,changedFieldKey){
-  for(const modelField of section.fields.filter(isModelField)){
-    if(modelBaseUrlFieldKey(section,modelField.key)===changedFieldKey){
-      state.modelsCache.delete(modelCacheKey(section.id,modelField.key));
-      bumpModelDiscoveryGeneration(section.id,modelField.key);
+function invalidateModelCachesForChangedField(section, changedFieldKey) {
+  for (const modelField of section.fields.filter(isModelField)) {
+    if (modelBaseUrlFieldKey(section, modelField.key) === changedFieldKey) {
+      state.modelsCache.delete(modelCacheKey(section.id, modelField.key));
+      state.customInputMode.delete(modelCacheKey(section.id, modelField.key));
+      bumpModelDiscoveryGeneration(section.id, modelField.key);
     }
   }
 }
 
-function getSectionBaseUrl(sectionId, modelFieldKey){
-  const s=state.catalog?.sections.find(sec=>sec.id===sectionId);
-  if(!s) return "http://127.0.0.1:11434/v1";
+function getSectionBaseUrl(sectionId, modelFieldKey) {
+  const s = state.catalog?.sections.find((sec) => sec.id === sectionId);
+  if (!s) return "http://127.0.0.1:11434/v1";
 
-  for(const candidate of modelBaseUrlCandidates(modelFieldKey)){
-    const f=s.fields.find(field=>field.key===candidate);
-    if(f){
-      const val=current(s,f);
-      if(val&&typeof val==="string"&&val.trim()) return val.trim();
+  for (const candidate of modelBaseUrlCandidates(modelFieldKey)) {
+    const f = s.fields.find((field) => field.key === candidate);
+    if (f) {
+      const val = current(s, f);
+      if (val && typeof val === "string" && val.trim()) return val.trim();
     }
   }
   return "http://127.0.0.1:11434/v1";
 }
 
-function control(section,field){
-  const k=key(section,field),value=current(section,field),attr=`data-key="${esc(k)}" data-section="${esc(section.id)}" data-field="${esc(field.key)}"`;
-  if(field.type==="boolean") return `<label class="switch"><input type="checkbox" ${attr} ${value?"checked":""}><span></span></label>`;
-  if(field.type==="enum") return `<select ${attr}>${(field.options||[]).map(o=>`<option value="${esc(o)}" ${String(value)===o?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
-  const inputType=field.type==="integer"||field.type==="number"?"number":"text";
-  const min=field.minimum!==undefined?`min="${field.minimum}"`:"",max=field.maximum!==undefined?`max="${field.maximum}"`:"",step=field.type==="number"?'step="any"':"";
-  const shown=field.type==="string_list"&&Array.isArray(value)?value.join(", "):value??"";
+function control(section, field) {
+  const k = key(section, field);
+  const value = current(section, field);
+  const attr = `data-key="${esc(k)}" data-section="${esc(section.id)}" data-field="${esc(field.key)}"`;
 
-  if(isModelField(field)){
-    const listId=`list-${esc(k.replace(/::/g,"_"))}`;
-    const cachedModels=state.modelsCache.get(modelCacheKey(section.id,field.key))||[];
-    const datalistOptions=cachedModels.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join("");
-    return `<div class="model-picker-wrap" style="display:flex;flex-direction:column;gap:6px;width:100%;">
-      <div style="display:flex;gap:6px;align-items:center;width:100%;">
-        <input type="${inputType}" ${attr} list="${listId}" ${min} ${max} ${step} value="${esc(shown)}" placeholder="${esc(field.placeholder||"Selecione ou digite o modelo")}" autocomplete="off" style="flex:1;">
-        <button type="button" class="btn-discover" data-discover-section="${esc(section.id)}" data-discover-field="${esc(field.key)}" title="Listar modelos disponíveis na URL do provider">🔍 Listar Modelos</button>
-      </div>
-      ${cachedModels.length > 0 ? `
-        <select class="model-picker-select" data-target-key="${esc(k)}" style="font-size:12px;padding:6px 8px;background:#14191e;color:#42d392;border:1px solid #2e3e4d;border-radius:7px;cursor:pointer;">
-          <option value="">▼ Selecionar modelo encontrado (${cachedModels.length} disponíveis)...</option>
-          ${cachedModels.map(m=>`<option value="${esc(m)}" ${String(shown)===m?"selected":""}>${esc(m)}</option>`).join("")}
+  if (field.type === "boolean") {
+    return `<label class="switch"><input type="checkbox" ${attr} ${value ? "checked" : ""}><span></span></label>`;
+  }
+
+  if (field.type === "enum") {
+    return `<select ${attr}>${(field.options || []).map((o) => `<option value="${esc(o)}" ${String(value) === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+  }
+
+  const inputType = field.type === "integer" || field.type === "number" ? "number" : "text";
+  const min = field.minimum !== undefined ? `min="${field.minimum}"` : "";
+  const max = field.maximum !== undefined ? `max="${field.maximum}"` : "";
+  const step = field.type === "number" ? 'step="any"' : "";
+  const shown = field.type === "string_list" && Array.isArray(value) ? value.join(", ") : (value ?? "");
+
+  if (isModelField(field)) {
+    const cKey = modelCacheKey(section.id, field.key);
+    const cachedModels = state.modelsCache.get(cKey) || [];
+    const isCustom = state.customInputMode.has(cKey);
+    const listId = `list-${esc(k.replace(/::/g, "_"))}`;
+
+    if (cachedModels.length > 0 && !isCustom) {
+      const hasCurrentInList = cachedModels.includes(String(shown));
+      return `<div class="model-picker-wrap">
+        <select ${attr} class="model-select">
+          ${!hasCurrentInList && shown ? `<option value="${esc(shown)}" selected>${esc(shown)} (atual)</option>` : ""}
+          <option value="" disabled ${!shown ? "selected" : ""}>-- Selecione um modelo --</option>
+          ${cachedModels.map((m) => `<option value="${esc(m)}" ${String(shown) === m ? "selected" : ""}>${esc(m)}</option>`).join("")}
+          <option value="__custom_mode__">✏️ Digitar modelo customizado...</option>
         </select>
-      ` : ""}
+        <button type="button" class="btn-discover" data-discover-section="${esc(section.id)}" data-discover-field="${esc(field.key)}" title="Atualizar modelos disponíveis">🔄 Atualizar</button>
+      </div>`;
+    }
+
+    const datalistOptions = cachedModels.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+    return `<div class="model-picker-wrap">
+      <input type="${inputType}" ${attr} list="${listId}" ${min} ${max} ${step} value="${esc(shown)}" placeholder="${esc(field.placeholder || "Selecione ou digite o modelo")}" autocomplete="off">
       <datalist id="${listId}">${datalistOptions}</datalist>
+      <button type="button" class="btn-discover" data-discover-section="${esc(section.id)}" data-discover-field="${esc(field.key)}" title="Listar modelos disponíveis no provedor">🔍 Listar Modelos</button>
+      ${cachedModels.length > 0 ? `<button type="button" class="ghost btn-toggle-select" data-section="${esc(section.id)}" data-field="${esc(field.key)}" title="Voltar para lista de seleção">▼ Lista</button>` : ""}
     </div>`;
   }
 
-  return `<input type="${inputType}" ${attr} ${min} ${max} ${step} value="${esc(shown)}" placeholder="${esc(field.placeholder||"")}" autocomplete="off">`;
+  return `<input type="${inputType}" ${attr} ${min} ${max} ${step} value="${esc(shown)}" placeholder="${esc(field.placeholder || "")}" autocomplete="off">`;
 }
 
-async function discoverModels(sectionId, fieldKey, btnEl=null){
-  const baseUrl=getSectionBaseUrl(sectionId, fieldKey);
-  const generation=bumpModelDiscoveryGeneration(sectionId,fieldKey);
-  if(btnEl){btnEl.classList.add("loading");btnEl.textContent="⏳ Buscando...";}
-  try{
-    const result=await api("/api/v1/models/discover",{
-      method:"POST",
-      body:JSON.stringify({base_url:baseUrl})
+async function discoverModels(sectionId, fieldKey, btnEl = null) {
+  const baseUrl = getSectionBaseUrl(sectionId, fieldKey);
+  const generation = bumpModelDiscoveryGeneration(sectionId, fieldKey);
+  if (btnEl) {
+    btnEl.classList.add("loading");
+    btnEl.textContent = "⏳ Buscando...";
+  }
+
+  try {
+    const result = await api("/api/v1/models/discover", {
+      method: "POST",
+      body: JSON.stringify({ base_url: baseUrl })
     });
-    if(!isCurrentModelDiscovery(sectionId,fieldKey,generation)) return;
-    const models=result.models||[];
-    state.modelsCache.set(modelCacheKey(sectionId,fieldKey), models);
-    const listId=`list-${sectionId}_${fieldKey}`;
-    const datalist=$(listId);
-    if(datalist){
-      datalist.innerHTML=models.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join("");
+    if (!isCurrentModelDiscovery(sectionId, fieldKey, generation)) return;
+
+    const models = result.models || [];
+    state.modelsCache.set(modelCacheKey(sectionId, fieldKey), models);
+    state.customInputMode.delete(modelCacheKey(sectionId, fieldKey));
+
+    const listId = `list-${sectionId}_${fieldKey}`;
+    const datalist = $(listId);
+    if (datalist) {
+      datalist.innerHTML = models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
     }
+
     render();
-    const inputEl=document.querySelector(`[data-section="${sectionId}"][data-field="${fieldKey}"]`);
-    if(inputEl){
-      inputEl.focus();
-    }
-    if(models.length){
-      toast(`✨ ${models.length} modelos encontrados em ${baseUrl}! Escolha na lista.`);
-    }else{
+
+    if (models.length) {
+      toast(`✨ ${models.length} modelos encontrados em ${baseUrl}!`);
+    } else {
       toast(`Nenhum modelo retornado por ${baseUrl}. Verifique se o servidor está ativo.`, "bad");
     }
-  }catch(e){
-    if(isCurrentModelDiscovery(sectionId,fieldKey,generation)){
+  } catch (e) {
+    if (isCurrentModelDiscovery(sectionId, fieldKey, generation)) {
       toast(`Falha ao listar modelos de ${baseUrl}: ${e.message}`, "bad");
     }
-  }finally{
-    if(btnEl&&isCurrentModelDiscovery(sectionId,fieldKey,generation)){
-      btnEl.classList.remove("loading");btnEl.textContent="🔍 Listar Modelos";
+  } finally {
+    if (btnEl && isCurrentModelDiscovery(sectionId, fieldKey, generation)) {
+      btnEl.classList.remove("loading");
+      btnEl.textContent = state.modelsCache.get(modelCacheKey(sectionId, fieldKey))?.length ? "🔄 Atualizar" : "🔍 Listar Modelos";
     }
   }
 }
 
-function render(){
-  const sections=state.catalog?.sections||[];
-  if(!state.section&&sections.length)state.section=sections[0].id;
-  $("nav").innerHTML=sections.map(s=>`<button class="nav-item ${s.id===state.section?"active":""}" data-nav="${esc(s.id)}"><span>${esc(s.title)}</span><span class="count">${s.fields.length}</span></button>`).join("");
-  const filter=$("search").value.trim().toLowerCase();
-  const visible=sections.filter(s=>!filter||s.title.toLowerCase().includes(filter)||s.component.toLowerCase().includes(filter)||s.fields.some(f=>(f.label+" "+(f.description||"")+" "+f.key).toLowerCase().includes(filter))).filter(s=>filter||s.id===state.section);
-  $("content").innerHTML=visible.map(section=>{
-    const fields=section.fields.filter(f=>!filter||(f.label+" "+(f.description||"")+" "+f.key+" "+section.title).toLowerCase().includes(filter));
-    const changed=fields.some(f=>isChanged(section,f));
-    return `<article class="section-card"><header class="section-head"><div><h2>${esc(section.title)}</h2><p>${esc(section.description||section.component)}</p></div><span class="badge ${changed?"changed":""}">${changed?"modificado":esc(section.component)}</span></header><div class="fields">${fields.map(field=>`<div class="field ${field.advanced?"advanced":""}"><div class="field-label"><span>${esc(field.label)}</span>${field.apply_mode!=="live"?`<span class="restart">${field.apply_mode==="daemon_restart"?"REINICIA KITT":"RESTART"}</span>`:""}</div><div class="control">${control(section,field)}</div>${field.description?`<p>${esc(field.description)}</p>`:""}</div>`).join("")}</div></article>`;
-  }).join("")||`<div class="alert">Nenhuma configuração encontrada.</div>`;
-  $("apply-all").disabled=state.pending.size===0;$("reset-all").disabled=state.pending.size===0;
-  $("revision").textContent=`rev ${state.snapshot?.revision??"–"}`;
-  bindInputs();bindNav();
+function render() {
+  const sections = state.catalog?.sections || [];
+  if (!state.section && sections.length) state.section = sections[0].id;
+
+  $("nav").innerHTML = sections.map((s) => `
+    <button class="nav-item ${s.id === state.section ? "active" : ""}" data-nav="${esc(s.id)}">
+      <span>${esc(s.title)}</span>
+      <span class="count">${s.fields.length}</span>
+    </button>
+  `).join("");
+
+  const filter = $("search").value.trim().toLowerCase();
+  const visible = sections
+    .filter((s) => !filter || s.title.toLowerCase().includes(filter) || s.component.toLowerCase().includes(filter) || s.fields.some((f) => (f.label + " " + (f.description || "") + " " + f.key).toLowerCase().includes(filter)))
+    .filter((s) => filter || s.id === state.section);
+
+  $("content").innerHTML = visible.map((section) => {
+    const fields = section.fields.filter((f) => !filter || (f.label + " " + (f.description || "") + " " + f.key + " " + section.title).toLowerCase().includes(filter));
+    const changed = fields.some((f) => isChanged(section, f));
+
+    return `
+      <article class="section-card">
+        <header class="section-head">
+          <div>
+            <h2>${esc(section.title)}</h2>
+            <p>${esc(section.description || section.component)}</p>
+          </div>
+          <span class="badge ${changed ? "changed" : ""}">${changed ? "Modificado" : esc(section.component)}</span>
+        </header>
+        <div class="fields">
+          ${fields.map((field) => `
+            <div class="field ${field.advanced ? "advanced" : ""}">
+              <div class="field-label">
+                <span>${esc(field.label)}</span>
+                ${field.apply_mode !== "live" ? `<span class="restart">${field.apply_mode === "daemon_restart" ? "REINICIA KITT" : "RESTART"}</span>` : ""}
+              </div>
+              <div class="control">${control(section, field)}</div>
+              ${field.description ? `<p>${esc(field.description)}</p>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      </article>
+    `;
+  }).join("") || `<div class="alert">Nenhuma configuração encontrada.</div>`;
+
+  $("apply-all").disabled = state.pending.size === 0;
+  $("reset-all").disabled = state.pending.size === 0;
+  $("revision").textContent = `rev ${state.snapshot?.revision ?? "–"}`;
+
+  bindInputs();
+  bindNav();
 }
 
-function bindInputs(){
-  document.querySelectorAll("[data-key]").forEach(el=>{
-    const handleValue=()=>{
-      const section=state.catalog.sections.find(s=>s.id===el.dataset.section),field=section.fields.find(f=>f.key===el.dataset.field);
-      let value=el.type==="checkbox"?el.checked:el.value;
-      if(field.type==="integer")value=Number.parseInt(value,10);
-      if(field.type==="number")value=Number(value);
-      if(field.type==="string_list")value=value.split(",").map(v=>v.trim()).filter(Boolean);
-      state.pending.set(el.dataset.key,value);
-      invalidateModelCachesForChangedField(section,field.key);
-      $("apply-all").disabled=state.pending.size===0;$("reset-all").disabled=state.pending.size===0;
+function bindInputs() {
+  document.querySelectorAll("[data-key]").forEach((el) => {
+    const handleValue = () => {
+      const section = state.catalog.sections.find((s) => s.id === el.dataset.section);
+      const field = section.fields.find((f) => f.key === el.dataset.field);
+      let value = el.type === "checkbox" ? el.checked : el.value;
+
+      if (value === "__custom_mode__") {
+        state.customInputMode.add(modelCacheKey(section.id, field.key));
+        render();
+        const inputEl = document.querySelector(`[data-section="${section.id}"][data-field="${field.key}"]`);
+        if (inputEl) inputEl.focus();
+        return;
+      }
+
+      if (field.type === "integer") value = Number.parseInt(value, 10);
+      if (field.type === "number") value = Number(value);
+      if (field.type === "string_list") value = value.split(",").map((v) => v.trim()).filter(Boolean);
+
+      state.pending.set(el.dataset.key, value);
+      invalidateModelCachesForChangedField(section, field.key);
+      $("apply-all").disabled = state.pending.size === 0;
+      $("reset-all").disabled = state.pending.size === 0;
     };
-    el.addEventListener("input",handleValue);
-    el.addEventListener("change",()=>{
+
+    el.addEventListener("input", handleValue);
+    el.addEventListener("change", () => {
       handleValue();
       render();
     });
   });
 
-  document.querySelectorAll(".model-picker-select").forEach(sel=>sel.addEventListener("change",(e)=>{
-    const val=e.target.value;
-    if(!val) return;
-    const targetKey=sel.dataset.targetKey;
-    state.pending.set(targetKey,val);
-    const split=targetKey.indexOf("::");
-    const sectionId=targetKey.slice(0,split);
-    const fieldKey=targetKey.slice(split+2);
-    const section=state.catalog.sections.find(s=>s.id===sectionId);
-    if(section){
-      invalidateModelCachesForChangedField(section,fieldKey);
-    }
+  document.querySelectorAll(".btn-toggle-select").forEach((btn) => btn.addEventListener("click", () => {
+    const sec = btn.dataset.section;
+    const fld = btn.dataset.field;
+    state.customInputMode.delete(modelCacheKey(sec, fld));
     render();
   }));
 
-  document.querySelectorAll("[data-discover-section]").forEach(btn=>btn.addEventListener("click",()=>{
-    const sec=btn.dataset.discoverSection,fld=btn.dataset.discoverField;
+  document.querySelectorAll("[data-discover-section]").forEach((btn) => btn.addEventListener("click", () => {
+    const sec = btn.dataset.discoverSection;
+    const fld = btn.dataset.discoverField;
     discoverModels(sec, fld, btn);
   }));
 }
 
-function bindNav(){document.querySelectorAll("[data-nav]").forEach(el=>el.addEventListener("click",()=>{state.section=el.dataset.nav;$("search").value="";render();}));}
-function toast(message,type="good"){const node=document.createElement("div");node.className=`alert ${type}`;node.textContent=message;$("alerts").replaceChildren(node);setTimeout(()=>node.remove(),4500);}
-function changesObject(){const out={};for(const [compound,value] of state.pending){const split=compound.indexOf("::");const section=compound.slice(0,split),field=compound.slice(split+2);(out[section]??={})[field]=value;}return out;}
-
-async function preview(){try{const result=await api("/api/v1/validate",{method:"POST",body:JSON.stringify({expected_revision:state.snapshot.revision,changes:changesObject()})});$("diff").textContent=JSON.stringify(result.diff||changesObject(),null,2);$("diff-dialog").showModal();}catch(e){toast(e.message,"bad");}}
-async function apply(){try{const result=await api("/api/v1/config",{method:"PUT",body:JSON.stringify({expected_revision:state.snapshot.revision,changes:changesObject()})});state.pending.clear();state.snapshot=result.snapshot||await api("/api/v1/config");render();toast(result.restart_required?.length?`Aplicado. Reinício necessário: ${result.restart_required.join(", ")}`:"Configuração aplicada.");}catch(e){toast(e.message,"bad");}}
-
-async function boot(){
-  try{
-    const [health,catalog,snapshot]=await Promise.all([api("/api/v1/health"),api("/api/v1/catalog"),api("/api/v1/config")]);
-    state.catalog=catalog;state.snapshot=snapshot;state.csrf=health.csrf_token||state.csrf;
-    $("daemon-status").textContent=health.status==="ok"?"kittd online":"kittd degradado";
-    $("overview").innerHTML=[
-      ["Daemon",health.status||"unknown","ok"],
-      ["Componentes",String(new Set(catalog.sections.map(s=>s.component)).size),""],
-      ["Seções",String(catalog.sections.length),""],
-      ["Modo",health.bind||"loopback","ok"]
-    ].map(([l,v,c])=>`<div class="metric"><small>${esc(l)}</small><strong class="${c}">${esc(v)}</strong></div>`).join("");
+function bindNav() {
+  document.querySelectorAll("[data-nav]").forEach((el) => el.addEventListener("click", () => {
+    state.section = el.dataset.nav;
+    $("search").value = "";
     render();
-  }catch(e){$("daemon-dot").style.background="var(--bad)";toast(`Falha ao carregar Control Center: ${e.message}`,"bad");}
+  }));
 }
 
-$("search").addEventListener("input",render);$("reset-all").addEventListener("click",()=>{state.pending.clear();render();});$("apply-all").addEventListener("click",preview);$("confirm-apply").addEventListener("click",e=>{e.preventDefault();$("diff-dialog").close();apply();});boot();
+function toast(message, type = "good") {
+  const node = document.createElement("div");
+  node.className = `alert ${type}`;
+  node.textContent = message;
+  $("alerts").replaceChildren(node);
+  setTimeout(() => node.remove(), 4500);
+}
 
+function changesObject() {
+  const out = {};
+  for (const [compound, value] of state.pending) {
+    const split = compound.indexOf("::");
+    const section = compound.slice(0, split);
+    const field = compound.slice(split + 2);
+    (out[section] ??= {})[field] = value;
+  }
+  return out;
+}
+
+async function preview() {
+  try {
+    const result = await api("/api/v1/validate", {
+      method: "POST",
+      body: JSON.stringify({
+        expected_revision: state.snapshot.revision,
+        changes: changesObject()
+      })
+    });
+    $("diff").textContent = JSON.stringify(result.diff || changesObject(), null, 2);
+    $("diff-dialog").showModal();
+  } catch (e) {
+    toast(e.message, "bad");
+  }
+}
+
+async function apply() {
+  try {
+    const result = await api("/api/v1/config", {
+      method: "PUT",
+      body: JSON.stringify({
+        expected_revision: state.snapshot.revision,
+        changes: changesObject()
+      })
+    });
+    state.pending.clear();
+    state.snapshot = result.snapshot || await api("/api/v1/config");
+    render();
+    toast(result.restart_required?.length ? `Aplicado com sucesso. Reinício necessário: ${result.restart_required.join(", ")}` : "Configuração aplicada com sucesso!");
+  } catch (e) {
+    toast(e.message, "bad");
+  }
+}
+
+async function boot() {
+  try {
+    const [health, catalog, snapshot] = await Promise.all([
+      api("/api/v1/health"),
+      api("/api/v1/catalog"),
+      api("/api/v1/config")
+    ]);
+    state.catalog = catalog;
+    state.snapshot = snapshot;
+    state.csrf = health.csrf_token || state.csrf;
+    $("daemon-status").textContent = health.status === "ok" ? "kittd online" : "kittd degradado";
+    $("overview").innerHTML = [
+      ["Daemon", health.status || "unknown", "ok"],
+      ["Componentes", String(new Set(catalog.sections.map((s) => s.component)).size), ""],
+      ["Seções", String(catalog.sections.length), ""],
+      ["Modo", health.bind || "loopback", "ok"]
+    ].map(([l, v, c]) => `<div class="metric"><small>${esc(l)}</small><strong class="${c}">${esc(v)}</strong></div>`).join("");
+    render();
+  } catch (e) {
+    $("daemon-dot").style.background = "var(--bad)";
+    toast(`Falha ao carregar Control Center: ${e.message}`, "bad");
+  }
+}
+
+$("search").addEventListener("input", render);
+$("reset-all").addEventListener("click", () => {
+  state.pending.clear();
+  render();
+});
+$("apply-all").addEventListener("click", preview);
+$("confirm-apply").addEventListener("click", (e) => {
+  e.preventDefault();
+  $("diff-dialog").close();
+  apply();
+});
+
+boot();
