@@ -1075,6 +1075,7 @@ dependencies = [
  "kitt-memory-core",
  "kitt-memory-sqlite",
  "kitt-protocol",
+ "reqwest",
  "rustpotter",
  "serde",
  "serde_json",

@@ -93,9 +93,9 @@ cd ..\..
 
 ### Arquivo de Configuração de Modelos (`models.json`):
 Localizado em:
-- **Linux**: `~/.config/kitt/models.json`
-- **macOS**: `~/Library/Application Support/kitt/models.json`
-- **Windows**: `%APPDATA%\kitt\models.json`
+- **Linux**: `~/.config/kitt/assistant/models.json`
+- **macOS**: `~/Library/Application Support/kitt/assistant/models.json`
+- **Windows**: `%APPDATA%\kitt\assistant\models.json`
 
 ```json
 {
@@ -129,18 +129,17 @@ cargo run --release --bin kittd
 ### 2. Controlar o Assistente via Linha de Comando (`kittctl`):
 
 ```bash
-# Verificar status do daemon
-cargo run --release --bin kittctl -- status
+# Verificar status do serviço
+cargo run --release --bin kittctl -- service status
 
 # Enviar comando de texto para o assistente
 cargo run --release --bin kittctl -- ask "Qual é o status da bateria e memória?"
 
-# Ativar/Desativar modo de escuta por voz
-cargo run --release --bin kittctl -- voice on
-cargo run --release --bin kittctl -- voice off
+# Reiniciar após alterar configurações de voz
+cargo run --release --bin kittctl -- service restart
 
-# Encerrar o daemon graciosamente
-cargo run --release --bin kittctl -- stop
+# Parar o serviço
+cargo run --release --bin kittctl -- service stop
 ```
 
 ---

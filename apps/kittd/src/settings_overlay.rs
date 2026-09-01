@@ -107,6 +107,7 @@ pub(crate) fn apply_models(config_dir: &Path, profiles: &mut ModelProfiles) -> R
     {
         profiles.speech_to_text.allow_remote = x;
     }
+    profiles.migrate_known_broken_stt_default();
     if let Some(x) = v.get("fast_max_chars").and_then(Value::as_u64) {
         profiles.fast_max_chars = usize::try_from(x).map_err(|_| "fast_max_chars out of range")?;
     }
@@ -158,6 +159,11 @@ pub(crate) fn apply_voice(config_dir: &Path, config: &mut VoiceConfig) -> Result
     set_u64(&v, "silence_ms", &mut config.silence_ms);
     set_u64(&v, "max_utterance_ms", &mut config.max_utterance_ms);
     set_u64(&v, "command_timeout_ms", &mut config.command_timeout_ms);
+    if let Some(x) = v.get("stt_autostart").and_then(Value::as_bool) {
+        config.stt_autostart = x;
+    }
+    set_string(&v, "stt_worker_model", &mut config.stt_worker_model);
+    set_u64(&v, "stt_start_timeout_ms", &mut config.stt_start_timeout_ms);
     if let Some(x) = v.get("tts_enabled").and_then(Value::as_bool) {
         config.tts_enabled = x;
     }

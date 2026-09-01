@@ -75,6 +75,8 @@ struct Runtime {
     memory: Arc<SqliteMemoryStore>,
     hud: HudBroadcaster,
     hud_process: Mutex<Option<Child>>,
+    stt_base_url: String,
+    stt_worker_process: Mutex<Option<Child>>,
     config: Config,
     active_connections: AtomicUsize,
 }
@@ -174,6 +176,7 @@ fn main() {
     .unwrap_or_else(|e| fatal(e));
     settings_overlay::apply_models(&paths.dir, &mut profiles).unwrap_or_else(|e| fatal(e));
     profiles.validate().unwrap_or_else(|e| fatal(e));
+    let stt_base_url = profiles.speech_to_text.base_url.clone();
     let fast_model = Arc::new(
         OpenAiCompatibleModel::new(
             profiles.fast.base_url.clone(),
@@ -225,6 +228,8 @@ fn main() {
         memory,
         hud: HudBroadcaster::new(),
         hud_process: Mutex::new(None),
+        stt_base_url,
+        stt_worker_process: Mutex::new(None),
         config: config.clone(),
         active_connections: AtomicUsize::new(0),
     });

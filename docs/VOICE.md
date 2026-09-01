@@ -87,7 +87,22 @@ For privacy, this mode refuses to start when STT is remote: pre-activation ambie
 
 ## STT configuration
 
-The Assistant uses the existing OpenAI-compatible `/audio/transcriptions` adapter. A typical local configuration is:
+The Assistant uses the existing OpenAI-compatible `/audio/transcriptions` adapter.
+The KITT local STT default is `http://127.0.0.1:8000/v1`; port `11434` is reserved
+for Ollama/model traffic and is not used as the Whisper default.
+
+When local STT is selected and unavailable, Voice can supervise a `kitt-stt`
+worker automatically. Install the STT extra first:
+
+```bash
+cd kitt-ai-workers
+python3 -m pip install -e ".[stt]"
+```
+
+`kitt-stt` is then started on demand. `KITT_STT_WORKER_BIN` can point to a custom
+worker executable and `KITT_STT_PYTHON` can select the Python interpreter.
+
+A typical local configuration is:
 
 ```json
 {

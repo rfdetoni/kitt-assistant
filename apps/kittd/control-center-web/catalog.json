@@ -172,7 +172,8 @@
           "key": "speech_to_text.base_url",
           "label": "STT base URL",
           "type": "url",
-          "default": "http://127.0.0.1:11434/v1",
+          "default": "http://127.0.0.1:8000/v1",
+          "description": "Servidor STT local OpenAI-compatible. O worker KITT usa 127.0.0.1:8000 por padrão.",
           "apply_mode": "daemon_restart"
         },
         {
@@ -317,6 +318,32 @@
           "default": 7000,
           "minimum": 100,
           "maximum": 120000,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_autostart",
+          "label": "Auto-start local STT worker",
+          "type": "boolean",
+          "default": true,
+          "description": "Quando o STT local não está disponível, tenta iniciar kitt-stt/kitt_workers automaticamente.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_worker_model",
+          "label": "Local STT worker model",
+          "type": "string",
+          "default": "base",
+          "description": "Modelo carregado pelo faster-whisper/openai-whisper local.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_start_timeout_ms",
+          "label": "STT startup timeout (ms)",
+          "type": "integer",
+          "default": 60000,
+          "minimum": 1000,
+          "maximum": 300000,
+          "advanced": true,
           "apply_mode": "daemon_restart"
         },
         {

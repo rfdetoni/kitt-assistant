@@ -21,3 +21,4 @@ url.workspace = true
 cpal.workspace = true
 hound.workspace = true
 rustpotter.workspace = true
+reqwest.workspace = true

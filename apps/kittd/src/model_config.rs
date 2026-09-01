@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, net::IpAddr, path::Path};
 
+pub(crate) const DEFAULT_STT_BASE_URL: &str = "http://127.0.0.1:8000/v1";
+const LEGACY_BROKEN_STT_BASE_URL: &str = "http://127.0.0.1:11434/v1";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderProfile {
     pub base_url: String,
@@ -54,11 +57,15 @@ impl ModelProfiles {
     ) -> Result<Self, String> {
         let path = dir.join("models.json");
         if path.exists() {
-            let profiles: Self = serde_json::from_str(
+            let mut profiles: Self = serde_json::from_str(
                 &fs::read_to_string(&path).map_err(|e| format!("read models.json: {e}"))?,
             )
             .map_err(|e| format!("parse models.json: {e}"))?;
+            let migrated = profiles.migrate_known_broken_stt_default();
             profiles.validate()?;
+            if migrated {
+                write_profiles(&path, &profiles)?;
+            }
             return Ok(profiles);
         }
 
@@ -73,7 +80,7 @@ impl ModelProfiles {
         let heavy_base_url =
             std::env::var("KITT_HEAVY_BASE_URL").unwrap_or_else(|_| legacy_base_url.to_string());
         let stt_base_url =
-            std::env::var("KITT_STT_BASE_URL").unwrap_or_else(|_| legacy_base_url.to_string());
+            std::env::var("KITT_STT_BASE_URL").unwrap_or_else(|_| DEFAULT_STT_BASE_URL.to_string());
 
         let profiles = Self {
             fast: ProviderProfile {
@@ -108,12 +115,29 @@ impl ModelProfiles {
             fast_max_lines: default_fast_lines(),
         };
         profiles.validate()?;
-        fs::write(
-            &path,
-            serde_json::to_string_pretty(&profiles).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| format!("write models.json: {e}"))?;
+        write_profiles(&path, &profiles)?;
         Ok(profiles)
+    }
+
+    pub(crate) fn migrate_known_broken_stt_default(&mut self) -> bool {
+        let speech = &mut self.speech_to_text;
+        let has_no_key = speech
+            .api_key_env
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty());
+        let is_known_bad_default = speech.base_url.trim_end_matches('/')
+            == LEGACY_BROKEN_STT_BASE_URL
+            && speech.model.trim() == "whisper-1"
+            && speech.local_provider
+            && !speech.allow_remote
+            && has_no_key;
+
+        if is_known_bad_default {
+            speech.base_url = DEFAULT_STT_BASE_URL.to_string();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -140,6 +164,14 @@ impl ModelProfiles {
         }
         Ok(())
     }
+}
+
+fn write_profiles(path: &Path, profiles: &ModelProfiles) -> Result<(), String> {
+    fs::write(
+        path,
+        serde_json::to_string_pretty(profiles).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("write models.json: {e}"))
 }
 
 pub fn api_key(env_name: Option<&String>) -> Option<String> {
@@ -239,6 +271,39 @@ mod tests {
             validate_profile("fast", "http://127.0.0.1:11434/v1#unexpected", "qwen", true,)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn test_known_broken_stt_default_is_migrated() {
+        let mut profiles = ModelProfiles {
+            fast: ProviderProfile {
+                base_url: "http://127.0.0.1:11434/v1".into(),
+                model: "qwen".into(),
+                api_key_env: None,
+                local_provider: true,
+            },
+            heavy: ProviderProfile {
+                base_url: "http://127.0.0.1:11434/v1".into(),
+                model: "qwen".into(),
+                api_key_env: None,
+                local_provider: true,
+            },
+            speech_to_text: SpeechProfile {
+                base_url: LEGACY_BROKEN_STT_BASE_URL.into(),
+                model: "whisper-1".into(),
+                api_key_env: None,
+                local_provider: true,
+                allow_remote: false,
+            },
+            fast_max_chars: 360,
+            fast_max_lines: 4,
+        };
+        assert!(profiles.migrate_known_broken_stt_default());
+        assert_eq!(profiles.speech_to_text.base_url, DEFAULT_STT_BASE_URL);
+
+        profiles.speech_to_text.base_url = "http://127.0.0.1:9000/v1".into();
+        assert!(!profiles.migrate_known_broken_stt_default());
+        assert_eq!(profiles.speech_to_text.base_url, "http://127.0.0.1:9000/v1");
     }
 
     #[test]

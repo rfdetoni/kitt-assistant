@@ -12,8 +12,9 @@ use std::{
     collections::VecDeque,
     fs,
     fs::OpenOptions,
-    io::BufWriter,
+    io::{BufWriter, Read},
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -29,6 +30,10 @@ const WAKEWORD_KEY: &str = "kitt";
 const CAPTURE_RESTART_MIN: Duration = Duration::from_secs(1);
 const CAPTURE_RESTART_MAX: Duration = Duration::from_secs(30);
 const STALE_AUDIO_MAX_AGE: Duration = Duration::from_secs(6 * 60 * 60);
+const STT_HEALTH_MAX_BYTES: u64 = 64 * 1024;
+const STT_HEALTH_CONNECT_TIMEOUT: Duration = Duration::from_millis(750);
+const STT_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
+const STT_START_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -54,6 +59,9 @@ pub struct VoiceConfig {
     pub silence_ms: u64,
     pub max_utterance_ms: u64,
     pub command_timeout_ms: u64,
+    pub stt_autostart: bool,
+    pub stt_worker_model: String,
+    pub stt_start_timeout_ms: u64,
     pub tts_enabled: bool,
     pub echo_guard_ms: u64,
 }
@@ -78,6 +86,9 @@ impl Default for VoiceConfig {
             silence_ms: 650,
             max_utterance_ms: 12_000,
             command_timeout_ms: 7_000,
+            stt_autostart: true,
+            stt_worker_model: "base".into(),
+            stt_start_timeout_ms: 60_000,
             tts_enabled: true,
             echo_guard_ms: 350,
         }
@@ -131,6 +142,12 @@ impl VoiceConfig {
             || self.command_timeout_ms == 0
         {
             return Err("invalid voice timing configuration".into());
+        }
+        if self.stt_worker_model.trim().is_empty() {
+            return Err("voice stt_worker_model cannot be empty".into());
+        }
+        if !(1_000..=300_000).contains(&self.stt_start_timeout_ms) {
+            return Err("voice stt_start_timeout_ms must be between 1000 and 300000".into());
         }
         Ok(())
     }
@@ -208,6 +225,13 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
         }
     }
 
+    if mode == ActivationMode::TranscriptPrefix && runtime.service.transcriber_is_local() {
+        if let Err(error) = ensure_local_stt_ready(&runtime, &config) {
+            show_voice_error(&runtime, &format!("STT local indisponível: {error}"));
+            return Err(error);
+        }
+    }
+
     let paused = Arc::new(AtomicBool::new(false));
     let (events_tx, events_rx) = mpsc::sync_channel(EVENT_QUEUE);
 
@@ -215,6 +239,7 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
     let capture_dir = config_dir.to_path_buf();
     let capture_paused = paused.clone();
     let capture_events = events_tx.clone();
+    let capture_runtime = runtime.clone();
     thread::Builder::new()
         .name("kitt-voice-capture".into())
         .spawn(move || {
@@ -231,7 +256,11 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
                 match result {
                     Ok(()) => eprintln!("kitt voice capture stream ended; reopening microphone"),
                     Err(error) => {
-                        eprintln!("kitt voice capture failed: {error}; reopening microphone")
+                        eprintln!("kitt voice capture failed: {error}; reopening microphone");
+                        show_voice_error(
+                            &capture_runtime,
+                            &format!("Microfone indisponível: {error}"),
+                        );
                     }
                 }
                 if started.elapsed() >= Duration::from_secs(60) {
@@ -491,6 +520,280 @@ fn send_event(tx: &SyncSender<CaptureEvent>, event: CaptureEvent) -> Result<(), 
     }
 }
 
+#[derive(Debug)]
+enum LocalSttProbe {
+    Ready,
+    Unreachable(String),
+    Degraded(String),
+}
+
+fn stt_health_url(base_url: &str) -> String {
+    format!("{}/health", base_url.trim_end_matches('/'))
+}
+
+fn probe_local_stt(base_url: &str) -> LocalSttProbe {
+    let client = match reqwest::blocking::Client::builder()
+        .connect_timeout(STT_HEALTH_CONNECT_TIMEOUT)
+        .timeout(STT_HEALTH_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => return LocalSttProbe::Unreachable(error.to_string()),
+    };
+
+    let response = match client.get(stt_health_url(base_url)).send() {
+        Ok(response) => response,
+        Err(error) => return LocalSttProbe::Unreachable(error.to_string()),
+    };
+    let status = response.status();
+    if !status.is_success() {
+        return LocalSttProbe::Degraded(format!("health endpoint returned HTTP {status}"));
+    }
+    if response
+        .content_length()
+        .is_some_and(|size| size > STT_HEALTH_MAX_BYTES)
+    {
+        return LocalSttProbe::Degraded("health response is too large".into());
+    }
+
+    let mut bytes = Vec::new();
+    if let Err(error) = response
+        .take(STT_HEALTH_MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+    {
+        return LocalSttProbe::Degraded(format!("health response read failed: {error}"));
+    }
+    if bytes.len() as u64 > STT_HEALTH_MAX_BYTES {
+        return LocalSttProbe::Degraded("health response is too large".into());
+    }
+
+    let body: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(body) => body,
+        Err(error) => {
+            return LocalSttProbe::Degraded(format!("invalid STT health JSON: {error}"));
+        }
+    };
+    if body.get("ready").and_then(serde_json::Value::as_bool) == Some(true) {
+        LocalSttProbe::Ready
+    } else {
+        let status = body
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("degraded");
+        let engine = body
+            .get("engine")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        LocalSttProbe::Degraded(format!("status={status}, engine={engine}"))
+    }
+}
+
+fn local_worker_endpoint(base_url: &str) -> Result<(String, u16), String> {
+    let parsed =
+        url::Url::parse(base_url).map_err(|error| format!("invalid local STT URL: {error}"))?;
+    if parsed.scheme() != "http" {
+        return Err("local STT worker auto-start requires an http URL".into());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "local STT URL has no host".to_string())?;
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false);
+    if !loopback {
+        return Err("local STT worker auto-start requires a loopback host".into());
+    }
+    if host.contains(':') {
+        return Err("local STT worker auto-start currently requires IPv4 loopback".into());
+    }
+    if parsed.path().trim_end_matches('/') != "/v1" {
+        return Err("local STT worker auto-start requires base_url ending in /v1".into());
+    }
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| "local STT URL has no usable port".to_string())?;
+    Ok((host.to_string(), port))
+}
+
+fn worker_launch_candidates() -> Vec<(String, Vec<String>)> {
+    let mut candidates = Vec::new();
+    if let Ok(bin) = std::env::var("KITT_STT_WORKER_BIN") {
+        if !bin.trim().is_empty() {
+            candidates.push((bin, Vec::new()));
+        }
+    }
+    candidates.push(("kitt-stt".into(), Vec::new()));
+
+    if let Ok(python) = std::env::var("KITT_STT_PYTHON") {
+        if !python.trim().is_empty() {
+            candidates.push((python, vec!["-m".into(), "kitt_workers.stt_server".into()]));
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        candidates.push((
+            "py".into(),
+            vec!["-3".into(), "-m".into(), "kitt_workers.stt_server".into()],
+        ));
+        candidates.push((
+            "python".into(),
+            vec!["-m".into(), "kitt_workers.stt_server".into()],
+        ));
+    }
+    #[cfg(not(windows))]
+    {
+        candidates.push((
+            "python3".into(),
+            vec!["-m".into(), "kitt_workers.stt_server".into()],
+        ));
+        candidates.push((
+            "python".into(),
+            vec!["-m".into(), "kitt_workers.stt_server".into()],
+        ));
+    }
+    candidates
+}
+
+fn spawn_local_stt_worker(runtime: &Arc<Runtime>, config: &VoiceConfig) -> Result<(), String> {
+    let (host, port) = local_worker_endpoint(&runtime.stt_base_url)?;
+    let mut guard = runtime
+        .stt_worker_process
+        .lock()
+        .map_err(|_| "local STT worker lock poisoned".to_string())?;
+
+    let existing_status = match guard.as_mut() {
+        Some(child) => child
+            .try_wait()
+            .map_err(|error| format!("inspect local STT worker: {error}"))?,
+        None => None,
+    };
+    match existing_status {
+        None if guard.is_some() => return Ok(()),
+        Some(_) => *guard = None,
+        None => {}
+    }
+
+    let common_args = vec![
+        "--host".to_string(),
+        host,
+        "--port".to_string(),
+        port.to_string(),
+        "--model".to_string(),
+        config.stt_worker_model.trim().to_string(),
+        "--parent-stdin-lifecycle".to_string(),
+    ];
+
+    let mut failures = Vec::new();
+    for (program, prefix_args) in worker_launch_candidates() {
+        let mut command = Command::new(&program);
+        command.args(prefix_args).args(&common_args);
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+        match command.spawn() {
+            Ok(child) => {
+                *guard = Some(child);
+                eprintln!("kitt voice: started local STT worker using {program}");
+                return Ok(());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                failures.push(format!("{program}: not found"));
+            }
+            Err(error) => failures.push(format!("{program}: {error}")),
+        }
+    }
+
+    Err(format!(
+        "could not start local STT worker ({}). Install kitt-ai-workers[stt] or set KITT_STT_WORKER_BIN/KITT_STT_PYTHON",
+        failures.join("; ")
+    ))
+}
+
+fn owned_stt_worker_exit(runtime: &Arc<Runtime>) -> Result<Option<String>, String> {
+    let mut guard = runtime
+        .stt_worker_process
+        .lock()
+        .map_err(|_| "local STT worker lock poisoned".to_string())?;
+    let status = match guard.as_mut() {
+        Some(child) => child
+            .try_wait()
+            .map_err(|error| format!("inspect local STT worker: {error}"))?,
+        None => return Ok(None),
+    };
+    if let Some(status) = status {
+        *guard = None;
+        Ok(Some(status.to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+fn stop_owned_stt_worker(runtime: &Arc<Runtime>) {
+    let Ok(mut guard) = runtime.stt_worker_process.lock() else {
+        return;
+    };
+    let Some(mut child) = guard.take() else {
+        return;
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn ensure_local_stt_ready(runtime: &Arc<Runtime>, config: &VoiceConfig) -> Result<(), String> {
+    match probe_local_stt(&runtime.stt_base_url) {
+        LocalSttProbe::Ready => return Ok(()),
+        LocalSttProbe::Degraded(detail) => {
+            return Err(format!("local STT server is not ready: {detail}"));
+        }
+        LocalSttProbe::Unreachable(error) if !config.stt_autostart => {
+            return Err(format!("local STT endpoint is unreachable: {error}"));
+        }
+        LocalSttProbe::Unreachable(_) => {}
+    }
+
+    spawn_local_stt_worker(runtime, config)?;
+    let deadline = Instant::now() + Duration::from_millis(config.stt_start_timeout_ms);
+    loop {
+        match probe_local_stt(&runtime.stt_base_url) {
+            LocalSttProbe::Ready => return Ok(()),
+            LocalSttProbe::Degraded(detail) => {
+                stop_owned_stt_worker(runtime);
+                return Err(format!(
+                    "local STT worker started but is not ready: {detail}. Install the STT extra with pip install -e '.[stt]'"
+                ));
+            }
+            LocalSttProbe::Unreachable(_) => {}
+        }
+
+        if let Some(status) = owned_stt_worker_exit(runtime)? {
+            return Err(format!(
+                "local STT worker exited before becoming ready: {status}"
+            ));
+        }
+        if Instant::now() >= deadline {
+            stop_owned_stt_worker(runtime);
+            return Err(format!(
+                "local STT worker did not become ready within {} ms",
+                config.stt_start_timeout_ms
+            ));
+        }
+        thread::sleep(STT_START_POLL_INTERVAL);
+    }
+}
+
+fn show_voice_error(runtime: &Arc<Runtime>, message: &str) {
+    ensure_hud(runtime);
+    runtime.hud.send(HudEvent::Text {
+        content: format!("KITT Voice: {message}"),
+        ttl_ms: 10_000,
+    });
+}
+
 fn pipeline_loop(
     runtime: Arc<Runtime>,
     config: VoiceConfig,
@@ -507,6 +810,13 @@ fn pipeline_loop(
                 awaiting_command_until =
                     Some(Instant::now() + Duration::from_millis(config.command_timeout_ms));
                 show_listening(&runtime, config.command_timeout_ms);
+                if runtime.service.transcriber_is_local() {
+                    if let Err(error) = ensure_local_stt_ready(&runtime, &config) {
+                        awaiting_command_until = None;
+                        eprintln!("kitt voice: local STT startup failed after wake: {error}");
+                        show_voice_error(&runtime, &format!("STT local indisponível: {error}"));
+                    }
+                }
             }
             CaptureEvent::WakeExpired => {
                 awaiting_command_until = None;
@@ -534,9 +844,10 @@ fn pipeline_loop(
                             LAST_STT_ERROR_LOG
                                 .store(now_secs, std::sync::atomic::Ordering::Relaxed);
                             eprintln!(
-                                "kitt voice: STT endpoint unreachable ({error}). Start a local Whisper server on port 8000 or disable voice in Control Center (http://127.0.0.1:41828)."
+                                "kitt voice: STT endpoint unreachable ({error}). Install kitt-ai-workers[stt] or start kitt-stt on port 8000."
                             );
                         }
+                        show_voice_error(&runtime, &format!("Falha na transcrição: {error}"));
                         thread::sleep(Duration::from_millis(500));
                         continue;
                     }
@@ -905,6 +1216,20 @@ mod tests {
         assert!(segmenter.push(&[0.2; 20]).is_none());
         let result = segmenter.push(&[0.0; 20]);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn local_stt_supervisor_targets_openai_compatible_worker_endpoint() {
+        assert_eq!(
+            stt_health_url("http://127.0.0.1:8000/v1"),
+            "http://127.0.0.1:8000/v1/health"
+        );
+        assert_eq!(
+            local_worker_endpoint("http://127.0.0.1:8000/v1").unwrap(),
+            ("127.0.0.1".into(), 8000)
+        );
+        assert!(local_worker_endpoint("http://192.168.1.10:8000/v1").is_err());
+        assert!(local_worker_endpoint("http://127.0.0.1:8000/custom").is_err());
     }
 
     #[test]
