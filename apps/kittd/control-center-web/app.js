@@ -134,7 +134,10 @@ function control(section, field) {
 
   if (isModelField(field)) {
     const cKey = modelCacheKey(section.id, field.key);
-    const cachedModels = state.modelsCache.get(cKey) || [];
+    let cachedModels = state.modelsCache.get(cKey) || [];
+    if (cachedModels.length === 0 && (field.key.includes("speech_to_text") || field.key.includes("stt_worker"))) {
+      cachedModels = ["whisper-1", "base", "tiny", "small", "medium", "large-v3"];
+    }
     const isCustom = state.customInputMode.has(cKey);
     const listId = `list-${esc(k.replace(/::/g, "_"))}`;
 
