@@ -524,6 +524,14 @@
           "apply_mode": "daemon_restart"
         },
         {
+          "key": "wake_gain_ref",
+          "label": "Wakeword Gain Reference",
+          "type": "number",
+          "default": 0.0,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
           "key": "stt_connect_timeout_ms",
           "label": "STT Connect Timeout (ms)",
           "type": "integer",
@@ -557,6 +565,16 @@
           "apply_mode": "daemon_restart"
         },
         {
+          "key": "stt_idle_shutdown_seconds",
+          "label": "STT Idle Shutdown (s)",
+          "type": "integer",
+          "default": 300,
+          "minimum": 0,
+          "maximum": 86400,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
           "key": "stt_device",
           "label": "STT Device",
           "type": "string",
@@ -569,6 +587,17 @@
           "label": "STT Compute Type",
           "type": "string",
           "default": "default",
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_cpu_threads",
+          "label": "STT CPU Threads",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 64,
+          "description": "0 = automático",
           "advanced": true,
           "apply_mode": "daemon_restart"
         },
@@ -593,10 +622,48 @@
           "apply_mode": "daemon_restart"
         },
         {
+          "key": "stt_local_files_only",
+          "label": "STT Local Files Only",
+          "type": "boolean",
+          "default": true,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
           "key": "stt_vad_filter",
           "label": "STT VAD Filter (Silero)",
           "type": "boolean",
           "default": true,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_vad_min_silence_ms",
+          "label": "STT VAD Min Silence (ms)",
+          "type": "integer",
+          "default": 300,
+          "minimum": 50,
+          "maximum": 5000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_vad_speech_pad_ms",
+          "label": "STT VAD Speech Pad (ms)",
+          "type": "integer",
+          "default": 220,
+          "minimum": 0,
+          "maximum": 2000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_no_speech_threshold",
+          "label": "STT No Speech Threshold",
+          "type": "number",
+          "default": 0.6,
+          "minimum": 0.0,
+          "maximum": 1.0,
           "advanced": true,
           "apply_mode": "daemon_restart"
         },
@@ -644,6 +711,46 @@
           "label": "Piper Voice Model",
           "type": "string",
           "default": "",
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_piper_speaker",
+          "label": "Piper Speaker ID",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 1000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_piper_length_scale",
+          "label": "Piper Length Scale",
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.1,
+          "maximum": 5.0,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_piper_noise_scale",
+          "label": "Piper Noise Scale",
+          "type": "number",
+          "default": 0.667,
+          "minimum": 0.0,
+          "maximum": 2.0,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_piper_noise_w_scale",
+          "label": "Piper Noise W Scale",
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0.0,
+          "maximum": 2.0,
           "advanced": true,
           "apply_mode": "daemon_restart"
         },
@@ -742,6 +849,86 @@
           "type": "boolean",
           "default": true,
           "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_children",
+          "label": "Max child agents",
+          "type": "integer",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 16,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_child_depth",
+          "label": "Max child depth",
+          "type": "integer",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 5,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "child_token_budget",
+          "label": "Child token budget",
+          "type": "integer",
+          "default": 2048,
+          "minimum": 256,
+          "maximum": 65536,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "child_timeout_seconds",
+          "label": "Child timeout (s)",
+          "type": "number",
+          "default": 120.0,
+          "minimum": 1.0,
+          "maximum": 3600.0,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "process_output_bytes",
+          "label": "Max process output bytes",
+          "type": "integer",
+          "default": 262144,
+          "minimum": 1024,
+          "maximum": 16777216,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "process_grace_seconds",
+          "label": "Process grace period (s)",
+          "type": "number",
+          "default": 3.0,
+          "minimum": 0.5,
+          "maximum": 60.0,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "tool_runtime_mode",
+          "label": "Tool runtime mode",
+          "type": "enum",
+          "default": "auto",
+          "options": [
+            "auto",
+            "native",
+            "restricted"
+          ],
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "daemon_local_fallback",
+          "label": "Daemon local fallback",
+          "type": "boolean",
+          "default": false,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "retained_agents_enabled",
+          "label": "Retained agents",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "component_restart"
         }
       ]
     },
@@ -789,6 +976,15 @@
           "apply_mode": "component_restart"
         },
         {
+          "key": "max_context_retrieval_tokens",
+          "label": "Max retrieval tokens",
+          "type": "integer",
+          "default": 8192,
+          "minimum": 512,
+          "maximum": 131072,
+          "apply_mode": "component_restart"
+        },
+        {
           "key": "compaction_keep_recent",
           "label": "Keep recent turns",
           "type": "integer",
@@ -798,12 +994,75 @@
           "apply_mode": "component_restart"
         },
         {
+          "key": "compaction_min_tokens",
+          "label": "Compaction min tokens",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65536,
+          "apply_mode": "component_restart"
+        },
+        {
           "key": "max_compaction_cycles",
           "label": "Compaction cycles",
           "type": "integer",
           "default": 2,
           "minimum": 0,
           "maximum": 10,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_skills_per_prompt",
+          "label": "Max skills per prompt",
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 20,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_skill_body_chars",
+          "label": "Max skill body chars",
+          "type": "integer",
+          "default": 16000,
+          "minimum": 1000,
+          "maximum": 100000,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_harness_chars",
+          "label": "Max harness chars",
+          "type": "integer",
+          "default": 12000,
+          "minimum": 1000,
+          "maximum": 100000,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_index_file_bytes",
+          "label": "Max index file bytes",
+          "type": "integer",
+          "default": 524288,
+          "minimum": 1024,
+          "maximum": 16777216,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_index_files",
+          "label": "Max index files",
+          "type": "integer",
+          "default": 20000,
+          "minimum": 100,
+          "maximum": 500000,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_index_bytes",
+          "label": "Max index bytes",
+          "type": "integer",
+          "default": 268435456,
+          "minimum": 1048576,
+          "maximum": 1073741824,
           "apply_mode": "component_restart"
         },
         {
@@ -821,12 +1080,73 @@
           "apply_mode": "component_restart"
         },
         {
+          "key": "dream_auto_commit",
+          "label": "Dream auto commit",
+          "type": "boolean",
+          "default": false,
+          "apply_mode": "component_restart"
+        },
+        {
           "key": "dream_min_interval_hours",
           "label": "Dream min interval (h)",
           "type": "integer",
           "default": 24,
           "minimum": 1,
           "maximum": 720,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "dream_min_completed_sessions",
+          "label": "Dream min sessions",
+          "type": "integer",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 100,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "dream_max_sessions",
+          "label": "Dream max sessions",
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 1000,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "dream_max_entries",
+          "label": "Dream max entries",
+          "type": "integer",
+          "default": 200,
+          "minimum": 10,
+          "maximum": 10000,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_correction_cycles",
+          "label": "Max correction cycles",
+          "type": "integer",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 10,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_followup_generation",
+          "label": "Max followup generation",
+          "type": "integer",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 10,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "max_followup_per_turn",
+          "label": "Max followup per turn",
+          "type": "integer",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 10,
           "apply_mode": "component_restart"
         }
       ]
@@ -848,6 +1168,15 @@
           "apply_mode": "component_restart"
         },
         {
+          "key": "max_read_lines",
+          "label": "Max read lines",
+          "type": "integer",
+          "default": 5000,
+          "minimum": 100,
+          "maximum": 100000,
+          "apply_mode": "component_restart"
+        },
+        {
           "key": "max_read_bytes",
           "label": "Max read bytes",
           "type": "integer",
@@ -866,12 +1195,28 @@
           "apply_mode": "component_restart"
         },
         {
+          "key": "max_search_bytes",
+          "label": "Max search bytes",
+          "type": "integer",
+          "default": 262144,
+          "minimum": 1024,
+          "maximum": 16777216,
+          "apply_mode": "component_restart"
+        },
+        {
           "key": "max_search_time_ms",
           "label": "Search timeout (ms)",
           "type": "integer",
           "default": 3000,
           "minimum": 100,
           "maximum": 60000,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "switch_workspace_in_memory_only",
+          "label": "Switch workspace in memory only",
+          "type": "boolean",
+          "default": false,
           "apply_mode": "component_restart"
         }
       ]
