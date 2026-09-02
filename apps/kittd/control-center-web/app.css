@@ -1033,3 +1033,100 @@ pre#diff {
     scroll-behavior: auto !important;
   }
 }
+/* R11 — Reverse Proxy on-demand launcher */
+.reverse-proxy-launcher {
+  margin: 0 18px 18px;
+  padding: 18px;
+  border: 1px solid var(--line-light);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(229, 9, 20, 0.06), rgba(255, 255, 255, 0.015));
+}
+
+.reverse-proxy-launch-head,
+.reverse-proxy-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reverse-proxy-launch-head h3 {
+  margin: 0 0 4px;
+}
+
+.reverse-proxy-launch-head p,
+.reverse-proxy-profile-note,
+.reverse-proxy-help,
+.reverse-proxy-warning {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.reverse-proxy-quick-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr);
+  gap: 12px;
+  margin: 16px 0 10px;
+}
+
+.reverse-proxy-quick-grid > label,
+.reverse-proxy-info {
+  display: grid;
+  gap: 6px;
+}
+
+.reverse-proxy-quick-grid > label > span,
+.reverse-proxy-info > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.reverse-proxy-info {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.reverse-proxy-info code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reverse-proxy-actions {
+  justify-content: flex-start;
+  margin-top: 14px;
+}
+
+.reverse-proxy-actions button {
+  min-height: 40px;
+}
+
+.reverse-proxy-warning {
+  margin-top: 8px;
+  color: var(--warn);
+}
+
+.reverse-proxy-help {
+  margin-top: 12px;
+}
+
+@media (max-width: 700px) {
+  .reverse-proxy-launcher {
+    margin: 0 12px 14px;
+    padding: 14px;
+  }
+  .reverse-proxy-quick-grid {
+    grid-template-columns: 1fr;
+  }
+  .reverse-proxy-actions button {
+    flex: 1 1 180px;
+  }
+}

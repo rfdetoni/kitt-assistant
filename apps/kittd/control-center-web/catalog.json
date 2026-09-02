@@ -1256,7 +1256,9 @@
           "key": "model",
           "label": "Mapping model",
           "type": "string",
-          "default": "qwen2.5-coder:7b",
+          "default": "",
+          "placeholder": "Opcional: modelo Ollama para aprender mapping network",
+          "description": "UI transport não precisa de Ollama. Em network transport, deixe vazio para usar o fallback determinístico ou configure explicitamente um modelo.",
           "apply_mode": "component_restart"
         },
         {

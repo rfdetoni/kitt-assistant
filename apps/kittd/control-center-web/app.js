@@ -18,7 +18,11 @@ const state = {
   csrf: null,
   modelsCache: new Map(),
   modelDiscoveryGeneration: new Map(),
-  customInputMode: new Set()
+  customInputMode: new Set(),
+  reverseProxyStatus: null,
+  reverseProxyStatusInFlight: false,
+  reverseProxyPreset: "chatgpt",
+  reverseProxyCustomUrl: ""
 };
 
 const $ = (id) => document.getElementById(id);
@@ -329,6 +333,203 @@ function agentWebUrl() {
 function openAgentWeb() {
   window.open(agentWebUrl(), "_blank", "noopener,noreferrer");
 }
+
+
+function reverseProxyRuntimeSection() {
+  return state.catalog?.sections.find((section) => section.id === "reverse_proxy.runtime") || null;
+}
+
+function reverseProxyApiUrl(section = reverseProxyRuntimeSection()) {
+  if (!section) return "http://127.0.0.1:3000";
+  const hostField = section.fields.find((field) => field.key === "host");
+  const portField = section.fields.find((field) => field.key === "port");
+  let host = hostField ? String(current(section, hostField) || "127.0.0.1") : "127.0.0.1";
+  if (host === "0.0.0.0" || host === "::") host = "127.0.0.1";
+  if (host === "::1") host = "[::1]";
+  const port = portField ? Number(current(section, portField) || 3000) : 3000;
+  return `http://${host}:${port}`;
+}
+
+function reverseProxyHasPendingRuntimeChanges() {
+  return Array.from(state.pending.keys()).some((key) => key.startsWith("reverse_proxy.runtime::"));
+}
+
+function reverseProxyPhaseLabel(status = state.reverseProxyStatus) {
+  switch (status?.phase) {
+    case "ready": return "● API pronta";
+    case "starting": return "◐ Chromium / login em preparação";
+    case "external": return "● Proxy externo detectado";
+    default: return "○ Parado";
+  }
+}
+
+function updateReverseProxyLauncherStatus() {
+  const status = state.reverseProxyStatus || {};
+  const statusEl = $("reverse-proxy-launch-status");
+  if (statusEl) {
+    statusEl.textContent = reverseProxyPhaseLabel(status);
+    statusEl.className = `status-pill ${status.api_online ? "good" : status.managed ? "warn" : "neutral"}`;
+  }
+  const pidEl = $("reverse-proxy-pid");
+  if (pidEl) pidEl.textContent = status.pid ? `PID ${status.pid}` : "–";
+  const apiEl = $("reverse-proxy-api-url");
+  if (apiEl) apiEl.textContent = status.api_url || reverseProxyApiUrl();
+  const start = $("btn-reverse-proxy-start");
+  const stop = $("btn-reverse-proxy-stop");
+  if (start) start.disabled = Boolean(status.managed || status.api_online || reverseProxyHasPendingRuntimeChanges());
+  if (stop) stop.disabled = !status.managed;
+}
+
+async function fetchReverseProxyStatus() {
+  if (state.reverseProxyStatusInFlight) return state.reverseProxyStatus;
+  state.reverseProxyStatusInFlight = true;
+  try {
+    state.reverseProxyStatus = await api("/api/v1/reverse-proxy/status");
+    updateReverseProxyLauncherStatus();
+    return state.reverseProxyStatus;
+  } catch (error) {
+    console.warn("Reverse Proxy status failed:", error);
+    return state.reverseProxyStatus;
+  } finally {
+    state.reverseProxyStatusInFlight = false;
+  }
+}
+
+function renderReverseProxyLauncher(section) {
+  const status = state.reverseProxyStatus || {};
+  const pending = reverseProxyHasPendingRuntimeChanges();
+  const custom = state.reverseProxyPreset === "custom";
+  const profileField = section.fields.find((field) => field.key === "user_data_dir");
+  const configuredProfile = profileField ? String(current(section, profileField) || "") : "";
+  const profileText = configuredProfile
+    ? configuredProfile
+    : "Perfil dedicado automático por provider (~/.kitt-reverse-proxy/<provider>)";
+
+  return `
+    <div class="reverse-proxy-launcher">
+      <div class="reverse-proxy-launch-head">
+        <div>
+          <h3>Iniciar sessão web</h3>
+          <p>Abra o Chromium controlado pelo KITT e transforme o chat em API OpenAI-compatible.</p>
+        </div>
+        <span id="reverse-proxy-launch-status" class="status-pill ${status.api_online ? "good" : status.managed ? "warn" : "neutral"}">${esc(reverseProxyPhaseLabel(status))}</span>
+      </div>
+      <div class="reverse-proxy-quick-grid">
+        <label>
+          <span>Chat</span>
+          <select id="reverse-proxy-preset" aria-label="Chat para abrir">
+            ${[
+              ["chatgpt", "ChatGPT"],
+              ["claude", "Claude"],
+              ["gemini", "Gemini"],
+              ["kimi", "Kimi"],
+              ["deepseek", "DeepSeek"],
+              ["custom", "URL customizada"]
+            ].map(([value, label]) => `<option value="${value}" ${state.reverseProxyPreset === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </label>
+        ${custom ? `
+          <label>
+            <span>URL do chat</span>
+            <input id="reverse-proxy-custom-url" type="url" value="${esc(state.reverseProxyCustomUrl)}" placeholder="https://site.example/chat" autocomplete="off">
+          </label>
+        ` : ""}
+        <div class="reverse-proxy-info">
+          <span>API local</span>
+          <code id="reverse-proxy-api-url">${esc(status.api_url || reverseProxyApiUrl(section))}</code>
+        </div>
+        <div class="reverse-proxy-info">
+          <span>Processo</span>
+          <strong id="reverse-proxy-pid">${status.pid ? `PID ${esc(status.pid)}` : "–"}</strong>
+        </div>
+      </div>
+      <p class="reverse-proxy-profile-note">Sessão Chromium: ${esc(profileText)}</p>
+      ${pending ? `<p class="reverse-proxy-warning">Aplique as alterações pendentes desta seção antes de iniciar uma nova sessão.</p>` : ""}
+      <div class="reverse-proxy-actions">
+        <button type="button" id="btn-reverse-proxy-start" class="primary" ${status.managed || status.api_online || pending ? "disabled" : ""}>▶ Abrir chat / Iniciar proxy</button>
+        <button type="button" id="btn-reverse-proxy-stop" class="ghost" ${status.managed ? "" : "disabled"}>■ Parar</button>
+        <button type="button" id="btn-reverse-proxy-refresh" class="ghost">↻ Status</button>
+        <button type="button" id="btn-reverse-proxy-api" class="ghost">↗ Abrir status da API</button>
+        <button type="button" id="btn-reverse-proxy-copy" class="ghost">Copiar API URL</button>
+      </div>
+      <p class="reverse-proxy-help">Na primeira execução, faça login e resolva CAPTCHA/challenge manualmente no Chromium visível. O KITT não contorna controles de acesso.</p>
+    </div>
+  `;
+}
+
+async function startReverseProxy() {
+  if (reverseProxyHasPendingRuntimeChanges()) {
+    toast("Aplique as configurações pendentes antes de iniciar o Reverse Proxy.", "bad");
+    return;
+  }
+  if (state.reverseProxyPreset === "custom" && !/^https?:\/\//i.test(state.reverseProxyCustomUrl.trim())) {
+    toast("Informe uma URL customizada http:// ou https://.", "bad");
+    return;
+  }
+  const payload = {
+    preset: state.reverseProxyPreset,
+    ...(state.reverseProxyPreset === "custom" ? { target_url: state.reverseProxyCustomUrl.trim() } : {})
+  };
+  try {
+    state.reverseProxyStatus = await api("/api/v1/reverse-proxy/start", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    toast(state.reverseProxyStatus.message || "Reverse Proxy iniciado.");
+    updateReverseProxyLauncherStatus();
+  } catch (error) {
+    toast(`Falha ao iniciar Reverse Proxy: ${error.message}`, "bad");
+  }
+}
+
+async function stopReverseProxy() {
+  try {
+    state.reverseProxyStatus = await api("/api/v1/reverse-proxy/stop", {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    toast(state.reverseProxyStatus.message || "Reverse Proxy encerrado.");
+    updateReverseProxyLauncherStatus();
+  } catch (error) {
+    toast(`Falha ao parar Reverse Proxy: ${error.message}`, "bad");
+  }
+}
+
+function bindReverseProxyLauncher() {
+  const preset = $("reverse-proxy-preset");
+  if (!preset) return;
+
+  preset.addEventListener("change", () => {
+    state.reverseProxyPreset = preset.value;
+    render();
+  });
+
+  const customUrl = $("reverse-proxy-custom-url");
+  if (customUrl) {
+    customUrl.addEventListener("input", () => {
+      state.reverseProxyCustomUrl = customUrl.value;
+    });
+  }
+
+  $("btn-reverse-proxy-start")?.addEventListener("click", () => void startReverseProxy());
+  $("btn-reverse-proxy-stop")?.addEventListener("click", () => void stopReverseProxy());
+  $("btn-reverse-proxy-refresh")?.addEventListener("click", () => void fetchReverseProxyStatus());
+  $("btn-reverse-proxy-api")?.addEventListener("click", () => {
+    window.open(`${state.reverseProxyStatus?.api_url || reverseProxyApiUrl()}/v1/kitt/status`, "_blank", "noopener,noreferrer");
+  });
+  $("btn-reverse-proxy-copy")?.addEventListener("click", async () => {
+    const value = `${state.reverseProxyStatus?.api_url || reverseProxyApiUrl()}/v1`;
+    try {
+      await navigator.clipboard.writeText(value);
+      toast(`API copiada: ${value}`);
+    } catch (_) {
+      toast(`API: ${value}`);
+    }
+  });
+
+  void fetchReverseProxyStatus();
+}
+
 
 async function pingService() {
   const start = performance.now();
@@ -733,6 +934,7 @@ function renderConfigView() {
             </div>
             <span class="badge ${changed ? "changed" : ""}">${changed ? "Modificado" : esc(section.component)}</span>
           </header>
+          ${section.id === "reverse_proxy.runtime" ? renderReverseProxyLauncher(section) : ""}
           <div class="fields">
             ${fields.map((field) => `
               <div class="field ${field.advanced ? "advanced" : ""}">
@@ -758,6 +960,9 @@ function renderConfigView() {
   if (revEl) revEl.textContent = `rev ${state.snapshot?.revision ?? "–"}`;
 
   bindInputs();
+  if (visible.some((section) => section.id === "reverse_proxy.runtime")) {
+    bindReverseProxyLauncher();
+  }
 }
 
 function bindInputs() {
@@ -944,6 +1149,6 @@ if (btnConfirm) {
   });
 }
 
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && window.location) {
   boot();
 }

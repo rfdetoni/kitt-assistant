@@ -23,9 +23,12 @@ function makeHarness() {
     return elements.get(id);
   };
   const pendingDiscoveries = [];
+  const reverseProxyCalls = [];
 
   const context = vm.createContext({
     console,
+    window: { open() {} },
+    navigator: { clipboard: { writeText: async () => {} } },
     setTimeout: (fn) => 0,
     clearTimeout() {},
     setInterval: () => 1,
@@ -42,6 +45,15 @@ function makeHarness() {
       if (path === "/api/v1/config") return { ok: true, status: 200, json: async () => ({ revision: 1, values: { assistant: { fast_base_url: "http://old/v1", fast_model: "old-model" } } }) };
       if (path === "/api/v1/service/status") return { ok: true, status: 200, json: async () => ({ status: "ok", daemon: { active: true, pid: 1234, uptime_seconds: 120, listen: "127.0.0.1:41827", bind: "127.0.0.1:41828", version: "0.1.0" }, voice: { enabled: true, activation_mode: "auto", stt_worker_model: "base", stt_worker_online: true, wake_phrases: ["kitt"], wakeword_model_exists: false, wakeword_model_path: "wakewords/kitt.rpw" }, models: { base_url: "http://127.0.0.1:11434/v1", fast_model: "test-model" }, memory: { exists: true, size_bytes: 4096 } }) };
       if (path === "/api/v1/service/logs") return { ok: true, status: 200, json: async () => ({ status: "ok", source: "journalctl", logs: "kittd listening on 127.0.0.1:41827\nkitt voice enabled" }) };
+      if (path === "/api/v1/reverse-proxy/status") return { ok: true, status: 200, json: async () => ({ status: "ok", phase: "stopped", managed: false, api_online: false, api_url: "http://127.0.0.1:3000" }) };
+      if (path === "/api/v1/reverse-proxy/start") {
+        reverseProxyCalls.push({ path, body: JSON.parse(options.body) });
+        return { ok: true, status: 200, json: async () => ({ status: "ok", phase: "starting", managed: true, api_online: false, pid: 4321, api_url: "http://127.0.0.1:3000" }) };
+      }
+      if (path === "/api/v1/reverse-proxy/stop") {
+        reverseProxyCalls.push({ path });
+        return { ok: true, status: 200, json: async () => ({ status: "ok", phase: "stopped", managed: false, api_online: false, api_url: "http://127.0.0.1:3000" }) };
+      }
       if (path === "/api/v1/models/discover") {
         let resolve;
         const response = new Promise((res) => { resolve = res; });
@@ -64,7 +76,7 @@ function makeHarness() {
     state.csrf="test";
   `, context);
 
-  return { context, pendingDiscoveries };
+  return { context, pendingDiscoveries, reverseProxyCalls };
 }
 
 function resolveDiscovery(entry, models) {
@@ -258,6 +270,51 @@ test("responsive navigation renders grouped desktop menu and mobile selector", (
   `, context);
   assert.equal(vm.runInContext(`state.view`, context), "config");
   assert.equal(vm.runInContext(`state.section`, context), "agent.runtime");
+});
+
+test("reverse proxy launcher exposes presets and normalized local API URL", () => {
+  const { context } = makeHarness();
+  vm.runInContext(`
+    state.catalog.sections.push({
+      id: "reverse_proxy.runtime",
+      title: "Reverse Proxy",
+      component: "kitt-reverse-proxy",
+      fields: [
+        { key: "host", type: "string", default: "127.0.0.1" },
+        { key: "port", type: "integer", default: 3000 },
+        { key: "user_data_dir", type: "string", default: "" }
+      ]
+    });
+    state.snapshot.values["reverse_proxy.runtime"] = { host: "0.0.0.0", port: 3000 };
+  `, context);
+  assert.equal(vm.runInContext(`reverseProxyApiUrl()`, context), "http://127.0.0.1:3000");
+  const html = vm.runInContext(`renderReverseProxyLauncher(reverseProxyRuntimeSection())`, context);
+  assert.equal(html.includes("ChatGPT"), true);
+  assert.equal(html.includes("Claude"), true);
+  assert.equal(html.includes("DeepSeek"), true);
+  assert.equal(html.includes("Abrir chat / Iniciar proxy"), true);
+});
+
+test("reverse proxy preset start sends only allowlisted launch intent", async () => {
+  const { context, reverseProxyCalls } = makeHarness();
+  vm.runInContext(`
+    state.catalog.sections.push({
+      id: "reverse_proxy.runtime",
+      title: "Reverse Proxy",
+      component: "kitt-reverse-proxy",
+      fields: [
+        { key: "host", type: "string", default: "127.0.0.1" },
+        { key: "port", type: "integer", default: 3000 },
+        { key: "user_data_dir", type: "string", default: "" }
+      ]
+    });
+    state.snapshot.values["reverse_proxy.runtime"] = {};
+    state.reverseProxyPreset = "chatgpt";
+  `, context);
+  await vm.runInContext(`startReverseProxy()`, context);
+  assert.equal(reverseProxyCalls.length, 1);
+  assert.equal(reverseProxyCalls[0].path, "/api/v1/reverse-proxy/start");
+  assert.deepEqual(reverseProxyCalls[0].body, { preset: "chatgpt" });
 });
 
 test("monitor status polling is independent from the 15 second log toggle", () => {

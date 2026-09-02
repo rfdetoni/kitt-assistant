@@ -10,7 +10,8 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
-    sync::Arc,
+    process::{Child, Command, Stdio},
+    sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -34,6 +35,16 @@ struct State {
     csrf: Arc<String>,
     catalog: Arc<Value>,
     started_at: Instant,
+    reverse_proxy: Arc<Mutex<ManagedReverseProxy>>,
+}
+
+#[derive(Default)]
+struct ManagedReverseProxy {
+    child: Option<Child>,
+    preset: Option<String>,
+    target_url: Option<String>,
+    started_at: Option<Instant>,
+    last_exit: Option<String>,
 }
 
 #[derive(Debug)]
@@ -73,6 +84,7 @@ pub fn start(config_root: &Path) -> Result<(), String> {
         )),
         catalog: Arc::new(catalog),
         started_at: Instant::now(),
+        reverse_proxy: Arc::new(Mutex::new(ManagedReverseProxy::default())),
     };
     let listener =
         TcpListener::bind(bind).map_err(|e| format!("Control Center bind {bind}: {e}"))?;
@@ -205,18 +217,9 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
                 let mut overlay = read_overlay(&state.overlay_path)?;
                 let (changes, restart_required) =
                     validate_change_request(&payload, &overlay, &state.catalog)?;
-                let has_proxy_change = changes
-                    .as_object()
-                    .map(|m| m.keys().any(|k| k.starts_with("reverse_proxy")))
-                    .unwrap_or(false);
                 merge_changes(&mut overlay, &changes)?;
                 bump_revision(&mut overlay)?;
                 write_overlay_atomic(&state.overlay_path, &overlay)?;
-                if has_proxy_change {
-                    let _ = std::process::Command::new("systemctl")
-                        .args(["--user", "try-restart", "kitt-reverse-proxy.service"])
-                        .output();
-                }
                 Ok(
                     json!({"status":"applied","snapshot":snapshot(&overlay),"restart_required":restart_required}),
                 )
@@ -263,6 +266,21 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
             write_json(&mut stream, 200, get_service_status(state), None)
         }
         ("GET", "/api/v1/service/logs") => write_json(&mut stream, 200, get_service_logs(), None),
+        ("GET", "/api/v1/reverse-proxy/status") => {
+            write_json(&mut stream, 200, reverse_proxy_status(state), None)
+        }
+        ("POST", "/api/v1/reverse-proxy/start") => {
+            let result = parse_json_body(&request.body)
+                .and_then(|payload| start_reverse_proxy(state, &payload));
+            match result {
+                Ok(value) => write_json(&mut stream, 200, value, None),
+                Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
+            }
+        }
+        ("POST", "/api/v1/reverse-proxy/stop") => match stop_reverse_proxy(state) {
+            Ok(value) => write_json(&mut stream, 200, value, None),
+            Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
+        },
         ("POST", "/api/v1/service/restart") => {
             write_json(&mut stream, 200, handle_service_restart(), None)
         }
@@ -671,6 +689,271 @@ fn set_private_file(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn valid_reverse_proxy_preset(value: &str) -> bool {
+    matches!(
+        value,
+        "chatgpt" | "claude" | "gemini" | "kimi" | "deepseek" | "custom"
+    )
+}
+
+fn validate_reverse_proxy_target(value: &str) -> Result<String, String> {
+    let parsed =
+        url::Url::parse(value.trim()).map_err(|error| format!("URL custom inválida: {error}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("URL custom deve usar http:// ou https://".into());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("URL custom não pode conter credenciais embutidas".into());
+    }
+    Ok(parsed.to_string())
+}
+
+fn reverse_proxy_runtime_values(state: &State) -> Map<String, Value> {
+    read_overlay(&state.overlay_path)
+        .ok()
+        .and_then(|overlay| {
+            overlay
+                .get("components")
+                .and_then(Value::as_object)
+                .and_then(|components| components.get("reverse_proxy.runtime"))
+                .and_then(Value::as_object)
+                .cloned()
+        })
+        .unwrap_or_default()
+}
+
+fn reverse_proxy_endpoint(state: &State) -> (String, u16, String, Option<SocketAddr>) {
+    let values = reverse_proxy_runtime_values(state);
+    let host = values
+        .get("host")
+        .and_then(Value::as_str)
+        .unwrap_or("127.0.0.1")
+        .trim()
+        .to_ascii_lowercase();
+    let port = values
+        .get("port")
+        .and_then(Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(3000);
+
+    let (display_host, probe) = match host.as_str() {
+        "127.0.0.1" | "localhost" | "0.0.0.0" => (
+            "127.0.0.1".to_string(),
+            Some(SocketAddr::from(([127, 0, 0, 1], port))),
+        ),
+        "::1" => (
+            "[::1]".to_string(),
+            Some(SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port))),
+        ),
+        "::" => (
+            "127.0.0.1".to_string(),
+            Some(SocketAddr::from(([127, 0, 0, 1], port))),
+        ),
+        _ => (host.clone(), None),
+    };
+    let api_url = format!("http://{display_host}:{port}");
+    (host, port, api_url, probe)
+}
+
+fn reverse_proxy_status(state: &State) -> Value {
+    let (_, _, api_url, probe) = reverse_proxy_endpoint(state);
+    let api_online = probe.is_some_and(|address| {
+        TcpStream::connect_timeout(&address, Duration::from_millis(150)).is_ok()
+    });
+
+    let (managed, pid, preset, target_url, uptime_seconds, last_exit) =
+        match state.reverse_proxy.lock() {
+            Ok(mut manager) => {
+                let exit_status = manager
+                    .child
+                    .as_mut()
+                    .and_then(|child| child.try_wait().ok().flatten());
+                if let Some(status) = exit_status {
+                    manager.child = None;
+                    manager.last_exit = Some(status.to_string());
+                    manager.started_at = None;
+                }
+                (
+                    manager.child.is_some(),
+                    manager.child.as_ref().map(Child::id),
+                    manager.preset.clone(),
+                    manager.target_url.clone(),
+                    manager
+                        .started_at
+                        .map(|started| started.elapsed().as_secs()),
+                    manager.last_exit.clone(),
+                )
+            }
+            Err(_) => (
+                false,
+                None,
+                None,
+                None,
+                None,
+                Some("manager lock poisoned".into()),
+            ),
+        };
+
+    let phase = if managed && api_online {
+        "ready"
+    } else if managed {
+        "starting"
+    } else if api_online {
+        "external"
+    } else {
+        "stopped"
+    };
+
+    json!({
+        "status": "ok",
+        "phase": phase,
+        "managed": managed,
+        "api_online": api_online,
+        "pid": pid,
+        "preset": preset,
+        "target_url": target_url,
+        "uptime_seconds": uptime_seconds,
+        "last_exit": last_exit,
+        "api_url": api_url,
+        "launcher": std::env::var("KITT_REVERSE_PROXY_BIN")
+            .unwrap_or_else(|_| "kitt-reverse-proxy".into())
+    })
+}
+
+fn start_reverse_proxy(state: &State, payload: &Value) -> Result<Value, String> {
+    let status = reverse_proxy_status(state);
+    if status.get("managed").and_then(Value::as_bool) == Some(true) {
+        return Err("Reverse Proxy já está sendo gerenciado pelo Control Center".into());
+    }
+    if status.get("api_online").and_then(Value::as_bool) == Some(true) {
+        return Err(
+            "Já existe um Reverse Proxy respondendo nessa porta. Pare a instância externa antes de iniciar outra."
+                .into(),
+        );
+    }
+
+    let preset = payload
+        .get("preset")
+        .and_then(Value::as_str)
+        .unwrap_or("chatgpt")
+        .trim()
+        .to_ascii_lowercase();
+    if !valid_reverse_proxy_preset(&preset) {
+        return Err(format!("preset inválido: {preset}"));
+    }
+
+    let launch_target = if preset == "custom" {
+        let value = payload
+            .get("target_url")
+            .and_then(Value::as_str)
+            .ok_or("target_url é obrigatório para preset custom")?;
+        validate_reverse_proxy_target(value)?
+    } else {
+        preset.clone()
+    };
+
+    let runtime = reverse_proxy_runtime_values(state);
+    let headed = payload
+        .get("headed")
+        .and_then(Value::as_bool)
+        .or_else(|| runtime.get("headed").and_then(Value::as_bool))
+        .unwrap_or(true);
+
+    let launcher =
+        std::env::var("KITT_REVERSE_PROXY_BIN").unwrap_or_else(|_| "kitt-reverse-proxy".into());
+    let mut command = Command::new(&launcher);
+    command
+        .arg("start")
+        .arg(&launch_target)
+        .arg(if headed { "--headed" } else { "--headless" })
+        .arg("--parent-stdin-lifecycle")
+        .env("KITT_CONTROL_CENTER_CONFIG", &state.overlay_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    let mut child = command.spawn().map_err(|error| {
+        format!(
+            "não foi possível iniciar {launcher}: {error}. Instale/linke o CLI ou configure KITT_REVERSE_PROXY_BIN"
+        )
+    })?;
+    thread::sleep(Duration::from_millis(120));
+    if let Some(exit) = child
+        .try_wait()
+        .map_err(|error| format!("verificar Reverse Proxy iniciado: {error}"))?
+    {
+        return Err(format!("Reverse Proxy encerrou durante startup: {exit}"));
+    }
+
+    let pid = child.id();
+    let mut manager = state
+        .reverse_proxy
+        .lock()
+        .map_err(|_| "Reverse Proxy manager lock poisoned".to_string())?;
+    manager.child = Some(child);
+    manager.preset = Some(preset.clone());
+    manager.target_url = (preset == "custom").then_some(launch_target);
+    manager.started_at = Some(Instant::now());
+    manager.last_exit = None;
+    drop(manager);
+
+    let mut response = reverse_proxy_status(state);
+    response["message"] = json!(
+        "Reverse Proxy iniciado. O Chromium abrirá a sessão; faça login ou resolva desafios manualmente quando necessário."
+    );
+    response["pid"] = json!(pid);
+    Ok(response)
+}
+
+fn stop_reverse_proxy(state: &State) -> Result<Value, String> {
+    let mut child = {
+        let mut manager = state
+            .reverse_proxy
+            .lock()
+            .map_err(|_| "Reverse Proxy manager lock poisoned".to_string())?;
+        manager
+            .child
+            .take()
+            .ok_or("Não há Reverse Proxy gerenciado pelo Control Center em execução")?
+    };
+
+    // Closing stdin asks the CLI to perform its graceful shutdown path.
+    child.stdin.take();
+    let mut exit = None;
+    for _ in 0..20 {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("verificar shutdown do Reverse Proxy: {error}"))?
+        {
+            exit = Some(status);
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    if exit.is_none() {
+        child
+            .kill()
+            .map_err(|error| format!("forçar shutdown do Reverse Proxy: {error}"))?;
+        exit = Some(
+            child
+                .wait()
+                .map_err(|error| format!("aguardar Reverse Proxy: {error}"))?,
+        );
+    }
+
+    if let Ok(mut manager) = state.reverse_proxy.lock() {
+        manager.last_exit = exit.map(|status| status.to_string());
+        manager.started_at = None;
+        manager.preset = None;
+        manager.target_url = None;
+    }
+
+    let mut response = reverse_proxy_status(state);
+    response["message"] = json!("Reverse Proxy e sessão Chromium encerrados.");
+    Ok(response)
+}
+
 fn get_service_status(state: &State) -> Value {
     let assistant_dir = if state.config_root.join("assistant").exists() {
         state.config_root.join("assistant")
@@ -772,9 +1055,6 @@ fn get_service_logs() -> Value {
 }
 
 fn handle_service_restart() -> Value {
-    let _ = std::process::Command::new("systemctl")
-        .args(["--user", "try-restart", "kitt-reverse-proxy.service"])
-        .output();
     let out = std::process::Command::new("systemctl")
         .args(["--user", "restart", "kitt-assistant.service"])
         .output();
@@ -817,9 +1097,26 @@ mod tests {
             csrf: Arc::new("csrf".to_string()),
             catalog: Arc::new(Value::Null),
             started_at: Instant::now(),
+            reverse_proxy: Arc::new(Mutex::new(ManagedReverseProxy::default())),
         });
         let status = get_service_status(&state);
         assert!(status.get("logs").is_none());
         assert_eq!(status.get("status").and_then(Value::as_str), Some("ok"));
+    }
+
+    #[test]
+    fn reverse_proxy_presets_are_allowlisted() {
+        for preset in ["chatgpt", "claude", "gemini", "kimi", "deepseek", "custom"] {
+            assert!(valid_reverse_proxy_preset(preset));
+        }
+        assert!(!valid_reverse_proxy_preset("shell"));
+        assert!(!valid_reverse_proxy_preset("../../bin"));
+    }
+
+    #[test]
+    fn reverse_proxy_custom_target_rejects_credentials_and_non_http() {
+        assert!(validate_reverse_proxy_target("https://example.com/chat").is_ok());
+        assert!(validate_reverse_proxy_target("file:///tmp/chat").is_err());
+        assert!(validate_reverse_proxy_target("https://user:pass@example.com/chat").is_err());
     }
 }
