@@ -70,6 +70,15 @@ impl AssistantService {
         self.transcriber.transcribe(path, locale, prompt)
     }
 
+    pub fn transcribe_rich(
+        &self,
+        path: &Path,
+        locale: Option<&str>,
+        prompt: Option<&str>,
+    ) -> Result<kitt_domain::TranscriptionResult> {
+        self.transcriber.transcribe_rich(path, locale, prompt)
+    }
+
     pub fn transcriber_is_local(&self) -> bool {
         self.transcriber.is_local()
     }
@@ -138,8 +147,19 @@ mod tests {
 
     struct FakeTranscriber;
     impl TranscriptionPort for FakeTranscriber {
-        fn transcribe(&self, _: &Path, _: Option<&str>, _: Option<&str>) -> Result<String> {
-            Ok("texto".into())
+        fn transcribe_rich(
+            &self,
+            _: &Path,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Result<kitt_domain::TranscriptionResult> {
+            Ok(kitt_domain::TranscriptionResult {
+                text: "texto".into(),
+                language: Some("pt".into()),
+                language_probability: Some(0.99),
+                avg_logprob: Some(-0.2),
+                duration_ms: 1500,
+            })
         }
         fn is_local(&self) -> bool {
             true

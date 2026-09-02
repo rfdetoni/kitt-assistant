@@ -6,7 +6,7 @@ use cpal::{
 use hound::{SampleFormat as WavSampleFormat, WavSpec, WavWriter};
 use kitt_domain::RouteHint;
 use kitt_protocol::{HudEvent, HudState};
-use rustpotter::{AudioFmt, Rustpotter, RustpotterConfig, SampleFormat as PotterSampleFormat};
+use rustpotter::{AudioFmt, Rustpotter, RustpotterConfig, SampleFormat as PotterSampleFormat, VADMode};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
@@ -16,23 +16,21 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TrySendError},
     },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-const AUDIO_CHUNK_QUEUE: usize = 32;
-const EVENT_QUEUE: usize = 2;
+const AUDIO_CHUNK_QUEUE: usize = 64;
+const EVENT_QUEUE: usize = 8;
 const WAKEWORD_KEY: &str = "kitt";
 const CAPTURE_RESTART_MIN: Duration = Duration::from_secs(1);
 const CAPTURE_RESTART_MAX: Duration = Duration::from_secs(30);
 const STALE_AUDIO_MAX_AGE: Duration = Duration::from_secs(6 * 60 * 60);
 const STT_HEALTH_MAX_BYTES: u64 = 64 * 1024;
-const STT_HEALTH_CONNECT_TIMEOUT: Duration = Duration::from_millis(750);
-const STT_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
 const STT_START_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const DEFAULT_WAKE_PHRASES: &[&str] = &["kitt", "ei kitt", "hey kitt", "olá kitt"];
 const LEGACY_CONTROL_CENTER_WAKE_PHRASES: &[&str] = &["kitt", "kit", "hey kitt", "ei kitt"];
@@ -55,6 +53,43 @@ pub enum ActivationMode {
     Auto,
     Wakeword,
     TranscriptPrefix,
+    Degraded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceState {
+    #[default]
+    Idle,
+    Listening,
+    Captured,
+    SttWarming,
+    Transcribing,
+    Thinking,
+    Speaking,
+    Cooldown,
+    Recovering,
+    Degraded,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoiceTelemetry {
+    pub state: VoiceState,
+    pub state_since_ms: u64,
+    pub activation_mode: String,
+    pub stt_ready: bool,
+    pub stt_busy: bool,
+    pub last_wake_at_ms: Option<u64>,
+    pub last_transcript_ms: u64,
+    pub last_llm_ms: u64,
+    pub last_tts_ms: u64,
+    pub last_total_ms: u64,
+    pub stt_restarts: u64,
+    pub audio_chunks_dropped: u64,
+    pub events_dropped: u64,
+    pub utterances_dropped: u64,
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,11 +98,19 @@ pub struct VoiceConfig {
     pub enabled: bool,
     pub locale: String,
     pub activation_mode: ActivationMode,
+    pub allow_transcript_prefix_fallback: bool,
     pub wakeword_model_path: Option<String>,
     pub wake_phrases: Vec<String>,
     pub wake_fuzzy_enabled: bool,
     pub wake_fuzzy_max_distance: u8,
     pub wake_cooldown_ms: u64,
+    pub wake_threshold: f32,
+    pub wake_avg_threshold: f32,
+    pub wake_min_scores: usize,
+    pub wake_eager: bool,
+    pub wake_vad_mode: String,
+    pub wake_gain_normalizer: bool,
+    pub wake_gain_ref: Option<f32>,
     pub min_rms: f32,
     pub noise_multiplier: f32,
     pub speech_start_ms: u64,
@@ -79,8 +122,37 @@ pub struct VoiceConfig {
     pub command_timeout_ms: u64,
     pub stt_autostart: bool,
     pub stt_worker_model: String,
+    pub stt_connect_timeout_ms: u64,
+    pub stt_request_timeout_ms: u64,
     pub stt_start_timeout_ms: u64,
+    pub stt_warm_strategy: String,
+    pub stt_idle_shutdown_seconds: u64,
+    pub stt_device: String,
+    pub stt_compute_type: String,
+    pub stt_cpu_threads: usize,
+    pub stt_num_workers: usize,
+    pub stt_beam_size: usize,
+    pub stt_local_files_only: bool,
+    pub stt_vad_filter: bool,
+    pub stt_vad_min_silence_ms: u64,
+    pub stt_vad_speech_pad_ms: u64,
+    pub stt_no_speech_threshold: f32,
+    pub voice_llm_timeout_ms: u64,
     pub tts_enabled: bool,
+    pub tts_backend: String,
+    pub tts_voice_name: Option<String>,
+    pub tts_prefer_male: bool,
+    pub tts_rate: i32,
+    pub tts_pitch: i32,
+    pub tts_volume: u8,
+    pub tts_timeout_ms: u64,
+    pub tts_piper_base_url: Option<String>,
+    pub tts_piper_voice: Option<String>,
+    pub tts_piper_speaker: Option<i32>,
+    pub tts_piper_length_scale: Option<f32>,
+    pub tts_piper_noise_scale: Option<f32>,
+    pub tts_piper_noise_w_scale: Option<f32>,
+    pub tts_fallback_to_system: bool,
     pub echo_guard_ms: u64,
 }
 
@@ -90,6 +162,7 @@ impl Default for VoiceConfig {
             enabled: true,
             locale: "pt-BR".into(),
             activation_mode: ActivationMode::Auto,
+            allow_transcript_prefix_fallback: false,
             wakeword_model_path: Some("wakewords/kitt.rpw".into()),
             wake_phrases: DEFAULT_WAKE_PHRASES
                 .iter()
@@ -98,6 +171,13 @@ impl Default for VoiceConfig {
             wake_fuzzy_enabled: true,
             wake_fuzzy_max_distance: 1,
             wake_cooldown_ms: 1_200,
+            wake_threshold: 0.50,
+            wake_avg_threshold: 0.20,
+            wake_min_scores: 5,
+            wake_eager: false,
+            wake_vad_mode: "off".into(),
+            wake_gain_normalizer: false,
+            wake_gain_ref: None,
             min_rms: 0.008,
             noise_multiplier: 2.2,
             speech_start_ms: 80,
@@ -109,8 +189,37 @@ impl Default for VoiceConfig {
             command_timeout_ms: 8_000,
             stt_autostart: true,
             stt_worker_model: String::new(),
-            stt_start_timeout_ms: 60_000,
+            stt_connect_timeout_ms: 1_000,
+            stt_request_timeout_ms: 15_000,
+            stt_start_timeout_ms: 30_000,
+            stt_warm_strategy: "on_wake".into(),
+            stt_idle_shutdown_seconds: 300,
+            stt_device: "auto".into(),
+            stt_compute_type: "default".into(),
+            stt_cpu_threads: 0,
+            stt_num_workers: 1,
+            stt_beam_size: 2,
+            stt_local_files_only: true,
+            stt_vad_filter: true,
+            stt_vad_min_silence_ms: 300,
+            stt_vad_speech_pad_ms: 220,
+            stt_no_speech_threshold: 0.6,
+            voice_llm_timeout_ms: 30_000,
             tts_enabled: true,
+            tts_backend: "system".into(),
+            tts_voice_name: None,
+            tts_prefer_male: true,
+            tts_rate: -1,
+            tts_pitch: -2,
+            tts_volume: 95,
+            tts_timeout_ms: 30_000,
+            tts_piper_base_url: Some("http://127.0.0.1:5000".into()),
+            tts_piper_voice: None,
+            tts_piper_speaker: None,
+            tts_piper_length_scale: None,
+            tts_piper_noise_scale: None,
+            tts_piper_noise_w_scale: None,
+            tts_fallback_to_system: true,
             echo_guard_ms: 350,
         }
     }
@@ -171,6 +280,15 @@ impl VoiceConfig {
         if self.wake_cooldown_ms > 10_000 {
             return Err("voice wake_cooldown_ms must be <= 10000".into());
         }
+        if !(0.01..=1.0).contains(&self.wake_threshold) {
+            return Err("voice wake_threshold must be between 0.01 and 1.0".into());
+        }
+        if !(0.01..=1.0).contains(&self.wake_avg_threshold) {
+            return Err("voice wake_avg_threshold must be between 0.01 and 1.0".into());
+        }
+        if self.wake_min_scores == 0 || self.wake_min_scores > 50 {
+            return Err("voice wake_min_scores must be between 1 and 50".into());
+        }
         if !(20..=500).contains(&self.speech_start_ms) {
             return Err("voice speech_start_ms must be between 20 and 500".into());
         }
@@ -184,8 +302,20 @@ impl VoiceConfig {
         {
             return Err("invalid voice timing configuration".into());
         }
+        if !(100..=30_000).contains(&self.stt_connect_timeout_ms) {
+            return Err("voice stt_connect_timeout_ms must be between 100 and 30000".into());
+        }
+        if !(1_000..=120_000).contains(&self.stt_request_timeout_ms) {
+            return Err("voice stt_request_timeout_ms must be between 1000 and 120000".into());
+        }
         if !(1_000..=300_000).contains(&self.stt_start_timeout_ms) {
             return Err("voice stt_start_timeout_ms must be between 1000 and 300000".into());
+        }
+        if !(1_000..=300_000).contains(&self.voice_llm_timeout_ms) {
+            return Err("voice voice_llm_timeout_ms must be between 1000 and 300000".into());
+        }
+        if !(1_000..=120_000).contains(&self.tts_timeout_ms) {
+            return Err("voice tts_timeout_ms must be between 1000 and 120000".into());
         }
         Ok(())
     }
@@ -251,10 +381,13 @@ impl VoiceConfig {
                     .is_some_and(|path| path.is_file())
                 {
                     ActivationMode::Wakeword
-                } else {
+                } else if self.allow_transcript_prefix_fallback {
                     ActivationMode::TranscriptPrefix
+                } else {
+                    ActivationMode::Degraded
                 }
             }
+            ActivationMode::Degraded => ActivationMode::Degraded,
             mode => mode,
         }
     }
@@ -273,11 +406,151 @@ fn nonempty_owned(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ActivationId(pub u64);
+
+#[allow(dead_code)]
 #[derive(Debug)]
 enum CaptureEvent {
-    WakeDetected,
-    WakeExpired,
-    Utterance(PathBuf),
+    WakeDetected {
+        activation_id: ActivationId,
+        at: Instant,
+    },
+    Utterance {
+        activation_id: Option<ActivationId>,
+        captured_at: Instant,
+        path: PathBuf,
+    },
+}
+
+#[allow(dead_code)]
+pub struct VoiceRuntimeTracker {
+    state: Mutex<VoiceState>,
+    state_since: Mutex<Instant>,
+    activation_mode: Mutex<String>,
+    last_wake_at: Mutex<Option<Instant>>,
+    last_transcript_ms: AtomicU64,
+    last_llm_ms: AtomicU64,
+    last_tts_ms: AtomicU64,
+    last_total_ms: AtomicU64,
+    stt_restarts: AtomicU64,
+    audio_chunks_dropped: AtomicU64,
+    events_dropped: AtomicU64,
+    utterances_dropped: AtomicU64,
+    last_error: Mutex<Option<String>>,
+    last_spoken: Mutex<Option<String>>,
+}
+
+#[allow(dead_code)]
+impl VoiceRuntimeTracker {
+    pub fn new(mode: &str) -> Self {
+        Self {
+            state: Mutex::new(VoiceState::Idle),
+            state_since: Mutex::new(Instant::now()),
+            activation_mode: Mutex::new(mode.to_string()),
+            last_wake_at: Mutex::new(None),
+            last_transcript_ms: AtomicU64::new(0),
+            last_llm_ms: AtomicU64::new(0),
+            last_tts_ms: AtomicU64::new(0),
+            last_total_ms: AtomicU64::new(0),
+            stt_restarts: AtomicU64::new(0),
+            audio_chunks_dropped: AtomicU64::new(0),
+            events_dropped: AtomicU64::new(0),
+            utterances_dropped: AtomicU64::new(0),
+            last_error: Mutex::new(None),
+            last_spoken: Mutex::new(None),
+        }
+    }
+
+    pub fn set_state(&self, state: VoiceState) {
+        let mut s = self.state.lock().unwrap();
+        *s = state;
+        let mut since = self.state_since.lock().unwrap();
+        *since = Instant::now();
+    }
+
+    pub fn record_wake(&self) {
+        let mut wake = self.last_wake_at.lock().unwrap();
+        *wake = Some(Instant::now());
+    }
+
+    pub fn record_transcript(&self, ms: u64) {
+        self.last_transcript_ms.store(ms, Ordering::Relaxed);
+    }
+
+    pub fn record_llm(&self, ms: u64) {
+        self.last_llm_ms.store(ms, Ordering::Relaxed);
+    }
+
+    pub fn record_tts(&self, ms: u64) {
+        self.last_tts_ms.store(ms, Ordering::Relaxed);
+    }
+
+    pub fn record_total(&self, ms: u64) {
+        self.last_total_ms.store(ms, Ordering::Relaxed);
+    }
+
+    pub fn inc_stt_restarts(&self) {
+        self.stt_restarts.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn inc_chunks_dropped(&self) {
+        self.audio_chunks_dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn inc_events_dropped(&self) {
+        self.events_dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn inc_utterances_dropped(&self) {
+        self.utterances_dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn set_error(&self, err: Option<String>) {
+        let mut last_err = self.last_error.lock().unwrap();
+        *last_err = err;
+    }
+
+    pub fn set_last_spoken(&self, text: String) {
+        let mut s = self.last_spoken.lock().unwrap();
+        *s = Some(text);
+    }
+
+    pub fn get_last_spoken(&self) -> Option<String> {
+        self.last_spoken.lock().unwrap().clone()
+    }
+
+    pub fn snapshot(&self, stt_ready: bool, stt_busy: bool) -> VoiceTelemetry {
+        let state = *self.state.lock().unwrap();
+        let state_since = self.state_since.lock().unwrap().elapsed().as_millis() as u64;
+        let mode = self.activation_mode.lock().unwrap().clone();
+        let last_wake = self.last_wake_at.lock().unwrap().map(|t| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                .saturating_sub(t.elapsed().as_millis()) as u64
+        });
+        let last_err = self.last_error.lock().unwrap().clone();
+
+        VoiceTelemetry {
+            state,
+            state_since_ms: state_since,
+            activation_mode: mode,
+            stt_ready,
+            stt_busy,
+            last_wake_at_ms: last_wake,
+            last_transcript_ms: self.last_transcript_ms.load(Ordering::Relaxed),
+            last_llm_ms: self.last_llm_ms.load(Ordering::Relaxed),
+            last_tts_ms: self.last_tts_ms.load(Ordering::Relaxed),
+            last_total_ms: self.last_total_ms.load(Ordering::Relaxed),
+            stt_restarts: self.stt_restarts.load(Ordering::Relaxed),
+            audio_chunks_dropped: self.audio_chunks_dropped.load(Ordering::Relaxed),
+            events_dropped: self.events_dropped.load(Ordering::Relaxed),
+            utterances_dropped: self.utterances_dropped.load(Ordering::Relaxed),
+            last_error: last_err,
+        }
+    }
 }
 
 pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
@@ -291,6 +564,19 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
     }
 
     let mode = config.resolved_mode(config_dir);
+    let tracker = Arc::new(VoiceRuntimeTracker::new(mode_name(mode)));
+
+    if mode == ActivationMode::Degraded {
+        eprintln!(
+            "kitt voice: wakeword model not found ({:?}) and transcript fallback is disabled (allow_transcript_prefix_fallback=false). Voice runtime is in degraded/idle mode.",
+            config.wakeword_path(config_dir).map(|p| p.display().to_string())
+        );
+        tracker.set_state(VoiceState::Degraded);
+        tracker.set_error(Some("Modelo wakeword ausente; configure .rpw ou habilite fallback explicitamente.".into()));
+        show_voice_error(&runtime, "Wakeword ausente; configure o modelo .rpw no Control Center");
+        return Ok(());
+    }
+
     if config.activation_mode == ActivationMode::Auto && mode == ActivationMode::TranscriptPrefix {
         eprintln!(
             "kitt voice: wakeword model unavailable; auto mode is using local transcript-prefix fallback (higher CPU/STT usage)"
@@ -316,7 +602,8 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
         }
     }
 
-    if mode == ActivationMode::TranscriptPrefix && runtime.service.transcriber_is_local() {
+    // If warmup strategy is startup, start worker early
+    if config.stt_warm_strategy == "startup" && runtime.service.transcriber_is_local() {
         if let Err(error) = ensure_local_stt_ready(&runtime, &config) {
             show_voice_error(&runtime, &format!("STT local indisponível: {error}"));
             return Err(error);
@@ -331,6 +618,7 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
     let capture_paused = paused.clone();
     let capture_events = events_tx.clone();
     let capture_runtime = runtime.clone();
+    let capture_tracker = tracker.clone();
     thread::Builder::new()
         .name("kitt-voice-capture".into())
         .spawn(move || {
@@ -343,11 +631,13 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
                     mode,
                     capture_paused.clone(),
                     capture_events.clone(),
+                    capture_tracker.clone(),
                 );
                 match result {
                     Ok(()) => eprintln!("kitt voice capture stream ended; reopening microphone"),
                     Err(error) => {
                         eprintln!("kitt voice capture failed: {error}; reopening microphone");
+                        capture_tracker.set_error(Some(format!("microfone: {error}")));
                         show_voice_error(
                             &capture_runtime,
                             &format!("Microfone indisponível: {error}"),
@@ -366,9 +656,19 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
 
     let pipeline_runtime = runtime;
     let pipeline_config = config;
+    let pipeline_tracker = tracker;
     thread::Builder::new()
         .name("kitt-voice-pipeline".into())
-        .spawn(move || pipeline_loop(pipeline_runtime, pipeline_config, mode, paused, events_rx))
+        .spawn(move || {
+            pipeline_loop(
+                pipeline_runtime,
+                pipeline_config,
+                mode,
+                paused,
+                events_rx,
+                pipeline_tracker,
+            )
+        })
         .map_err(|e| format!("spawn voice pipeline: {e}"))?;
 
     eprintln!("kitt voice enabled ({})", mode_name(mode));
@@ -380,6 +680,7 @@ fn mode_name(mode: ActivationMode) -> &'static str {
         ActivationMode::Auto => "auto",
         ActivationMode::Wakeword => "wakeword",
         ActivationMode::TranscriptPrefix => "transcript_prefix",
+        ActivationMode::Degraded => "degraded",
     }
 }
 
@@ -389,6 +690,7 @@ fn capture_loop(
     mode: ActivationMode,
     paused: Arc<AtomicBool>,
     events: SyncSender<CaptureEvent>,
+    tracker: Arc<VoiceRuntimeTracker>,
 ) -> Result<(), String> {
     let host = cpal::default_host();
     let device = host
@@ -398,301 +700,237 @@ fn capture_loop(
         .default_input_config()
         .map_err(|e| format!("default microphone config: {e}"))?;
     let sample_format = supported.sample_format();
-    let stream_config = supported.config();
+    let stream_config: StreamConfig = supported.into();
     let sample_rate = stream_config.sample_rate as usize;
     let channels = stream_config.channels as usize;
-    if channels == 0 || sample_rate == 0 {
-        return Err("invalid microphone configuration".into());
+    if sample_rate == 0 || channels == 0 {
+        return Err("invalid audio stream parameters".into());
     }
 
-    let (samples_tx, samples_rx) = mpsc::sync_channel(AUDIO_CHUNK_QUEUE);
-    let stream = build_input_stream(&device, stream_config, sample_format, channels, samples_tx)?;
-    stream
-        .play()
-        .map_err(|e| format!("start microphone stream: {e}"))?;
+    let mut potter = if mode == ActivationMode::Wakeword {
+        let wakeword = config
+            .wakeword_path(&config_dir)
+            .ok_or_else(|| "wakeword activation requires wakeword_model_path".to_string())?;
+        let mut potter_config = RustpotterConfig::default();
+        potter_config.detector.threshold = config.wake_threshold;
+        potter_config.detector.avg_threshold = config.wake_avg_threshold;
+        potter_config.detector.min_scores = config.wake_min_scores;
+        potter_config.detector.eager = config.wake_eager;
+        potter_config.filters.gain_normalizer.enabled = config.wake_gain_normalizer;
+        potter_config.filters.gain_normalizer.gain_ref = config.wake_gain_ref;
+        potter_config.detector.vad_mode = match config.wake_vad_mode.to_lowercase().as_str() {
+            "easy" => Some(VADMode::Easy),
+            "medium" => Some(VADMode::Medium),
+            "hard" => Some(VADMode::Hard),
+            _ => None,
+        };
 
-    match mode {
-        ActivationMode::Wakeword => run_wakeword_capture(
-            &config,
-            &config_dir,
-            sample_rate,
-            paused,
-            events,
-            samples_rx,
-        ),
-        ActivationMode::TranscriptPrefix | ActivationMode::Auto => run_transcript_capture(
-            &config,
-            &config_dir,
-            sample_rate,
-            paused,
-            events,
-            samples_rx,
-        ),
-    }
-}
-
-fn build_input_stream(
-    device: &cpal::Device,
-    config: StreamConfig,
-    sample_format: SampleFormat,
-    channels: usize,
-    tx: SyncSender<Vec<f32>>,
-) -> Result<Stream, String> {
-    match sample_format {
-        SampleFormat::I8 => build_typed_input::<i8>(device, config, channels, tx),
-        SampleFormat::I16 => build_typed_input::<i16>(device, config, channels, tx),
-        SampleFormat::I24 => build_typed_input::<cpal::I24>(device, config, channels, tx),
-        SampleFormat::I32 => build_typed_input::<i32>(device, config, channels, tx),
-        SampleFormat::I64 => build_typed_input::<i64>(device, config, channels, tx),
-        SampleFormat::U8 => build_typed_input::<u8>(device, config, channels, tx),
-        SampleFormat::U16 => build_typed_input::<u16>(device, config, channels, tx),
-        SampleFormat::U24 => build_typed_input::<cpal::U24>(device, config, channels, tx),
-        SampleFormat::U32 => build_typed_input::<u32>(device, config, channels, tx),
-        SampleFormat::U64 => build_typed_input::<u64>(device, config, channels, tx),
-        SampleFormat::F32 => build_typed_input::<f32>(device, config, channels, tx),
-        SampleFormat::F64 => build_typed_input::<f64>(device, config, channels, tx),
-        other => Err(format!("unsupported microphone sample format: {other}")),
-    }
-}
-
-fn build_typed_input<T>(
-    device: &cpal::Device,
-    config: StreamConfig,
-    channels: usize,
-    tx: SyncSender<Vec<f32>>,
-) -> Result<Stream, String>
-where
-    T: Sample + SizedSample + Send + 'static,
-    f32: FromSample<T>,
-{
-    let err_fn = |error| eprintln!("microphone stream error: {error}");
-    device
-        .build_input_stream::<T, _, _>(
-            config,
-            move |data: &[T], _| {
-                let mut mono = Vec::with_capacity(data.len().div_ceil(channels));
-                for frame in data.chunks(channels) {
-                    if frame.is_empty() {
-                        continue;
-                    }
-                    let sum: f32 = frame.iter().copied().map(f32::from_sample).sum();
-                    mono.push(sum / frame.len() as f32);
-                }
-                if !mono.is_empty() {
-                    let _ = tx.try_send(mono);
-                }
-            },
-            err_fn,
-            None,
-        )
-        .map_err(|e| format!("build microphone stream: {e}"))
-}
-
-fn run_transcript_capture(
-    config: &VoiceConfig,
-    config_dir: &Path,
-    sample_rate: usize,
-    paused: Arc<AtomicBool>,
-    events: SyncSender<CaptureEvent>,
-    samples: Receiver<Vec<f32>>,
-) -> Result<(), String> {
-    let mut segmenter = Segmenter::new(sample_rate, config.clone());
-    while let Ok(chunk) = samples.recv() {
-        if paused.load(Ordering::Acquire) {
-            segmenter.reset();
-            continue;
-        }
-        if let Some(audio) = segmenter.push(&chunk) {
-            let path = write_wav(config_dir, sample_rate, &audio)?;
-            if send_event(&events, CaptureEvent::Utterance(path.clone())).is_err() {
-                let _ = fs::remove_file(path);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn run_wakeword_capture(
-    config: &VoiceConfig,
-    config_dir: &Path,
-    sample_rate: usize,
-    paused: Arc<AtomicBool>,
-    events: SyncSender<CaptureEvent>,
-    samples: Receiver<Vec<f32>>,
-) -> Result<(), String> {
-    let wakeword_path = config
-        .wakeword_path(config_dir)
-        .ok_or_else(|| "wakeword_model_path is required".to_string())?;
-    let wakeword_path = wakeword_path
-        .to_str()
-        .ok_or_else(|| "wakeword model path is not valid UTF-8".to_string())?;
-
-    let mut potter_config = RustpotterConfig {
-        fmt: AudioFmt {
+        potter_config.fmt = AudioFmt {
             sample_rate,
             sample_format: PotterSampleFormat::F32,
-            channels: 1,
-            ..AudioFmt::default()
-        },
-        ..RustpotterConfig::default()
-    };
-    potter_config.detector.eager = true;
-    let mut potter = Rustpotter::new(&potter_config)
-        .map_err(|e| format!("initialize wakeword detector: {e}"))?;
-    potter
-        .add_wakeword_from_file(WAKEWORD_KEY, wakeword_path)
-        .map_err(|e| format!("load wakeword model: {e}"))?;
-
-    let frame_size = potter.get_samples_per_frame();
-    if frame_size == 0 {
-        return Err("wakeword detector returned zero frame size".into());
-    }
-    let mut detector_buffer = VecDeque::<f32>::with_capacity(frame_size * 2);
-    let mut segmenter = Segmenter::new(sample_rate, config.clone());
-    let mut armed_until: Option<Instant> = None;
-    let mut last_wake_detected: Option<Instant> = None;
-
-    while let Ok(chunk) = samples.recv() {
-        if paused.load(Ordering::Acquire) {
-            detector_buffer.clear();
-            segmenter.reset();
-            armed_until = None;
-            potter.reset();
-            continue;
-        }
-
-        detector_buffer.extend(chunk.iter().copied());
-        let mut detected_this_chunk = false;
-        while detector_buffer.len() >= frame_size {
-            let mut frame = Vec::with_capacity(frame_size);
-            for _ in 0..frame_size {
-                if let Some(sample) = detector_buffer.pop_front() {
-                    frame.push(sample);
-                }
-            }
-            if potter.process_samples(frame).is_some() {
-                let now = Instant::now();
-                if last_wake_detected.is_some_and(|last| {
-                    now.duration_since(last) < Duration::from_millis(config.wake_cooldown_ms)
-                }) {
-                    potter.reset();
-                    continue;
-                }
-                last_wake_detected = Some(now);
-                detected_this_chunk = true;
-                armed_until = Some(now + Duration::from_millis(config.command_timeout_ms));
-                segmenter.reset();
-                let _ = send_event(&events, CaptureEvent::WakeDetected);
-                break;
-            }
-        }
-
-        let Some(deadline) = armed_until else {
-            continue;
+            channels: channels as u16,
+            endianness: rustpotter::Endianness::Little,
         };
-        if Instant::now() >= deadline {
-            armed_until = None;
-            segmenter.reset();
-            let _ = send_event(&events, CaptureEvent::WakeExpired);
-            continue;
+        let mut detector = Rustpotter::new(&potter_config).map_err(|e| e.to_string())?;
+        let wakeword_str = wakeword.to_str().ok_or_else(|| "invalid wakeword path".to_string())?;
+        detector
+            .add_wakeword_from_file(WAKEWORD_KEY, wakeword_str)
+            .map_err(|e| e.to_string())?;
+        Some(detector)
+    } else {
+        None
+    };
+
+    let (audio_tx, audio_rx) = mpsc::sync_channel::<Vec<f32>>(AUDIO_CHUNK_QUEUE);
+    let error_signal = Arc::new(AtomicBool::new(false));
+    let err_cb = {
+        let error_signal = error_signal.clone();
+        move |err| {
+            eprintln!("cpal voice stream error: {err}");
+            error_signal.store(true, Ordering::Release);
         }
-        if detected_this_chunk {
+    };
+
+    let stream = match sample_format {
+        SampleFormat::F32 => build_input_stream::<f32, _>(&device, &stream_config, audio_tx, err_cb)?,
+        SampleFormat::I16 => build_input_stream::<i16, _>(&device, &stream_config, audio_tx, err_cb)?,
+        SampleFormat::U16 => build_input_stream::<u16, _>(&device, &stream_config, audio_tx, err_cb)?,
+        other => return Err(format!("unsupported audio sample format: {other:?}")),
+    };
+
+    stream
+        .play()
+        .map_err(|e| format!("start audio capture: {e}"))?;
+
+    let mut segmenter = Segmenter::new(sample_rate, config.clone());
+    let mut mono_buffer = Vec::new();
+    let mut last_wake = Instant::now() - Duration::from_millis(config.wake_cooldown_ms + 1);
+    let mut activation_counter = 0u64;
+    let mut active_activation: Option<(ActivationId, Instant)> = None;
+    let frame_size = potter.as_ref().map(|p| p.get_samples_per_frame()).unwrap_or(0);
+    let mut potter_buffer = Vec::new();
+
+    while let Ok(chunk) = audio_rx.recv() {
+        if error_signal.load(Ordering::Acquire) {
+            return Err("audio stream encountered an error".into());
+        }
+        if paused.load(Ordering::Acquire) {
+            segmenter.reset();
             continue;
         }
 
-        if let Some(audio) = segmenter.push(&chunk) {
-            let path = write_wav(config_dir, sample_rate, &audio)?;
-            if send_event(&events, CaptureEvent::Utterance(path.clone())).is_err() {
-                let _ = fs::remove_file(path);
+        mono_buffer.clear();
+        if channels == 1 {
+            mono_buffer.extend_from_slice(&chunk);
+        } else {
+            mono_buffer.reserve(chunk.len() / channels);
+            for frame in chunk.chunks_exact(channels) {
+                let sum: f32 = frame.iter().copied().sum();
+                mono_buffer.push(sum / channels as f32);
             }
-            armed_until = None;
-            segmenter.reset();
+        }
+
+        if let Some(potter) = potter.as_mut() {
+            potter_buffer.extend_from_slice(&chunk);
+            while potter_buffer.len() >= frame_size && frame_size > 0 {
+                let frame: Vec<f32> = potter_buffer.drain(..frame_size).collect();
+                if let Some(detection) = potter.process_samples(frame) {
+                    let now = Instant::now();
+                    if now.duration_since(last_wake).as_millis() as u64 >= config.wake_cooldown_ms {
+                        last_wake = now;
+                        activation_counter = activation_counter.wrapping_add(1);
+                        let activation_id = ActivationId(activation_counter);
+                        active_activation = Some((activation_id, now));
+                        tracker.record_wake();
+
+                        eprintln!(
+                            "kitt voice: wake detected ({}, score={:.2})",
+                            detection.name, detection.score
+                        );
+                        if let Err(TrySendError::Full(_)) = events.try_send(CaptureEvent::WakeDetected {
+                            activation_id,
+                            at: now,
+                        }) {
+                            tracker.inc_events_dropped();
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(samples) = segmenter.push(&mono_buffer) {
+            let captured_at = Instant::now();
+            let activation_id = match active_activation {
+                Some((id, wake_time)) => {
+                    let elapsed = wake_time.elapsed().as_millis() as u64;
+                    if elapsed <= config.command_timeout_ms {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            };
+
+            match write_wav(&config_dir, sample_rate, &samples) {
+                Ok(path) => {
+                    if let Err(TrySendError::Full(_)) = events.try_send(CaptureEvent::Utterance {
+                        activation_id,
+                        captured_at,
+                        path,
+                    }) {
+                        tracker.inc_utterances_dropped();
+                    }
+                }
+                Err(error) => eprintln!("failed to write utterance WAV: {error}"),
+            }
         }
     }
+
     Ok(())
 }
 
-fn send_event(tx: &SyncSender<CaptureEvent>, event: CaptureEvent) -> Result<(), ()> {
-    match tx.try_send(event) {
-        Ok(()) => Ok(()),
-        Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => Err(()),
-    }
+fn build_input_stream<T, E>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    sender: SyncSender<Vec<f32>>,
+    error_cb: E,
+) -> Result<Stream, String>
+where
+    T: Sample + SizedSample + FromSample<T>,
+    f32: FromSample<T>,
+    E: FnMut(cpal::Error) + Send + 'static,
+{
+    device
+        .build_input_stream(
+            *config,
+            move |data: &[T], _: &cpal::InputCallbackInfo| {
+                let converted: Vec<f32> = data.iter().copied().map(f32::from_sample).collect();
+                let _ = sender.try_send(converted);
+            },
+            error_cb,
+            None,
+        )
+        .map_err(|e| format!("build audio input stream: {e}"))
 }
 
-#[derive(Debug)]
-enum LocalSttProbe {
+pub enum LocalSttProbe {
     Ready,
-    Unreachable(String),
     Degraded(String),
+    Unreachable(String),
 }
 
-fn stt_health_url(base_url: &str) -> String {
-    format!("{}/health", base_url.trim_end_matches('/'))
-}
-
-fn probe_local_stt(base_url: &str) -> LocalSttProbe {
+pub fn probe_local_stt(base_url: &str) -> LocalSttProbe {
+    let health_url = stt_health_url(base_url);
     let client = match reqwest::blocking::Client::builder()
-        .connect_timeout(STT_HEALTH_CONNECT_TIMEOUT)
-        .timeout(STT_HEALTH_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_millis(1_000))
+        .timeout(Duration::from_millis(2_000))
         .build()
     {
         Ok(client) => client,
-        Err(error) => return LocalSttProbe::Unreachable(error.to_string()),
+        Err(e) => return LocalSttProbe::Unreachable(e.to_string()),
     };
 
-    let response = match client.get(stt_health_url(base_url)).send() {
-        Ok(response) => response,
-        Err(error) => return LocalSttProbe::Unreachable(error.to_string()),
+    let mut response = match client.get(&health_url).send() {
+        Ok(res) => res,
+        Err(e) => return LocalSttProbe::Unreachable(e.to_string()),
     };
+
     let status = response.status();
-    if !status.is_success() {
-        return LocalSttProbe::Degraded(format!("health endpoint returned HTTP {status}"));
+    let mut body = Vec::new();
+    if let Err(e) = response.by_ref().take(STT_HEALTH_MAX_BYTES).read_to_end(&mut body) {
+        return LocalSttProbe::Degraded(format!("read health body: {e}"));
     }
-    if response
-        .content_length()
-        .is_some_and(|size| size > STT_HEALTH_MAX_BYTES)
-    {
-        return LocalSttProbe::Degraded("health response is too large".into());
-    }
-
-    let mut bytes = Vec::new();
-    if let Err(error) = response
-        .take(STT_HEALTH_MAX_BYTES + 1)
-        .read_to_end(&mut bytes)
-    {
-        return LocalSttProbe::Degraded(format!("health response read failed: {error}"));
-    }
-    if bytes.len() as u64 > STT_HEALTH_MAX_BYTES {
-        return LocalSttProbe::Degraded("health response is too large".into());
-    }
-
-    let body: serde_json::Value = match serde_json::from_slice(&bytes) {
-        Ok(body) => body,
-        Err(error) => {
-            return LocalSttProbe::Degraded(format!("invalid STT health JSON: {error}"));
-        }
+    let json: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => return LocalSttProbe::Degraded(format!("parse health JSON: {e}")),
     };
-    if body.get("ready").and_then(serde_json::Value::as_bool) == Some(true) {
+
+    if status.is_success() && json.get("ready").and_then(serde_json::Value::as_bool) == Some(true)
+    {
         LocalSttProbe::Ready
     } else {
-        let status = body
-            .get("status")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("degraded");
-        let engine = body
+        let msg = json
             .get("engine")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("unknown");
-        LocalSttProbe::Degraded(format!("status={status}, engine={engine}"))
+            .unwrap_or("engine unavailable");
+        LocalSttProbe::Degraded(format!("{status}: {msg}"))
     }
 }
 
-fn local_worker_endpoint(base_url: &str) -> Result<(String, u16), String> {
-    let parsed =
-        url::Url::parse(base_url).map_err(|error| format!("invalid local STT URL: {error}"))?;
+pub fn stt_health_url(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.ends_with("/v1") {
+        format!("{trimmed}/health")
+    } else {
+        format!("{trimmed}/v1/health")
+    }
+}
+
+pub fn local_worker_endpoint(base_url: &str) -> Result<(String, u16), String> {
+    let parsed = reqwest::Url::parse(base_url).map_err(|e| format!("invalid STT URL: {e}"))?;
     if parsed.scheme() != "http" {
-        return Err("local STT worker auto-start requires an http URL".into());
+        return Err("local STT worker auto-start requires http:// scheme".into());
     }
     let host = parsed
         .host_str()
@@ -726,7 +964,6 @@ fn worker_launch_candidates() -> Vec<(String, Vec<String>)> {
     }
     candidates.push(("kitt-stt".into(), Vec::new()));
 
-    // Automatically probe candidate virtualenv locations in the workspace / system
     let mut probe_dirs: Vec<PathBuf> = Vec::new();
     if let Ok(curr) = std::env::current_dir() {
         probe_dirs.push(curr.clone());
@@ -842,15 +1079,32 @@ fn spawn_local_stt_worker(runtime: &Arc<Runtime>, config: &VoiceConfig) -> Resul
         "local STT autostart has no model configured; set assistant.voice.stt_worker_model, KITT_WHISPER_MODEL or WHISPER_MODEL"
             .to_string()
     })?;
-    let common_args = vec![
+    let mut common_args = vec![
         "--host".to_string(),
         host,
         "--port".to_string(),
         port.to_string(),
         "--model".to_string(),
         model,
+        "--device".to_string(),
+        config.stt_device.clone(),
+        "--compute-type".to_string(),
+        config.stt_compute_type.clone(),
+        "--beam-size".to_string(),
+        config.stt_beam_size.to_string(),
+        "--num-workers".to_string(),
+        config.stt_num_workers.to_string(),
         "--parent-stdin-lifecycle".to_string(),
     ];
+    if config.stt_cpu_threads > 0 {
+        common_args.push("--cpu-threads".to_string());
+        common_args.push(config.stt_cpu_threads.to_string());
+    }
+    if config.stt_local_files_only {
+        common_args.push("--local-files-only".to_string());
+    } else {
+        common_args.push("--allow-download".to_string());
+    }
 
     let mut failures = Vec::new();
     for (program, prefix_args) in worker_launch_candidates() {
@@ -909,7 +1163,7 @@ fn stop_owned_stt_worker(runtime: &Arc<Runtime>) {
     let _ = child.wait();
 }
 
-fn ensure_local_stt_ready(runtime: &Arc<Runtime>, config: &VoiceConfig) -> Result<(), String> {
+pub fn ensure_local_stt_ready(runtime: &Arc<Runtime>, config: &VoiceConfig) -> Result<(), String> {
     match probe_local_stt(&runtime.stt_base_url) {
         LocalSttProbe::Ready => return Ok(()),
         LocalSttProbe::Degraded(detail) => {
@@ -951,6 +1205,20 @@ fn ensure_local_stt_ready(runtime: &Arc<Runtime>, config: &VoiceConfig) -> Resul
     }
 }
 
+fn trigger_async_warmup(runtime: Arc<Runtime>, config: VoiceConfig) {
+    static WARMUP_RUNNING: AtomicBool = AtomicBool::new(false);
+    if WARMUP_RUNNING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    thread::Builder::new()
+        .name("kitt-stt-warmup".into())
+        .spawn(move || {
+            let _ = ensure_local_stt_ready(&runtime, &config);
+            WARMUP_RUNNING.store(false, Ordering::SeqCst);
+        })
+        .ok();
+}
+
 fn show_voice_error(runtime: &Arc<Runtime>, message: &str) {
     ensure_hud(runtime);
     runtime.hud.send(HudEvent::Text {
@@ -959,12 +1227,35 @@ fn show_voice_error(runtime: &Arc<Runtime>, message: &str) {
     });
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum LocalInstantCommand {
+    Cancel,
+    VoiceStatus,
+    Repeat,
+    None,
+}
+
+fn detect_instant_command(text: &str) -> LocalInstantCommand {
+    let lower = text.trim().to_ascii_lowercase();
+    if matches!(lower.as_str(), "pare" | "parar" | "cancelar" | "cancele" | "silêncio" | "silencio" | "stop") {
+        return LocalInstantCommand::Cancel;
+    }
+    if matches!(lower.as_str(), "status da voz" | "status voz" | "status do sistema" | "status") {
+        return LocalInstantCommand::VoiceStatus;
+    }
+    if matches!(lower.as_str(), "repita" | "repita a resposta" | "o que você disse" | "repetir") {
+        return LocalInstantCommand::Repeat;
+    }
+    LocalInstantCommand::None
+}
+
 fn pipeline_loop(
     runtime: Arc<Runtime>,
     config: VoiceConfig,
     mode: ActivationMode,
     paused: Arc<AtomicBool>,
     events: Receiver<CaptureEvent>,
+    tracker: Arc<VoiceRuntimeTracker>,
 ) {
     let matcher = WakePhraseMatcher::new(
         &config.wake_phrases,
@@ -972,122 +1263,208 @@ fn pipeline_loop(
         config.wake_fuzzy_max_distance,
     );
     let activation_prompt = matcher.prompt_hint().to_string();
-    let mut awaiting_command_until: Option<Instant> = None;
+    let mut awaiting_activation: Option<ActivationId> = None;
 
     while let Ok(event) = events.recv() {
         match event {
-            CaptureEvent::WakeDetected => {
-                awaiting_command_until =
-                    Some(Instant::now() + Duration::from_millis(config.command_timeout_ms));
+            CaptureEvent::WakeDetected { activation_id, at: _ } => {
+                awaiting_activation = Some(activation_id);
+                tracker.set_state(VoiceState::Listening);
                 show_listening(&runtime, config.command_timeout_ms);
+
+                // Asynchronous non-blocking warmup on wake
                 if runtime.service.transcriber_is_local() {
-                    if let Err(error) = ensure_local_stt_ready(&runtime, &config) {
-                        awaiting_command_until = None;
-                        eprintln!("kitt voice: local STT startup failed after wake: {error}");
-                        show_voice_error(&runtime, &format!("STT local indisponível: {error}"));
-                    }
+                    trigger_async_warmup(runtime.clone(), config.clone());
                 }
             }
-            CaptureEvent::WakeExpired => {
-                awaiting_command_until = None;
-                runtime.hud.send(HudEvent::Hide);
-            }
-            CaptureEvent::Utterance(path) => {
+            CaptureEvent::Utterance { activation_id, captured_at: _, path } => {
                 let _audio = TempAudioGuard(path.clone());
                 paused.store(true, Ordering::Release);
                 let _pause = PauseReset(paused.clone());
 
-                let now = Instant::now();
-                let already_waiting = awaiting_command_until.is_some_and(|deadline| now < deadline);
+                let was_waiting = match (awaiting_activation, activation_id) {
+                    (Some(expected), Some(actual)) => expected == actual,
+                    _ => false,
+                };
+                awaiting_activation = None;
+
                 let activation_probe = matches!(
                     mode,
                     ActivationMode::TranscriptPrefix | ActivationMode::Auto
-                ) && !already_waiting;
-                let transcript = match runtime.service.transcribe(
+                ) && !was_waiting;
+
+                // Ensure local STT worker is ready before transcribing
+                tracker.set_state(VoiceState::SttWarming);
+                if runtime.service.transcriber_is_local() {
+                    if let Err(error) = ensure_local_stt_ready(&runtime, &config) {
+                        tracker.set_state(VoiceState::Recovering);
+                        tracker.inc_stt_restarts();
+                        tracker.set_error(Some(format!("stt startup: {error}")));
+                        show_voice_error(&runtime, &format!("STT local indisponível: {error}"));
+                        tracker.set_state(VoiceState::Idle);
+                        continue;
+                    }
+                }
+
+                tracker.set_state(VoiceState::Transcribing);
+                let t_start = Instant::now();
+                let transcription_res = runtime.service.transcribe_rich(
                     &path,
                     Some(config.locale.as_str()),
                     activation_probe.then_some(activation_prompt.as_str()),
-                ) {
-                    Ok(text) => text.trim().to_string(),
+                );
+                let t_duration = t_start.elapsed().as_millis() as u64;
+                tracker.record_transcript(t_duration);
+
+                let transcript_obj = match transcription_res {
+                    Ok(res) => res,
                     Err(error) => {
-                        static LAST_STT_ERROR_LOG: std::sync::atomic::AtomicU64 =
-                            std::sync::atomic::AtomicU64::new(0);
-                        let now_secs = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        let last = LAST_STT_ERROR_LOG.load(std::sync::atomic::Ordering::Relaxed);
-                        if now_secs.saturating_sub(last) >= 15 {
-                            LAST_STT_ERROR_LOG
-                                .store(now_secs, std::sync::atomic::Ordering::Relaxed);
-                            eprintln!(
-                                "kitt voice: STT endpoint unreachable ({error}). Install kitt-ai-workers[stt] or start kitt-stt on port 8000."
-                            );
-                        }
-                        show_voice_error(&runtime, &format!("Falha na transcrição: {error}"));
-                        thread::sleep(Duration::from_millis(500));
+                        tracker.set_state(VoiceState::Recovering);
+                        tracker.inc_stt_restarts();
+                        tracker.set_error(Some(format!("transcription: {error}")));
+                        stop_owned_stt_worker(&runtime);
+                        show_voice_error(&runtime, &format!("Reconhecimento reiniciado: {error}"));
+                        tracker.set_state(VoiceState::Idle);
                         continue;
                     }
                 };
+
+                let transcript = transcript_obj.text.trim().to_string();
                 if transcript.is_empty() {
+                    tracker.set_state(VoiceState::Idle);
                     continue;
                 }
 
                 eprintln!("kitt voice heard transcript: {:?}", transcript);
 
-                let waiting = awaiting_command_until.is_some_and(|deadline| now < deadline);
-                if awaiting_command_until.is_some() && !waiting {
-                    awaiting_command_until = None;
-                }
-
                 let command = match mode {
                     ActivationMode::Wakeword => {
-                        if waiting {
+                        if was_waiting {
                             matcher
                                 .strip_prefix(&transcript)
                                 .unwrap_or_else(|| transcript.clone())
                         } else {
+                            tracker.set_state(VoiceState::Idle);
                             continue;
                         }
                     }
                     ActivationMode::TranscriptPrefix | ActivationMode::Auto => {
-                        if waiting {
+                        if was_waiting {
                             transcript.clone()
                         } else if let Some(command) = matcher.strip_prefix(&transcript) {
                             command
                         } else {
                             eprintln!("kitt voice: no wake phrase matched in {:?}", transcript);
+                            tracker.set_state(VoiceState::Idle);
                             continue;
                         }
+                    }
+                    ActivationMode::Degraded => {
+                        tracker.set_state(VoiceState::Degraded);
+                        continue;
                     }
                 };
 
                 let command = command.trim();
                 if command.is_empty() {
                     eprintln!("kitt voice: wake phrase matched! Listening for command...");
-                    awaiting_command_until =
-                        Some(Instant::now() + Duration::from_millis(config.command_timeout_ms));
+                    tracker.set_state(VoiceState::Listening);
                     show_listening(&runtime, config.command_timeout_ms);
                     continue;
                 }
-                awaiting_command_until = None;
-                eprintln!("kitt voice: executing command: {:?}", command);
 
-                match run_ask(&runtime, command, RouteHint::Auto, true) {
+                // Check for local instant commands that bypass LLM
+                match detect_instant_command(command) {
+                    LocalInstantCommand::Cancel => {
+                        eprintln!("kitt voice: instant command 'cancel' received");
+                        ensure_hud(&runtime);
+                        runtime.hud.send(HudEvent::Text {
+                            content: "Cancelado.".into(),
+                            ttl_ms: 3_000,
+                        });
+                        tracker.set_state(VoiceState::Idle);
+                        continue;
+                    }
+                    LocalInstantCommand::VoiceStatus => {
+                        eprintln!("kitt voice: instant command 'status da voz' received");
+                        let status_msg = format!("KITT operacional. Modo {}, reconhecimento pronto.", mode_name(mode));
+                        ensure_hud(&runtime);
+                        runtime.hud.send(HudEvent::Text {
+                            content: status_msg.clone(),
+                            ttl_ms: 5_000,
+                        });
+                        if config.tts_enabled {
+                            tracker.set_state(VoiceState::Speaking);
+                            let _ = runtime.service.speak(&status_msg, Some(config.locale.as_str()));
+                        }
+                        tracker.set_state(VoiceState::Idle);
+                        continue;
+                    }
+                    LocalInstantCommand::Repeat => {
+                        if let Some(prev) = tracker.get_last_spoken() {
+                            eprintln!("kitt voice: repeating previous answer");
+                            ensure_hud(&runtime);
+                            runtime.hud.send(HudEvent::Text {
+                                content: prev.clone(),
+                                ttl_ms: 6_000,
+                            });
+                            if config.tts_enabled {
+                                tracker.set_state(VoiceState::Speaking);
+                                let _ = runtime.service.speak(&prev, Some(config.locale.as_str()));
+                            }
+                        }
+                        tracker.set_state(VoiceState::Idle);
+                        continue;
+                    }
+                    LocalInstantCommand::None => {}
+                }
+
+                eprintln!("kitt voice: executing command: {:?}", command);
+                tracker.set_state(VoiceState::Thinking);
+                ensure_hud(&runtime);
+                runtime.hud.send(HudEvent::Status {
+                    state: HudState::Thinking,
+                    message: Some("Pensando…".into()),
+                });
+
+                let llm_start = Instant::now();
+                let ask_res = run_ask(&runtime, command, RouteHint::Auto, true);
+                let llm_duration = llm_start.elapsed().as_millis() as u64;
+                tracker.record_llm(llm_duration);
+
+                match ask_res {
                     Ok(answer) => {
                         eprintln!("kitt voice answer: {:?}", answer.text);
+                        tracker.set_last_spoken(answer.text.clone());
                         if config.tts_enabled {
+                            tracker.set_state(VoiceState::Speaking);
+                            ensure_hud(&runtime);
+                            runtime.hud.send(HudEvent::Text {
+                                content: answer.text.clone(),
+                                ttl_ms: 8_000,
+                            });
+                            let tts_start = Instant::now();
                             if let Err(error) = runtime
                                 .service
                                 .speak(&answer.text, Some(config.locale.as_str()))
                             {
                                 eprintln!("voice TTS unavailable: {error}");
+                                tracker.set_error(Some(format!("tts: {error}")));
                             }
+                            let tts_duration = tts_start.elapsed().as_millis() as u64;
+                            tracker.record_tts(tts_duration);
                         }
+                        tracker.record_total(t_duration + llm_duration);
                     }
-                    Err((_, error)) => eprintln!("voice assistant request failed: {error}"),
+                    Err((_, error)) => {
+                        eprintln!("voice assistant request failed: {error}");
+                        tracker.set_error(Some(format!("llm: {error}")));
+                    }
                 }
+
+                tracker.set_state(VoiceState::Cooldown);
                 thread::sleep(Duration::from_millis(config.echo_guard_ms));
+                tracker.set_state(VoiceState::Idle);
                 eprintln!("kitt voice: ready and listening");
             }
         }
@@ -1578,8 +1955,11 @@ mod tests {
     }
 
     #[test]
-    fn auto_mode_prefers_transcript_prefix_when_model_is_missing() {
-        let config = VoiceConfig::default();
+    fn auto_mode_prefers_transcript_prefix_when_fallback_is_allowed() {
+        let config = VoiceConfig {
+            allow_transcript_prefix_fallback: true,
+            ..VoiceConfig::default()
+        };
         let temp = std::env::temp_dir().join(format!(
             "kitt-voice-test-{}",
             SystemTime::now()
@@ -1593,5 +1973,36 @@ mod tests {
             ActivationMode::TranscriptPrefix
         );
         let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn auto_mode_prefers_degraded_when_fallback_is_disallowed() {
+        let config = VoiceConfig {
+            allow_transcript_prefix_fallback: false,
+            ..VoiceConfig::default()
+        };
+        let temp = std::env::temp_dir().join(format!(
+            "kitt-voice-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        assert_eq!(
+            config.resolved_mode(&temp),
+            ActivationMode::Degraded
+        );
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn detect_instant_commands_correctly() {
+        assert_eq!(detect_instant_command("pare"), LocalInstantCommand::Cancel);
+        assert_eq!(detect_instant_command("cancelar"), LocalInstantCommand::Cancel);
+        assert_eq!(detect_instant_command("silêncio"), LocalInstantCommand::Cancel);
+        assert_eq!(detect_instant_command("status da voz"), LocalInstantCommand::VoiceStatus);
+        assert_eq!(detect_instant_command("repita"), LocalInstantCommand::Repeat);
+        assert_eq!(detect_instant_command("qual é a previsão do tempo?"), LocalInstantCommand::None);
     }
 }

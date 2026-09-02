@@ -223,6 +223,7 @@ fn main() {
         rate: config.tts_rate,
         pitch: config.tts_pitch,
         volume: config.tts_volume,
+        timeout: Duration::from_secs(30),
     }));
     let memory_adapter = Arc::new(AssistantMemory::new(
         memory.clone(),

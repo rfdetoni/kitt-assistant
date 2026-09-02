@@ -117,14 +117,46 @@ impl RoutingPolicy {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TranscriptionResult {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language_probability: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_logprob: Option<f32>,
+    #[serde(default)]
+    pub duration_ms: u64,
+}
+
+impl TranscriptionResult {
+    pub fn from_text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            language: None,
+            language_probability: None,
+            avg_logprob: None,
+            duration_ms: 0,
+        }
+    }
+}
+
 pub trait ModelPort: Send + Sync {
     fn complete(&self, request: &ModelRequest) -> Result<ModelAnswer>;
     fn is_local(&self) -> bool;
 }
 
 pub trait TranscriptionPort: Send + Sync {
-    fn transcribe(&self, path: &Path, locale: Option<&str>, prompt: Option<&str>)
-    -> Result<String>;
+    fn transcribe(&self, path: &Path, locale: Option<&str>, prompt: Option<&str>) -> Result<String> {
+        self.transcribe_rich(path, locale, prompt).map(|r| r.text)
+    }
+    fn transcribe_rich(
+        &self,
+        path: &Path,
+        locale: Option<&str>,
+        prompt: Option<&str>,
+    ) -> Result<TranscriptionResult>;
     fn is_local(&self) -> bool;
 }
 

@@ -226,12 +226,12 @@ impl OpenAiCompatibleTranscriber {
 }
 
 impl TranscriptionPort for OpenAiCompatibleTranscriber {
-    fn transcribe(
+    fn transcribe_rich(
         &self,
         path: &Path,
         locale: Option<&str>,
         prompt: Option<&str>,
-    ) -> Result<String> {
+    ) -> Result<kitt_domain::TranscriptionResult> {
         if !self.local && !self.allow_remote {
             return Err(AssistantError::Transcription(
                 "remote voice transcription is disabled; set speech_to_text.allow_remote=true explicitly"
@@ -282,10 +282,22 @@ impl TranscriptionPort for OpenAiCompatibleTranscriber {
                 .map_err(|e| AssistantError::Transcription(e.to_string()))?,
             AssistantError::Transcription,
         )?;
-        body.get("text")
+        let text = body
+            .get("text")
             .and_then(Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| AssistantError::Transcription("response missing text".into()))
+            .unwrap_or("")
+            .to_string();
+        let language = body.get("language").and_then(Value::as_str).map(str::to_string);
+        let language_probability = body.get("language_probability").and_then(Value::as_f64).map(|v| v as f32);
+        let avg_logprob = body.get("avg_logprob").and_then(Value::as_f64).map(|v| v as f32);
+        let duration_ms = body.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
+        Ok(kitt_domain::TranscriptionResult {
+            text,
+            language,
+            language_probability,
+            avg_logprob,
+            duration_ms,
+        })
     }
 
     fn is_local(&self) -> bool {
@@ -348,6 +360,7 @@ pub struct SystemVoiceProfile {
     pub rate: i32,
     pub pitch: i32,
     pub volume: u8,
+    pub timeout: Duration,
 }
 
 impl Default for SystemVoiceProfile {
@@ -358,6 +371,7 @@ impl Default for SystemVoiceProfile {
             rate: -1,
             pitch: -2,
             volume: 95,
+            timeout: Duration::from_secs(30),
         }
     }
 }
@@ -375,6 +389,7 @@ impl SystemVoiceProfile {
             rate: self.rate.clamp(-10, 10),
             pitch: self.pitch.clamp(-10, 10),
             volume: self.volume.min(100),
+            timeout: self.timeout.clamp(Duration::from_millis(500), Duration::from_secs(120)),
         }
     }
 }
@@ -403,6 +418,133 @@ impl SpeechOutputPort for SystemTextToSpeech {
             return Ok(());
         }
         speak_system(text, locale, &self.profile)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PiperVoiceProfile {
+    pub base_url: String,
+    pub voice: Option<String>,
+    pub speaker: Option<i32>,
+    pub length_scale: Option<f32>,
+    pub noise_scale: Option<f32>,
+    pub noise_w_scale: Option<f32>,
+    pub timeout: Duration,
+    pub fallback_system: Option<SystemVoiceProfile>,
+}
+
+pub struct PiperTextToSpeech {
+    profile: PiperVoiceProfile,
+    client: Client,
+}
+
+impl PiperTextToSpeech {
+    pub fn new(profile: PiperVoiceProfile) -> Result<Self> {
+        let client = Client::builder()
+            .timeout(profile.timeout)
+            .build()
+            .map_err(|e| AssistantError::Configuration(format!("piper http client: {e}")))?;
+        Ok(Self { profile, client })
+    }
+}
+
+impl SpeechOutputPort for PiperTextToSpeech {
+    fn speak(&self, text: &str, locale: Option<&str>) -> Result<()> {
+        if text.trim().is_empty() {
+            return Ok(());
+        }
+        let piper_res = (|| -> Result<()> {
+            let mut req = self.client.post(&self.profile.base_url);
+            let mut payload = json!({
+                "text": text,
+            });
+            if let Some(voice) = &self.profile.voice {
+                payload["voice"] = json!(voice);
+            }
+            if let Some(speaker) = self.profile.speaker {
+                payload["speaker_id"] = json!(speaker);
+            }
+            if let Some(ls) = self.profile.length_scale {
+                payload["length_scale"] = json!(ls);
+            }
+            if let Some(ns) = self.profile.noise_scale {
+                payload["noise_scale"] = json!(ns);
+            }
+            if let Some(nws) = self.profile.noise_w_scale {
+                payload["noise_w_scale"] = json!(nws);
+            }
+            req = req.json(&payload);
+            let res = req.send().map_err(|e| AssistantError::SpeechOutput(format!("piper send: {e}")))?;
+            if !res.status().is_success() {
+                return Err(AssistantError::SpeechOutput(format!("piper returned HTTP {}", res.status())));
+            }
+            // If Piper returned wav audio directly, write to temp and play
+            let bytes = res.bytes().map_err(|e| AssistantError::SpeechOutput(format!("piper read: {e}")))?;
+            if !bytes.is_empty() {
+                let temp_path = std::env::temp_dir().join(format!("kitt-piper-{}.wav", std::process::id()));
+                fs::write(&temp_path, &bytes).map_err(|e| AssistantError::Io(format!("save piper audio: {e}")))?;
+                let _guard = TempFileGuard(temp_path.clone());
+                #[cfg(all(unix, not(target_os = "macos")))]
+                {
+                    let _ = Command::new("aplay").arg(&temp_path).status();
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = Command::new("afplay").arg(&temp_path).status();
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    let script = format!(
+                        "(New-Object System.Media.SoundPlayer '{}').PlaySync();",
+                        temp_path.display()
+                    );
+                    let _ = Command::new("powershell.exe").args(["-NoProfile", "-Command", &script]).status();
+                }
+            }
+            Ok(())
+        })();
+
+        match piper_res {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if let Some(fallback) = &self.profile.fallback_system {
+                    speak_system(text, locale, fallback)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+}
+
+fn wait_child_with_timeout(mut child: std::process::Child, timeout: Duration) -> Result<()> {
+    let start = std::time::Instant::now();
+    let poll_interval = Duration::from_millis(25);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if status.success() {
+                    return Ok(());
+                } else {
+                    return Err(AssistantError::SpeechOutput(format!(
+                        "TTS process exited with status {status}"
+                    )));
+                }
+            }
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(AssistantError::SpeechOutput("TTS process timed out".into()));
+                }
+                std::thread::sleep(poll_interval);
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(AssistantError::SpeechOutput(format!("wait TTS process: {e}")));
+            }
+        }
     }
 }
 
@@ -462,16 +604,7 @@ fn speak_system(text: &str, locale: Option<&str>, profile: &SystemVoiceProfile) 
             .write_all(text.as_bytes())
             .map_err(|e| AssistantError::SpeechOutput(format!("write TTS input: {e}")))?;
     }
-    let status = child
-        .wait()
-        .map_err(|e| AssistantError::SpeechOutput(format!("wait PowerShell TTS: {e}")))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(AssistantError::SpeechOutput(format!(
-            "PowerShell TTS exited with {status}"
-        )))
-    }
+    wait_child_with_timeout(child, profile.timeout)
 }
 
 #[cfg(target_os = "macos")]
@@ -480,22 +613,16 @@ fn speak_system(text: &str, _locale: Option<&str>, profile: &SystemVoiceProfile)
     if let Some(voice) = profile.voice_name.as_deref() {
         command.arg("-v").arg(voice);
     }
-    let status = command
+    let child = command
         .arg("-r")
         .arg(macos_speech_rate(profile.rate).to_string())
         .arg(text)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .spawn()
         .map_err(|e| AssistantError::SpeechOutput(format!("start macOS say: {e}")))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(AssistantError::SpeechOutput(format!(
-            "macOS say exited with {status}"
-        )))
-    }
+    wait_child_with_timeout(child, profile.timeout)
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -517,21 +644,16 @@ fn speak_system(text: &str, locale: Option<&str>, profile: &SystemVoiceProfile) 
     } else if profile.prefer_male {
         speech_dispatcher.arg("-t").arg("male1");
     }
-    match speech_dispatcher
+    if let Ok(child) = speech_dispatcher
         .arg("--")
         .arg(text)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .spawn()
     {
-        Ok(status) if status.success() => return Ok(()),
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(AssistantError::SpeechOutput(format!(
-                "start spd-say: {error}"
-            )));
+        if wait_child_with_timeout(child, profile.timeout).is_ok() {
+            return Ok(());
         }
     }
 
@@ -559,14 +681,9 @@ fn speak_system(text: &str, locale: Option<&str>, profile: &SystemVoiceProfile) 
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        match command.status() {
-            Ok(status) if status.success() => return Ok(()),
-            Ok(_) => continue,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => {
-                return Err(AssistantError::SpeechOutput(format!(
-                    "start {program}: {error}"
-                )));
+        if let Ok(child) = command.spawn() {
+            if wait_child_with_timeout(child, profile.timeout).is_ok() {
+                return Ok(());
             }
         }
     }
@@ -607,10 +724,8 @@ fn write_private_tts_text(path: &Path, text: &str) -> Result<()> {
         .map_err(|e| AssistantError::Io(format!("flush TTS text: {e}")))
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
 struct TempFileGuard(std::path::PathBuf);
 
-#[cfg(all(unix, not(target_os = "macos")))]
 impl Drop for TempFileGuard {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);
@@ -714,12 +829,14 @@ mod tests {
             rate: -99,
             pitch: 99,
             volume: 255,
+            timeout: Duration::from_secs(30),
         }
         .normalized();
         assert_eq!(profile.voice_name, None);
         assert_eq!(profile.rate, -10);
         assert_eq!(profile.pitch, 10);
         assert_eq!(profile.volume, 100);
+        assert_eq!(profile.timeout, Duration::from_secs(30));
     }
 
     #[test]

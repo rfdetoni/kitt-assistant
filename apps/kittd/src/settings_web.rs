@@ -205,9 +205,18 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
                 let mut overlay = read_overlay(&state.overlay_path)?;
                 let (changes, restart_required) =
                     validate_change_request(&payload, &overlay, &state.catalog)?;
+                let has_proxy_change = changes
+                    .as_object()
+                    .map(|m| m.keys().any(|k| k.starts_with("reverse_proxy")))
+                    .unwrap_or(false);
                 merge_changes(&mut overlay, &changes)?;
                 bump_revision(&mut overlay)?;
                 write_overlay_atomic(&state.overlay_path, &overlay)?;
+                if has_proxy_change {
+                    let _ = std::process::Command::new("systemctl")
+                        .args(["--user", "try-restart", "kitt-reverse-proxy.service"])
+                        .output();
+                }
                 Ok(
                     json!({"status":"applied","snapshot":snapshot(&overlay),"restart_required":restart_required}),
                 )
@@ -760,6 +769,9 @@ fn get_service_status(state: &State) -> Value {
 }
 
 fn handle_service_restart() -> Value {
+    let _ = std::process::Command::new("systemctl")
+        .args(["--user", "try-restart", "kitt-reverse-proxy.service"])
+        .output();
     let out = std::process::Command::new("systemctl")
         .args(["--user", "restart", "kitt-assistant.service"])
         .output();

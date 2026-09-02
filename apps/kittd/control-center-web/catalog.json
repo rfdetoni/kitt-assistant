@@ -454,6 +454,206 @@
           "maximum": 10000,
           "advanced": true,
           "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "allow_transcript_prefix_fallback",
+          "label": "Permitir fallback por transcrição",
+          "type": "boolean",
+          "default": false,
+          "description": "Se ativo no modo auto e sem modelo .rpw, transcreve áudio continuamente.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wake_threshold",
+          "label": "Wakeword Threshold",
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0.01,
+          "maximum": 1.0,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wake_avg_threshold",
+          "label": "Wakeword Avg Threshold",
+          "type": "number",
+          "default": 0.2,
+          "minimum": 0.01,
+          "maximum": 1.0,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wake_min_scores",
+          "label": "Wakeword Min Scores",
+          "type": "integer",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 50,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wake_eager",
+          "label": "Wakeword Eager Mode",
+          "type": "boolean",
+          "default": false,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wake_vad_mode",
+          "label": "Wakeword VAD Mode",
+          "type": "enum",
+          "default": "off",
+          "options": [
+            "off",
+            "easy",
+            "medium",
+            "hard"
+          ],
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wake_gain_normalizer",
+          "label": "Wakeword Gain Normalizer",
+          "type": "boolean",
+          "default": false,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_connect_timeout_ms",
+          "label": "STT Connect Timeout (ms)",
+          "type": "integer",
+          "default": 1000,
+          "minimum": 100,
+          "maximum": 30000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_request_timeout_ms",
+          "label": "STT Request Timeout (ms)",
+          "type": "integer",
+          "default": 15000,
+          "minimum": 1000,
+          "maximum": 120000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_warm_strategy",
+          "label": "STT Warmup Strategy",
+          "type": "enum",
+          "default": "on_wake",
+          "options": [
+            "on_wake",
+            "startup",
+            "lazy"
+          ],
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_device",
+          "label": "STT Device",
+          "type": "string",
+          "default": "auto",
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_compute_type",
+          "label": "STT Compute Type",
+          "type": "string",
+          "default": "default",
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_num_workers",
+          "label": "STT Worker Threads",
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 16,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_beam_size",
+          "label": "STT Beam Size",
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 10,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "stt_vad_filter",
+          "label": "STT VAD Filter (Silero)",
+          "type": "boolean",
+          "default": true,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "voice_llm_timeout_ms",
+          "label": "Voice LLM Timeout (ms)",
+          "type": "integer",
+          "default": 30000,
+          "minimum": 1000,
+          "maximum": 300000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_backend",
+          "label": "TTS Backend",
+          "type": "enum",
+          "default": "system",
+          "options": [
+            "system",
+            "piper"
+          ],
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_timeout_ms",
+          "label": "TTS Timeout (ms)",
+          "type": "integer",
+          "default": 30000,
+          "minimum": 1000,
+          "maximum": 120000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_piper_base_url",
+          "label": "Piper TTS Base URL",
+          "type": "url",
+          "default": "http://127.0.0.1:5000",
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_piper_voice",
+          "label": "Piper Voice Model",
+          "type": "string",
+          "default": "",
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_fallback_to_system",
+          "label": "Fallback Piper para TTS do SO",
+          "type": "boolean",
+          "default": true,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
         }
       ]
     },
