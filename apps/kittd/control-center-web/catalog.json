@@ -1449,6 +1449,16 @@
           "apply_mode": "component_restart"
         },
         {
+          "key": "cdp_url",
+          "label": "CDP URL (navegador aberto)",
+          "type": "string",
+          "default": "",
+          "placeholder": "http://127.0.0.1:9222 (opcional)",
+          "description": "Se preenchido, conecta diretamente a uma instância do Chrome já aberta com --remote-debugging-port=9222 sem abrir outro navegador.",
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
           "key": "cors",
           "label": "CORS enabled",
           "type": "boolean",

@@ -400,8 +400,12 @@ function renderReverseProxyLauncher(section) {
   const pending = reverseProxyHasPendingRuntimeChanges();
   const custom = state.reverseProxyPreset === "custom";
   const profileField = section.fields.find((field) => field.key === "user_data_dir");
+  const cdpField = section.fields.find((field) => field.key === "cdp_url");
   const configuredProfile = profileField ? String(current(section, profileField) || "") : "";
-  const profileText = configuredProfile
+  const configuredCdp = cdpField ? String(current(section, cdpField) || "") : "";
+  const profileText = configuredCdp
+    ? `Conectando ao Chrome aberto via CDP (${configuredCdp})`
+    : configuredProfile
     ? configuredProfile
     : "Perfil dedicado automático por provider (~/.kitt-reverse-proxy/<provider>)";
 
