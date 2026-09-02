@@ -12,6 +12,7 @@ const state = {
   statusRequestInFlight: false,
   logsRequestInFlight: false,
   showAdvanced: false,
+  searchTimer: null,
   pending: new Map(),
   section: null,
   csrf: null,
@@ -303,6 +304,9 @@ async function fetchServiceLogs() {
     const pre = $("service-logs");
     if (pre) pre.innerHTML = highlightLogs(state.serviceLogs || "Nenhum log disponível.");
     return state.serviceLogs;
+  } catch (error) {
+    console.warn("KITT service logs refresh failed:", error);
+    return state.serviceLogs;
   } finally {
     state.logsRequestInFlight = false;
   }
@@ -368,12 +372,80 @@ function render() {
   renderConfigView();
 }
 
+const COMPONENT_LABELS = {
+  "kitt-assistant": "Assistant",
+  "kitt-agent-cli": "Agent",
+  "kitt-memory": "Memory",
+  "kitt-ai-workers": "AI Workers",
+  "kitt-toolbox": "Toolbox",
+  "kitt-reverse-proxy": "Reverse Proxy",
+  "kitt-protocol": "Protocol",
+  "kitt": "Ecosystem"
+};
+
+function componentLabel(component) {
+  return COMPONENT_LABELS[component]
+    || String(component || "Outros")
+      .replace(/^kitt-/, "")
+      .split(/[-_.]/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+}
+
+function groupSectionsByComponent(sections) {
+  const grouped = new Map();
+  for (const section of sections) {
+    const component = section.component || "other";
+    if (!grouped.has(component)) grouped.set(component, []);
+    grouped.get(component).push(section);
+  }
+  return Array.from(grouped, ([component, items]) => ({
+    component,
+    label: componentLabel(component),
+    sections: items
+  }));
+}
+
+function shouldPollMonitorStatus() {
+  return !document.hidden && state.view === "monitor";
+}
+
+function shouldPollMonitorLogs() {
+  return shouldPollMonitorStatus()
+    && state.monitorAutoRefresh
+    && state.monitorTick > 0
+    && state.monitorTick % 3 === 0;
+}
+
+async function navigateTo(target) {
+  const searchEl = $("search");
+  if (searchEl) searchEl.value = "";
+
+  if (target === "__monitor__") {
+    state.view = "monitor";
+    state.monitorTick = 0;
+    render();
+    await Promise.all([fetchServiceStatus(), fetchServiceLogs()]);
+    if (state.view === "monitor") render();
+    return;
+  }
+
+  state.view = "config";
+  state.section = target;
+  render();
+}
+
 function renderNav() {
   const sections = state.catalog?.sections || [];
+  if (state.view === "config" && !state.section && sections.length) {
+    state.section = sections[0].id;
+  }
   const daemonOnline = state.serviceStatus?.daemon?.active ?? (state.snapshot !== null);
+  const groups = groupSectionsByComponent(sections);
 
   const monitorBtn = `
-    <div class="nav-category">SISTEMA</div>
+    <div class="nav-category">Sistema</div>
     <button class="nav-item nav-monitor ${state.view === "monitor" ? "active" : ""}" data-view="monitor">
       <div class="nav-title-group">
         <span class="nav-icon">📊</span>
@@ -381,19 +453,35 @@ function renderNav() {
       </div>
       <span class="dot-indicator ${daemonOnline ? "good" : "bad"}"></span>
     </button>
-    <div class="nav-category">CONFIGURAÇÕES</div>
   `;
 
-  const sectionBtns = sections.map((s) => `
-    <button class="nav-item ${state.view === "config" && s.id === state.section ? "active" : ""}" data-nav="${esc(s.id)}">
-      <span>${esc(s.title)}</span>
-      <span class="count">${s.fields.length}</span>
-    </button>
+  const sectionBtns = groups.map((group) => `
+    <div class="nav-category">${esc(group.label)}</div>
+    ${group.sections.map((s) => `
+      <button class="nav-item ${state.view === "config" && s.id === state.section ? "active" : ""}" data-nav="${esc(s.id)}">
+        <span>${esc(s.title)}</span>
+        <span class="count">${s.fields.length}</span>
+      </button>
+    `).join("")}
   `).join("");
 
   const navEl = $("nav");
-  if (navEl) {
-    navEl.innerHTML = monitorBtn + sectionBtns;
+  if (navEl) navEl.innerHTML = monitorBtn + sectionBtns;
+
+  const mobileNav = $("mobile-nav-select");
+  if (mobileNav) {
+    mobileNav.innerHTML = `
+      <option value="__monitor__">Monitor de Serviço</option>
+      ${groups.map((group) => `
+        <optgroup label="${esc(group.label)}">
+          ${group.sections.map((s) => `<option value="${esc(s.id)}">${esc(s.title)}</option>`).join("")}
+        </optgroup>
+      `).join("")}
+    `;
+    mobileNav.value = state.view === "monitor"
+      ? "__monitor__"
+      : (state.section || sections[0]?.id || "__monitor__");
+    mobileNav.onchange = () => { void navigateTo(mobileNav.value); };
   }
 
   bindNav();
@@ -722,20 +810,11 @@ function bindInputs() {
 
 function bindNav() {
   document.querySelectorAll("[data-nav]").forEach((el) => el.addEventListener("click", () => {
-    state.view = "config";
-    state.section = el.dataset.nav;
-    const searchEl = $("search");
-    if (searchEl) searchEl.value = "";
-    render();
+    void navigateTo(el.dataset.nav);
   }));
 
-  document.querySelectorAll("[data-view='monitor']").forEach((el) => el.addEventListener("click", async () => {
-    state.view = "monitor";
-    const searchEl = $("search");
-    if (searchEl) searchEl.value = "";
-    render();
-    await Promise.all([fetchServiceStatus(), fetchServiceLogs()]);
-    if (state.view === "monitor") render();
+  document.querySelectorAll("[data-view='monitor']").forEach((el) => el.addEventListener("click", () => {
+    void navigateTo("__monitor__");
   }));
 }
 
@@ -811,19 +890,29 @@ async function boot() {
     fetchServiceStatus();
     render();
 
-    // Setup background polling timer for Service Monitor tab
+    // Status stays fresh every 5 s while the monitor is visible. Logs are
+    // intentionally slower (15 s) and controlled independently by the toggle.
     if (!state.monitorTimer) {
       state.monitorTimer = setInterval(async () => {
-        if (state.view === "monitor" && state.monitorAutoRefresh) {
-          await fetchServiceStatus();
-          if (state.view === "monitor") {
-            const preLogs = $("service-logs");
-            const wasAtBottom = preLogs ? (preLogs.scrollHeight - preLogs.scrollTop <= preLogs.clientHeight + 40) : false;
-            renderMonitorView();
-            if (wasAtBottom && preLogs) {
-              preLogs.scrollTop = preLogs.scrollHeight;
-            }
-          }
+        if (!shouldPollMonitorStatus()) return;
+
+        state.monitorTick += 1;
+        const previousLogs = $("service-logs");
+        const wasAtBottom = previousLogs
+          ? (previousLogs.scrollHeight - previousLogs.scrollTop <= previousLogs.clientHeight + 40)
+          : false;
+
+        await fetchServiceStatus();
+        if (!shouldPollMonitorStatus()) return;
+        renderMonitorView();
+
+        if (shouldPollMonitorLogs()) {
+          await fetchServiceLogs();
+        }
+
+        const currentLogs = $("service-logs");
+        if (wasAtBottom && currentLogs) {
+          currentLogs.scrollTop = currentLogs.scrollHeight;
         }
       }, 5000);
     }
@@ -835,7 +924,15 @@ async function boot() {
 }
 
 const searchInput = $("search");
-if (searchInput) searchInput.addEventListener("input", render);
+if (searchInput) {
+  searchInput.addEventListener("input", () => {
+    if (state.searchTimer) clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(() => {
+      state.searchTimer = null;
+      render();
+    }, 120);
+  });
+}
 
 const btnConfirm = $("confirm-apply");
 if (btnConfirm) {
@@ -847,4 +944,6 @@ if (btnConfirm) {
   });
 }
 
-boot();
+if (typeof window !== "undefined") {
+  boot();
+}

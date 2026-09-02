@@ -1,6 +1,6 @@
+import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import test from "node:test";
 import vm from "node:vm";
 
 const SOURCE = fs.readFileSync(
@@ -10,18 +10,9 @@ const SOURCE = fs.readFileSync(
 
 function fakeElement() {
   return {
-    value: "",
-    innerHTML: "",
-    textContent: "",
-    disabled: false,
-    style: {},
-    classList: { add() {}, remove() {} },
-    addEventListener() {},
-    replaceChildren() {},
-    remove() {},
-    focus() {},
-    showModal() {},
-    close() {},
+    value: "", innerHTML: "", textContent: "", disabled: false, style: {},
+    classList: { add() {}, remove() {} }, addEventListener() {}, replaceChildren() {},
+    remove() {}, focus() {}, showModal() {}, close() {},
   };
 }
 
@@ -35,8 +26,10 @@ function makeHarness() {
 
   const context = vm.createContext({
     console,
-    setTimeout: (fn) => { fn(); return 0; },
+    setTimeout: (fn) => 0,
     clearTimeout() {},
+    setInterval: () => 1,
+    clearInterval() {},
     document: {
       getElementById: getElement,
       querySelectorAll: () => [],
@@ -44,45 +37,11 @@ function makeHarness() {
       createElement: () => fakeElement(),
     },
     fetch: async (path, options = {}) => {
-      if (path === "/api/v1/health") {
-        return { ok: true, status: 200, json: async () => ({ status: "ok", csrf_token: "test", bind: "loopback" }) };
-      }
-      if (path === "/api/v1/catalog") {
-        return {
-          ok: true, status: 200, json: async () => ({ sections: [{
-            id: "assistant", title: "Assistant", component: "assistant", fields: [
-              { key: "fast_base_url", type: "string", default: "http://old/v1" },
-              { key: "fast_model", type: "string", default: "old-model" },
-            ],
-          }] }),
-        };
-      }
-      if (path === "/api/v1/config") {
-        return {
-          ok: true, status: 200,
-          json: async () => ({ revision: 1, values: { assistant: { fast_base_url: "http://old/v1", fast_model: "old-model" } } }),
-        };
-      }
-      if (path === "/api/v1/service/status") {
-        return {
-          ok: true, status: 200, json: async () => ({
-            status: "ok",
-            daemon: { active: true, pid: 1234, uptime_seconds: 120, listen: "127.0.0.1:41827", bind: "127.0.0.1:41828", version: "0.1.0" },
-            voice: { enabled: true, activation_mode: "auto", stt_worker_model: "base", stt_worker_online: true, wake_phrases: ["kitt"], wakeword_model_exists: false, wakeword_model_path: "wakewords/kitt.rpw" },
-            models: { base_url: "http://127.0.0.1:11434/v1", fast_model: "test-model" },
-            memory: { exists: true, size_bytes: 4096 }
-          })
-        };
-      }
-      if (path === "/api/v1/service/logs") {
-        return {
-          ok: true, status: 200, json: async () => ({
-            status: "ok",
-            source: "journalctl",
-            logs: "kittd listening on 127.0.0.1:41827\nkitt voice enabled"
-          })
-        };
-      }
+      if (path === "/api/v1/health") return { ok: true, status: 200, json: async () => ({ status: "ok", csrf_token: "test", bind: "loopback" }) };
+      if (path === "/api/v1/catalog") return { ok: true, status: 200, json: async () => ({ sections: [{ id: "assistant", title: "Assistant", component: "assistant", fields: [{ key: "fast_base_url", type: "string", default: "http://old/v1" }, { key: "fast_model", type: "string", default: "old-model" }] }] }) };
+      if (path === "/api/v1/config") return { ok: true, status: 200, json: async () => ({ revision: 1, values: { assistant: { fast_base_url: "http://old/v1", fast_model: "old-model" } } }) };
+      if (path === "/api/v1/service/status") return { ok: true, status: 200, json: async () => ({ status: "ok", daemon: { active: true, pid: 1234, uptime_seconds: 120, listen: "127.0.0.1:41827", bind: "127.0.0.1:41828", version: "0.1.0" }, voice: { enabled: true, activation_mode: "auto", stt_worker_model: "base", stt_worker_online: true, wake_phrases: ["kitt"], wakeword_model_exists: false, wakeword_model_path: "wakewords/kitt.rpw" }, models: { base_url: "http://127.0.0.1:11434/v1", fast_model: "test-model" }, memory: { exists: true, size_bytes: 4096 } }) };
+      if (path === "/api/v1/service/logs") return { ok: true, status: 200, json: async () => ({ status: "ok", source: "journalctl", logs: "kittd listening on 127.0.0.1:41827\nkitt voice enabled" }) };
       if (path === "/api/v1/models/discover") {
         let resolve;
         const response = new Promise((res) => { resolve = res; });
@@ -220,7 +179,6 @@ test("advanced fields are filtered unless showAdvanced is true or search matches
     state.showAdvanced = false;
   `, context);
 
-  // Without search and showAdvanced=false: only basic field
   let html = vm.runInContext(`
     (function() {
       const section = state.catalog.sections[0];
@@ -234,7 +192,6 @@ test("advanced fields are filtered unless showAdvanced is true or search matches
   `, context);
   assert.deepEqual(Array.from(html), ["basic_field"]);
 
-  // With showAdvanced=true: all fields
   vm.runInContext(`state.showAdvanced = true;`, context);
   html = vm.runInContext(`
     (function() {
@@ -249,7 +206,6 @@ test("advanced fields are filtered unless showAdvanced is true or search matches
   `, context);
   assert.deepEqual(Array.from(html), ["basic_field", "adv_field"]);
 
-  // With search match on advanced field when showAdvanced=false: advanced field is included
   vm.runInContext(`state.showAdvanced = false;`, context);
   html = vm.runInContext(`
     (function() {
@@ -272,4 +228,56 @@ test("hidden document suppresses polling calls", async () => {
   assert.equal(statusRes, null);
   const logsRes = await vm.runInContext(`fetchServiceLogs()`, context);
   assert.equal(logsRes, "");
+});
+
+test("responsive navigation renders grouped desktop menu and mobile selector", () => {
+  const { context } = makeHarness();
+  vm.runInContext(`
+    state.catalog = {
+      sections: [
+        { id: "assistant.core", title: "Assistant / Core", component: "kitt-assistant", fields: [] },
+        { id: "assistant.voice", title: "Assistant / Voice", component: "kitt-assistant", fields: [] },
+        { id: "agent.runtime", title: "Agent / Runtime", component: "kitt-agent-cli", fields: [] }
+      ]
+    };
+    state.section = "assistant.core";
+    state.view = "config";
+    renderNav();
+  `, context);
+
+  const desktop = vm.runInContext(`$("nav").innerHTML`, context);
+  const mobile = vm.runInContext(`$("mobile-nav-select").innerHTML`, context);
+  assert.equal(desktop.includes("Assistant"), true);
+  assert.equal(desktop.includes("Agent"), true);
+  assert.equal(mobile.includes('<optgroup label="Assistant">'), true);
+  assert.equal(mobile.includes('<optgroup label="Agent">'), true);
+
+  vm.runInContext(`
+    $("mobile-nav-select").value = "agent.runtime";
+    $("mobile-nav-select").onchange();
+  `, context);
+  assert.equal(vm.runInContext(`state.view`, context), "config");
+  assert.equal(vm.runInContext(`state.section`, context), "agent.runtime");
+});
+
+test("monitor status polling is independent from the 15 second log toggle", () => {
+  const { context } = makeHarness();
+  vm.runInContext(`
+    state.view = "monitor";
+    document.hidden = false;
+    state.monitorTick = 3;
+    state.monitorAutoRefresh = false;
+  `, context);
+  assert.equal(vm.runInContext(`shouldPollMonitorStatus()`, context), true);
+  assert.equal(vm.runInContext(`shouldPollMonitorLogs()`, context), false);
+
+  vm.runInContext(`state.monitorAutoRefresh = true;`, context);
+  assert.equal(vm.runInContext(`shouldPollMonitorLogs()`, context), true);
+
+  vm.runInContext(`state.monitorTick = 2;`, context);
+  assert.equal(vm.runInContext(`shouldPollMonitorLogs()`, context), false);
+
+  vm.runInContext(`document.hidden = true; state.monitorTick = 3;`, context);
+  assert.equal(vm.runInContext(`shouldPollMonitorStatus()`, context), false);
+  assert.equal(vm.runInContext(`shouldPollMonitorLogs()`, context), false);
 });
