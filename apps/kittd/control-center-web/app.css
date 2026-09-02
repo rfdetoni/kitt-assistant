@@ -943,3 +943,32 @@ pre#diff {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* R9 responsive / reduced motion */
+@media (max-width: 860px) {
+  .shell { display: block; }
+  .sidebar { position: static; width: 100%; height: auto; padding: 14px; }
+  .sidebar nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  .nav-category { display: none; }
+  .nav-item { min-width: max-content; min-height: 40px; }
+  main { padding: 20px 14px 80px; max-width: none; }
+  .topbar { align-items: flex-start; flex-direction: column; }
+  .top-actions { width: 100%; flex-wrap: wrap; }
+  .top-actions button { min-height: 40px; }
+  .fields { grid-template-columns: 1fr; }
+  .field { border-right: 0 !important; padding: 16px; }
+  .model-picker-wrap { align-items: stretch; flex-direction: column; }
+  .monitor-grid { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 480px) {
+  .overview { grid-template-columns: 1fr 1fr; }
+  .topbar h1 { font-size: 22px; }
+  .section-head { align-items: flex-start; gap: 12px; flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

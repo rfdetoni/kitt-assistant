@@ -287,9 +287,18 @@ impl TranscriptionPort for OpenAiCompatibleTranscriber {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let language = body.get("language").and_then(Value::as_str).map(str::to_string);
-        let language_probability = body.get("language_probability").and_then(Value::as_f64).map(|v| v as f32);
-        let avg_logprob = body.get("avg_logprob").and_then(Value::as_f64).map(|v| v as f32);
+        let language = body
+            .get("language")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let language_probability = body
+            .get("language_probability")
+            .and_then(Value::as_f64)
+            .map(|v| v as f32);
+        let avg_logprob = body
+            .get("avg_logprob")
+            .and_then(Value::as_f64)
+            .map(|v| v as f32);
         let duration_ms = body.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
         Ok(kitt_domain::TranscriptionResult {
             text,
@@ -389,7 +398,9 @@ impl SystemVoiceProfile {
             rate: self.rate.clamp(-10, 10),
             pitch: self.pitch.clamp(-10, 10),
             volume: self.volume.min(100),
-            timeout: self.timeout.clamp(Duration::from_millis(500), Duration::from_secs(120)),
+            timeout: self
+                .timeout
+                .clamp(Duration::from_millis(500), Duration::from_secs(120)),
         }
     }
 }
@@ -474,15 +485,24 @@ impl SpeechOutputPort for PiperTextToSpeech {
                 payload["noise_w_scale"] = json!(nws);
             }
             req = req.json(&payload);
-            let res = req.send().map_err(|e| AssistantError::SpeechOutput(format!("piper send: {e}")))?;
+            let res = req
+                .send()
+                .map_err(|e| AssistantError::SpeechOutput(format!("piper send: {e}")))?;
             if !res.status().is_success() {
-                return Err(AssistantError::SpeechOutput(format!("piper returned HTTP {}", res.status())));
+                return Err(AssistantError::SpeechOutput(format!(
+                    "piper returned HTTP {}",
+                    res.status()
+                )));
             }
             // If Piper returned wav audio directly, write to temp and play
-            let bytes = res.bytes().map_err(|e| AssistantError::SpeechOutput(format!("piper read: {e}")))?;
+            let bytes = res
+                .bytes()
+                .map_err(|e| AssistantError::SpeechOutput(format!("piper read: {e}")))?;
             if !bytes.is_empty() {
-                let temp_path = std::env::temp_dir().join(format!("kitt-piper-{}.wav", std::process::id()));
-                fs::write(&temp_path, &bytes).map_err(|e| AssistantError::Io(format!("save piper audio: {e}")))?;
+                let temp_path =
+                    std::env::temp_dir().join(format!("kitt-piper-{}.wav", std::process::id()));
+                fs::write(&temp_path, &bytes)
+                    .map_err(|e| AssistantError::Io(format!("save piper audio: {e}")))?;
                 let _guard = TempFileGuard(temp_path.clone());
                 #[cfg(all(unix, not(target_os = "macos")))]
                 {
@@ -498,7 +518,9 @@ impl SpeechOutputPort for PiperTextToSpeech {
                         "(New-Object System.Media.SoundPlayer '{}').PlaySync();",
                         temp_path.display()
                     );
-                    let _ = Command::new("powershell.exe").args(["-NoProfile", "-Command", &script]).status();
+                    let _ = Command::new("powershell.exe")
+                        .args(["-NoProfile", "-Command", &script])
+                        .status();
                 }
             }
             Ok(())
@@ -542,7 +564,9 @@ fn wait_child_with_timeout(mut child: std::process::Child, timeout: Duration) ->
             Err(e) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(AssistantError::SpeechOutput(format!("wait TTS process: {e}")));
+                return Err(AssistantError::SpeechOutput(format!(
+                    "wait TTS process: {e}"
+                )));
             }
         }
     }

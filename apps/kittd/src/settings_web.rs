@@ -262,6 +262,7 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
         ("GET", "/api/v1/service/status") => {
             write_json(&mut stream, 200, get_service_status(state), None)
         }
+        ("GET", "/api/v1/service/logs") => write_json(&mut stream, 200, get_service_logs(), None),
         ("POST", "/api/v1/service/restart") => {
             write_json(&mut stream, 200, handle_service_restart(), None)
         }
@@ -711,29 +712,6 @@ fn get_service_status(state: &State) -> Value {
         .unwrap_or("wakewords/kitt.rpw");
     let wakeword_exists = assistant_dir.join(wakeword_rel).exists();
 
-    let logs = match std::process::Command::new("journalctl")
-        .args([
-            "--user",
-            "-u",
-            "kitt-assistant.service",
-            "-n",
-            "40",
-            "--no-pager",
-        ])
-        .output()
-    {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
-        Ok(out) => {
-            let err = String::from_utf8_lossy(&out.stderr);
-            if err.trim().is_empty() {
-                String::from_utf8_lossy(&out.stdout).to_string()
-            } else {
-                format!("(journalctl: {})", err.trim())
-            }
-        }
-        Err(e) => format!("(journalctl não disponível: {e})"),
-    };
-
     json!({
         "status": "ok",
         "daemon": {
@@ -763,9 +741,34 @@ fn get_service_status(state: &State) -> Value {
         "memory": {
             "exists": mem_exists,
             "size_bytes": mem_size
-        },
-        "logs": logs
+        }
     })
+}
+
+fn get_service_logs() -> Value {
+    let logs = match std::process::Command::new("journalctl")
+        .args([
+            "--user",
+            "-u",
+            "kitt-assistant.service",
+            "-n",
+            "60",
+            "--no-pager",
+        ])
+        .output()
+    {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
+        Ok(out) => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            if err.trim().is_empty() {
+                String::from_utf8_lossy(&out.stdout).to_string()
+            } else {
+                format!("(journalctl: {})", err.trim())
+            }
+        }
+        Err(e) => format!("(journalctl não disponível: {e})"),
+    };
+    json!({"status":"ok","source":"journalctl","logs":logs})
 }
 
 fn handle_service_restart() -> Value {
@@ -804,5 +807,19 @@ mod tests {
         let overlay = json!({"revision":0,"components":{}});
         let payload = json!({"expected_revision":0,"changes":{"assistant.core":{"not_real":true}}});
         assert!(validate_change_request(&payload, &overlay, &catalog).is_err());
+    }
+    #[test]
+    fn get_service_status_omits_logs() {
+        let state = Arc::new(State {
+            bind: SocketAddr::from(([127, 0, 0, 1], 41828)),
+            config_root: PathBuf::from("/tmp"),
+            overlay_path: PathBuf::from("/tmp/overrides.json"),
+            csrf: Arc::new("csrf".to_string()),
+            catalog: Arc::new(Value::Null),
+            started_at: Instant::now(),
+        });
+        let status = get_service_status(&state);
+        assert!(status.get("logs").is_none());
+        assert_eq!(status.get("status").and_then(Value::as_str), Some("ok"));
     }
 }

@@ -188,7 +188,10 @@ pub(crate) fn apply_voice(config_dir: &Path, config: &mut VoiceConfig) -> Result
     if let Some(x) = v.get("tts_enabled").and_then(Value::as_bool) {
         config.tts_enabled = x;
     }
-    if let Some(x) = v.get("allow_transcript_prefix_fallback").and_then(Value::as_bool) {
+    if let Some(x) = v
+        .get("allow_transcript_prefix_fallback")
+        .and_then(Value::as_bool)
+    {
         config.allow_transcript_prefix_fallback = x;
     }
     if let Some(x) = v.get("wake_threshold").and_then(Value::as_f64) {
@@ -210,10 +213,22 @@ pub(crate) fn apply_voice(config_dir: &Path, config: &mut VoiceConfig) -> Result
     if let Some(x) = v.get("wake_gain_ref").and_then(Value::as_f64) {
         config.wake_gain_ref = Some(x as f32);
     }
-    set_u64(&v, "stt_connect_timeout_ms", &mut config.stt_connect_timeout_ms);
-    set_u64(&v, "stt_request_timeout_ms", &mut config.stt_request_timeout_ms);
+    set_u64(
+        &v,
+        "stt_connect_timeout_ms",
+        &mut config.stt_connect_timeout_ms,
+    );
+    set_u64(
+        &v,
+        "stt_request_timeout_ms",
+        &mut config.stt_request_timeout_ms,
+    );
     set_string(&v, "stt_warm_strategy", &mut config.stt_warm_strategy);
-    set_u64(&v, "stt_idle_shutdown_seconds", &mut config.stt_idle_shutdown_seconds);
+    set_u64(
+        &v,
+        "stt_idle_shutdown_seconds",
+        &mut config.stt_idle_shutdown_seconds,
+    );
     set_string(&v, "stt_device", &mut config.stt_device);
     set_string(&v, "stt_compute_type", &mut config.stt_compute_type);
     if let Some(x) = v.get("stt_cpu_threads").and_then(Value::as_u64) {
@@ -231,8 +246,16 @@ pub(crate) fn apply_voice(config_dir: &Path, config: &mut VoiceConfig) -> Result
     if let Some(x) = v.get("stt_vad_filter").and_then(Value::as_bool) {
         config.stt_vad_filter = x;
     }
-    set_u64(&v, "stt_vad_min_silence_ms", &mut config.stt_vad_min_silence_ms);
-    set_u64(&v, "stt_vad_speech_pad_ms", &mut config.stt_vad_speech_pad_ms);
+    set_u64(
+        &v,
+        "stt_vad_min_silence_ms",
+        &mut config.stt_vad_min_silence_ms,
+    );
+    set_u64(
+        &v,
+        "stt_vad_speech_pad_ms",
+        &mut config.stt_vad_speech_pad_ms,
+    );
     if let Some(x) = v.get("stt_no_speech_threshold").and_then(Value::as_f64) {
         config.stt_no_speech_threshold = x as f32;
     }

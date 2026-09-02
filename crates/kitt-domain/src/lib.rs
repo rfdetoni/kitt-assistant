@@ -148,7 +148,12 @@ pub trait ModelPort: Send + Sync {
 }
 
 pub trait TranscriptionPort: Send + Sync {
-    fn transcribe(&self, path: &Path, locale: Option<&str>, prompt: Option<&str>) -> Result<String> {
+    fn transcribe(
+        &self,
+        path: &Path,
+        locale: Option<&str>,
+        prompt: Option<&str>,
+    ) -> Result<String> {
         self.transcribe_rich(path, locale, prompt).map(|r| r.text)
     }
     fn transcribe_rich(

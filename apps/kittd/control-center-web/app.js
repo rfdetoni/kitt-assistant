@@ -5,8 +5,13 @@ const state = {
   catalog: null,
   snapshot: null,
   serviceStatus: null,
+  serviceLogs: "",
   monitorAutoRefresh: true,
   monitorTimer: null,
+  monitorTick: 0,
+  statusRequestInFlight: false,
+  logsRequestInFlight: false,
+  showAdvanced: false,
   pending: new Map(),
   section: null,
   csrf: null,
@@ -268,6 +273,8 @@ function highlightLogs(text) {
 }
 
 async function fetchServiceStatus() {
+  if (document.hidden || state.statusRequestInFlight) return state.serviceStatus;
+  state.statusRequestInFlight = true;
   try {
     const status = await api("/api/v1/service/status");
     state.serviceStatus = status;
@@ -282,7 +289,41 @@ async function fetchServiceStatus() {
     if (dot) dot.style.background = "var(--bad)";
     if (statusText) statusText.textContent = "kittd desconectado";
     return null;
+  } finally {
+    state.statusRequestInFlight = false;
   }
+}
+
+async function fetchServiceLogs() {
+  if (document.hidden || state.logsRequestInFlight || state.view !== "monitor") return state.serviceLogs;
+  state.logsRequestInFlight = true;
+  try {
+    const payload = await api("/api/v1/service/logs");
+    state.serviceLogs = payload.logs || "";
+    const pre = $("service-logs");
+    if (pre) pre.innerHTML = highlightLogs(state.serviceLogs || "Nenhum log disponível.");
+    return state.serviceLogs;
+  } finally {
+    state.logsRequestInFlight = false;
+  }
+}
+
+function agentWebUrl() {
+  const section = state.catalog?.sections.find((s) => s.id === "agent.remote");
+  const values = state.snapshot?.values?.["agent.remote"] || {};
+  const fieldDefault = (key, fallback) => section?.fields.find((f) => f.key === key)?.default ?? fallback;
+  let host = values.host ?? fieldDefault("host", "127.0.0.1");
+  if (host === "0.0.0.0" || host === "::") host = "127.0.0.1";
+  const port = values.port ?? fieldDefault("port", 7337);
+  const tlsCert = values.tls_cert ?? fieldDefault("tls_cert", "");
+  const tlsKey = values.tls_key ?? fieldDefault("tls_key", "");
+  const scheme = tlsCert && tlsKey ? "https" : "http";
+  const normalizedHost = host === "::1" ? "[::1]" : host;
+  return `${scheme}://${normalizedHost}:${port}/`;
+}
+
+function openAgentWeb() {
+  window.open(agentWebUrl(), "_blank", "noopener,noreferrer");
 }
 
 async function pingService() {
@@ -368,17 +409,20 @@ function renderTopbar() {
     if (titleEl) titleEl.textContent = "Monitor do Ecossistema KITT";
     if (actionsEl) {
       actionsEl.innerHTML = `
+        <button id="btn-agent-web" class="ghost" title="Abrir KITT Agent Web (use 'kitt web' se estiver offline)">↗ Agent Web</button>
         <button id="btn-ping" class="ghost" title="Testar comunicação IPC/HTTP com o daemon">📡 Testar Ping</button>
         <button id="btn-restart" class="ghost btn-restart-action" title="Reiniciar kitt-assistant.service">⚡ Reiniciar KITT</button>
         <button id="btn-refresh" class="primary" title="Atualizar dados e logs agora">🔄 Atualizar</button>
       `;
+      const btnAgentWeb = $("btn-agent-web");
+      if (btnAgentWeb) btnAgentWeb.addEventListener("click", openAgentWeb);
       const btnPing = $("btn-ping");
       if (btnPing) btnPing.addEventListener("click", pingService);
       const btnRestart = $("btn-restart");
       if (btnRestart) btnRestart.addEventListener("click", restartService);
       const btnRefresh = $("btn-refresh");
       if (btnRefresh) btnRefresh.addEventListener("click", async () => {
-        await fetchServiceStatus();
+        await Promise.all([fetchServiceStatus(), fetchServiceLogs()]);
         render();
         toast("Status atualizado!");
       });
@@ -388,9 +432,18 @@ function renderTopbar() {
     if (titleEl) titleEl.textContent = "Configurações do ecossistema";
     if (actionsEl) {
       actionsEl.innerHTML = `
+        <button id="btn-agent-web" class="ghost" title="Abrir KITT Agent Web (use 'kitt web' se estiver offline)">↗ Agent Web</button>
+        <button id="btn-advanced" class="ghost">${state.showAdvanced ? "Ocultar avançado" : "Avançado"}</button>
         <button id="reset-all" class="ghost">Descartar</button>
         <button id="apply-all" class="primary" disabled>Aplicar alterações</button>
       `;
+      const btnAgentWeb = $("btn-agent-web");
+      if (btnAgentWeb) btnAgentWeb.addEventListener("click", openAgentWeb);
+      const btnAdvanced = $("btn-advanced");
+      if (btnAdvanced) btnAdvanced.addEventListener("click", () => {
+        state.showAdvanced = !state.showAdvanced;
+        render();
+      });
       const btnReset = $("reset-all");
       if (btnReset) btnReset.addEventListener("click", () => {
         state.pending.clear();
@@ -528,12 +581,12 @@ function renderMonitorView() {
             </div>
           </div>
           <div class="logs-controls">
-            <label class="toggle-auto"><input type="checkbox" id="chk-auto-refresh" ${state.monitorAutoRefresh ? "checked" : ""}><span>Auto-atualizar (3s)</span></label>
+            <label class="toggle-auto"><input type="checkbox" id="chk-auto-refresh" ${state.monitorAutoRefresh ? "checked" : ""}><span>Auto-atualizar logs (15s)</span></label>
             <button type="button" id="btn-scroll-bottom" class="ghost" style="padding: 4px 10px; font-size: 11px;">⬇ Rolar ao fim</button>
           </div>
         </header>
         <div class="logs-body">
-          <pre id="service-logs" class="service-logs">${highlightLogs(status.logs || "Nenhum log disponível.")}</pre>
+          <pre id="service-logs" class="service-logs">${highlightLogs(state.serviceLogs || "Nenhum log disponível.")}</pre>
         </div>
       </article>
     `;
@@ -577,7 +630,10 @@ function renderConfigView() {
   const contentEl = $("content");
   if (contentEl) {
     contentEl.innerHTML = visible.map((section) => {
-      const fields = section.fields.filter((f) => !filter || (f.label + " " + (f.description || "") + " " + f.key + " " + section.title).toLowerCase().includes(filter));
+      const fields = section.fields.filter((f) => {
+        const matches = !filter || (f.label + " " + (f.description || "") + " " + f.key + " " + section.title).toLowerCase().includes(filter);
+        return matches && (filter || state.showAdvanced || !f.advanced);
+      });
       const changed = fields.some((f) => isChanged(section, f));
 
       return `
@@ -678,7 +734,7 @@ function bindNav() {
     const searchEl = $("search");
     if (searchEl) searchEl.value = "";
     render();
-    await fetchServiceStatus();
+    await Promise.all([fetchServiceStatus(), fetchServiceLogs()]);
     if (state.view === "monitor") render();
   }));
 }
@@ -769,7 +825,7 @@ async function boot() {
             }
           }
         }
-      }, 3000);
+      }, 5000);
     }
   } catch (e) {
     const dot = $("daemon-dot");

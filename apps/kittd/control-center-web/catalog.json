@@ -1340,6 +1340,193 @@
           "default": "PROXY_API_KEY",
           "sensitive": true,
           "apply_mode": "component_restart"
+        },
+        {
+          "key": "api_model",
+          "label": "API model id",
+          "type": "string",
+          "default": "",
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "capture_timeout_ms",
+          "label": "Capture timeout (ms)",
+          "type": "integer",
+          "default": 120000,
+          "minimum": 1000,
+          "maximum": 1800000,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "settle_after_candidate_ms",
+          "label": "Capture settle (ms)",
+          "type": "integer",
+          "default": 1500,
+          "minimum": 0,
+          "maximum": 60000,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "response_sample_timeout_ms",
+          "label": "Response sample timeout (ms)",
+          "type": "integer",
+          "default": 8000,
+          "minimum": 100,
+          "maximum": 300000,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "ollama_timeout_ms",
+          "label": "Ollama timeout (ms)",
+          "type": "integer",
+          "default": 60000,
+          "minimum": 1000,
+          "maximum": 1800000,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "upstream_timeout_ms",
+          "label": "Upstream timeout (ms)",
+          "type": "integer",
+          "default": 120000,
+          "minimum": 1000,
+          "maximum": 1800000,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "ui_response_timeout_ms",
+          "label": "UI response timeout (ms)",
+          "type": "integer",
+          "default": 180000,
+          "minimum": 1000,
+          "maximum": 1800000,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "ui_settle_ms",
+          "label": "UI settle (ms)",
+          "type": "integer",
+          "default": 1200,
+          "minimum": 0,
+          "maximum": 60000,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "manual_intervention_timeout_ms",
+          "label": "Manual intervention timeout (ms)",
+          "type": "integer",
+          "default": 300000,
+          "minimum": 1000,
+          "maximum": 3600000,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "min_interval_ms",
+          "label": "Minimum request interval (ms)",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 600000,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "user_data_dir",
+          "label": "Browser user data dir",
+          "type": "string",
+          "default": "",
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "cors",
+          "label": "CORS enabled",
+          "type": "boolean",
+          "default": true,
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "allowed_endpoint_hosts",
+          "label": "Allowed endpoint hosts",
+          "type": "string_list",
+          "default": [],
+          "advanced": true,
+          "apply_mode": "component_restart"
+        }
+      ]
+    },
+    {
+      "id": "agent.remote",
+      "component": "kitt-agent-cli",
+      "title": "Agent / Web & Remote",
+      "description": "Gateway Web on-demand do KITT Agent.",
+      "version": 1,
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Remote Web enabled",
+          "type": "boolean",
+          "default": false,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "host",
+          "label": "Bind host",
+          "type": "string",
+          "default": "127.0.0.1",
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "port",
+          "label": "Port",
+          "type": "integer",
+          "default": 7337,
+          "minimum": 0,
+          "maximum": 65535,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "pairing_ttl_seconds",
+          "label": "Pairing TTL (s)",
+          "type": "number",
+          "default": 900.0,
+          "minimum": 30,
+          "maximum": 86400,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "session_ttl_seconds",
+          "label": "Session TTL (s)",
+          "type": "number",
+          "default": 43200.0,
+          "minimum": 60,
+          "maximum": 604800,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "tls_cert",
+          "label": "TLS certificate path",
+          "type": "string",
+          "default": "",
+          "advanced": true,
+          "apply_mode": "component_restart"
+        },
+        {
+          "key": "tls_key",
+          "label": "TLS private key path",
+          "type": "string",
+          "default": "",
+          "advanced": true,
+          "apply_mode": "component_restart"
         }
       ]
     }

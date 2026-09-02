@@ -6,7 +6,9 @@ use cpal::{
 use hound::{SampleFormat as WavSampleFormat, WavSpec, WavWriter};
 use kitt_domain::RouteHint;
 use kitt_protocol::{HudEvent, HudState};
-use rustpotter::{AudioFmt, Rustpotter, RustpotterConfig, SampleFormat as PotterSampleFormat, VADMode};
+use rustpotter::{
+    AudioFmt, Rustpotter, RustpotterConfig, SampleFormat as PotterSampleFormat, VADMode,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
@@ -569,11 +571,18 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
     if mode == ActivationMode::Degraded {
         eprintln!(
             "kitt voice: wakeword model not found ({:?}) and transcript fallback is disabled (allow_transcript_prefix_fallback=false). Voice runtime is in degraded/idle mode.",
-            config.wakeword_path(config_dir).map(|p| p.display().to_string())
+            config
+                .wakeword_path(config_dir)
+                .map(|p| p.display().to_string())
         );
         tracker.set_state(VoiceState::Degraded);
-        tracker.set_error(Some("Modelo wakeword ausente; configure .rpw ou habilite fallback explicitamente.".into()));
-        show_voice_error(&runtime, "Wakeword ausente; configure o modelo .rpw no Control Center");
+        tracker.set_error(Some(
+            "Modelo wakeword ausente; configure .rpw ou habilite fallback explicitamente.".into(),
+        ));
+        show_voice_error(
+            &runtime,
+            "Wakeword ausente; configure o modelo .rpw no Control Center",
+        );
         return Ok(());
     }
 
@@ -732,7 +741,9 @@ fn capture_loop(
             endianness: rustpotter::Endianness::Little,
         };
         let mut detector = Rustpotter::new(&potter_config).map_err(|e| e.to_string())?;
-        let wakeword_str = wakeword.to_str().ok_or_else(|| "invalid wakeword path".to_string())?;
+        let wakeword_str = wakeword
+            .to_str()
+            .ok_or_else(|| "invalid wakeword path".to_string())?;
         detector
             .add_wakeword_from_file(WAKEWORD_KEY, wakeword_str)
             .map_err(|e| e.to_string())?;
@@ -752,9 +763,15 @@ fn capture_loop(
     };
 
     let stream = match sample_format {
-        SampleFormat::F32 => build_input_stream::<f32, _>(&device, &stream_config, audio_tx, err_cb)?,
-        SampleFormat::I16 => build_input_stream::<i16, _>(&device, &stream_config, audio_tx, err_cb)?,
-        SampleFormat::U16 => build_input_stream::<u16, _>(&device, &stream_config, audio_tx, err_cb)?,
+        SampleFormat::F32 => {
+            build_input_stream::<f32, _>(&device, &stream_config, audio_tx, err_cb)?
+        }
+        SampleFormat::I16 => {
+            build_input_stream::<i16, _>(&device, &stream_config, audio_tx, err_cb)?
+        }
+        SampleFormat::U16 => {
+            build_input_stream::<u16, _>(&device, &stream_config, audio_tx, err_cb)?
+        }
         other => return Err(format!("unsupported audio sample format: {other:?}")),
     };
 
@@ -767,7 +784,10 @@ fn capture_loop(
     let mut last_wake = Instant::now() - Duration::from_millis(config.wake_cooldown_ms + 1);
     let mut activation_counter = 0u64;
     let mut active_activation: Option<(ActivationId, Instant)> = None;
-    let frame_size = potter.as_ref().map(|p| p.get_samples_per_frame()).unwrap_or(0);
+    let frame_size = potter
+        .as_ref()
+        .map(|p| p.get_samples_per_frame())
+        .unwrap_or(0);
     let mut potter_buffer = Vec::new();
 
     while let Ok(chunk) = audio_rx.recv() {
@@ -807,10 +827,12 @@ fn capture_loop(
                             "kitt voice: wake detected ({}, score={:.2})",
                             detection.name, detection.score
                         );
-                        if let Err(TrySendError::Full(_)) = events.try_send(CaptureEvent::WakeDetected {
-                            activation_id,
-                            at: now,
-                        }) {
+                        if let Err(TrySendError::Full(_)) =
+                            events.try_send(CaptureEvent::WakeDetected {
+                                activation_id,
+                                at: now,
+                            })
+                        {
                             tracker.inc_events_dropped();
                         }
                     }
@@ -898,7 +920,11 @@ pub fn probe_local_stt(base_url: &str) -> LocalSttProbe {
 
     let status = response.status();
     let mut body = Vec::new();
-    if let Err(e) = response.by_ref().take(STT_HEALTH_MAX_BYTES).read_to_end(&mut body) {
+    if let Err(e) = response
+        .by_ref()
+        .take(STT_HEALTH_MAX_BYTES)
+        .read_to_end(&mut body)
+    {
         return LocalSttProbe::Degraded(format!("read health body: {e}"));
     }
     let json: serde_json::Value = match serde_json::from_slice(&body) {
@@ -906,8 +932,7 @@ pub fn probe_local_stt(base_url: &str) -> LocalSttProbe {
         Err(e) => return LocalSttProbe::Degraded(format!("parse health JSON: {e}")),
     };
 
-    if status.is_success() && json.get("ready").and_then(serde_json::Value::as_bool) == Some(true)
-    {
+    if status.is_success() && json.get("ready").and_then(serde_json::Value::as_bool) == Some(true) {
         LocalSttProbe::Ready
     } else {
         let msg = json
@@ -1237,13 +1262,22 @@ enum LocalInstantCommand {
 
 fn detect_instant_command(text: &str) -> LocalInstantCommand {
     let lower = text.trim().to_ascii_lowercase();
-    if matches!(lower.as_str(), "pare" | "parar" | "cancelar" | "cancele" | "silêncio" | "silencio" | "stop") {
+    if matches!(
+        lower.as_str(),
+        "pare" | "parar" | "cancelar" | "cancele" | "silêncio" | "silencio" | "stop"
+    ) {
         return LocalInstantCommand::Cancel;
     }
-    if matches!(lower.as_str(), "status da voz" | "status voz" | "status do sistema" | "status") {
+    if matches!(
+        lower.as_str(),
+        "status da voz" | "status voz" | "status do sistema" | "status"
+    ) {
         return LocalInstantCommand::VoiceStatus;
     }
-    if matches!(lower.as_str(), "repita" | "repita a resposta" | "o que você disse" | "repetir") {
+    if matches!(
+        lower.as_str(),
+        "repita" | "repita a resposta" | "o que você disse" | "repetir"
+    ) {
         return LocalInstantCommand::Repeat;
     }
     LocalInstantCommand::None
@@ -1267,7 +1301,10 @@ fn pipeline_loop(
 
     while let Ok(event) = events.recv() {
         match event {
-            CaptureEvent::WakeDetected { activation_id, at: _ } => {
+            CaptureEvent::WakeDetected {
+                activation_id,
+                at: _,
+            } => {
                 awaiting_activation = Some(activation_id);
                 tracker.set_state(VoiceState::Listening);
                 show_listening(&runtime, config.command_timeout_ms);
@@ -1277,7 +1314,11 @@ fn pipeline_loop(
                     trigger_async_warmup(runtime.clone(), config.clone());
                 }
             }
-            CaptureEvent::Utterance { activation_id, captured_at: _, path } => {
+            CaptureEvent::Utterance {
+                activation_id,
+                captured_at: _,
+                path,
+            } => {
                 let _audio = TempAudioGuard(path.clone());
                 paused.store(true, Ordering::Release);
                 let _pause = PauseReset(paused.clone());
@@ -1387,7 +1428,10 @@ fn pipeline_loop(
                     }
                     LocalInstantCommand::VoiceStatus => {
                         eprintln!("kitt voice: instant command 'status da voz' received");
-                        let status_msg = format!("KITT operacional. Modo {}, reconhecimento pronto.", mode_name(mode));
+                        let status_msg = format!(
+                            "KITT operacional. Modo {}, reconhecimento pronto.",
+                            mode_name(mode)
+                        );
                         ensure_hud(&runtime);
                         runtime.hud.send(HudEvent::Text {
                             content: status_msg.clone(),
@@ -1395,7 +1439,9 @@ fn pipeline_loop(
                         });
                         if config.tts_enabled {
                             tracker.set_state(VoiceState::Speaking);
-                            let _ = runtime.service.speak(&status_msg, Some(config.locale.as_str()));
+                            let _ = runtime
+                                .service
+                                .speak(&status_msg, Some(config.locale.as_str()));
                         }
                         tracker.set_state(VoiceState::Idle);
                         continue;
@@ -1989,20 +2035,32 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&temp).unwrap();
-        assert_eq!(
-            config.resolved_mode(&temp),
-            ActivationMode::Degraded
-        );
+        assert_eq!(config.resolved_mode(&temp), ActivationMode::Degraded);
         let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn detect_instant_commands_correctly() {
         assert_eq!(detect_instant_command("pare"), LocalInstantCommand::Cancel);
-        assert_eq!(detect_instant_command("cancelar"), LocalInstantCommand::Cancel);
-        assert_eq!(detect_instant_command("silêncio"), LocalInstantCommand::Cancel);
-        assert_eq!(detect_instant_command("status da voz"), LocalInstantCommand::VoiceStatus);
-        assert_eq!(detect_instant_command("repita"), LocalInstantCommand::Repeat);
-        assert_eq!(detect_instant_command("qual é a previsão do tempo?"), LocalInstantCommand::None);
+        assert_eq!(
+            detect_instant_command("cancelar"),
+            LocalInstantCommand::Cancel
+        );
+        assert_eq!(
+            detect_instant_command("silêncio"),
+            LocalInstantCommand::Cancel
+        );
+        assert_eq!(
+            detect_instant_command("status da voz"),
+            LocalInstantCommand::VoiceStatus
+        );
+        assert_eq!(
+            detect_instant_command("repita"),
+            LocalInstantCommand::Repeat
+        );
+        assert_eq!(
+            detect_instant_command("qual é a previsão do tempo?"),
+            LocalInstantCommand::None
+        );
     }
 }
