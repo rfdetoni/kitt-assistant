@@ -30,7 +30,8 @@
           "key": "model",
           "label": "Legacy model",
           "type": "string",
-          "default": "qwen3:4b",
+          "default": "",
+          "placeholder": "Selecione/configure explicitamente",
           "description": "Bootstrap legado usado ao criar models.json pela primeira vez.",
           "advanced": true,
           "apply_mode": "daemon_restart"
@@ -89,7 +90,8 @@
           "key": "fast.model",
           "label": "Fast model",
           "type": "string",
-          "default": "qwen3:4b",
+          "default": "",
+          "placeholder": "Listar modelos do provider",
           "apply_mode": "daemon_restart"
         },
         {
@@ -118,7 +120,8 @@
           "key": "heavy.model",
           "label": "Heavy model",
           "type": "string",
-          "default": "qwen3:4b",
+          "default": "",
+          "placeholder": "Listar modelos do provider",
           "apply_mode": "daemon_restart"
         },
         {
@@ -132,7 +135,8 @@
           "key": "speech_to_text.model",
           "label": "STT model",
           "type": "string",
-          "default": "whisper-1",
+          "default": "",
+          "description": "Opcional para o Worker local; obrigatório apenas quando o provider remoto exigir um model id.",
           "apply_mode": "daemon_restart"
         },
         {
@@ -237,7 +241,7 @@
           "key": "min_rms",
           "label": "Minimum RMS",
           "type": "number",
-          "default": 0.015,
+          "default": 0.008,
           "minimum": 0.0001,
           "maximum": 0.5,
           "advanced": true,
@@ -247,7 +251,7 @@
           "key": "noise_multiplier",
           "label": "Noise multiplier",
           "type": "number",
-          "default": 3.0,
+          "default": 2.2,
           "minimum": 1.1,
           "maximum": 20,
           "advanced": true,
@@ -257,7 +261,7 @@
           "key": "silence_ms",
           "label": "Silence (ms)",
           "type": "integer",
-          "default": 650,
+          "default": 500,
           "minimum": 50,
           "maximum": 5000,
           "apply_mode": "daemon_restart"
@@ -284,18 +288,67 @@
           "type": "string_list",
           "default": [
             "kitt",
-            "kit",
+            "ei kitt",
             "hey kitt",
-            "ei kitt"
+            "olá kitt"
           ],
           "description": "Lista de prefixos aceitos no fallback por transcrição.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wake_fuzzy_enabled",
+          "label": "Detecção fonética de KITT",
+          "type": "boolean",
+          "default": true,
+          "description": "Aceita pequenas variações de transcrição de KITT sem usar aliases genéricos perigosos.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wake_fuzzy_max_distance",
+          "label": "Tolerância fonética",
+          "type": "integer",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 2,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "wake_cooldown_ms",
+          "label": "Wake cooldown (ms)",
+          "type": "integer",
+          "default": 1200,
+          "minimum": 0,
+          "maximum": 10000,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "speech_start_ms",
+          "label": "Confirmação de fala (ms)",
+          "type": "integer",
+          "default": 80,
+          "minimum": 20,
+          "maximum": 500,
+          "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "vad_release_ratio",
+          "label": "VAD release ratio",
+          "type": "number",
+          "default": 0.65,
+          "minimum": 0.3,
+          "maximum": 1.0,
+          "advanced": true,
+          "description": "Histerese para não cortar sílabas mais baixas após o início da fala.",
           "apply_mode": "daemon_restart"
         },
         {
           "key": "pre_roll_ms",
           "label": "Pre-roll (ms)",
           "type": "integer",
-          "default": 200,
+          "default": 350,
           "minimum": 0,
           "maximum": 5000,
           "advanced": true,
@@ -305,7 +358,7 @@
           "key": "min_speech_ms",
           "label": "Minimum speech (ms)",
           "type": "integer",
-          "default": 250,
+          "default": 180,
           "minimum": 1,
           "maximum": 10000,
           "advanced": true,
@@ -315,7 +368,7 @@
           "key": "command_timeout_ms",
           "label": "Command timeout (ms)",
           "type": "integer",
-          "default": 7000,
+          "default": 8000,
           "minimum": 100,
           "maximum": 120000,
           "apply_mode": "daemon_restart"
@@ -332,8 +385,9 @@
           "key": "stt_worker_model",
           "label": "Local STT worker model",
           "type": "string",
-          "default": "base",
-          "description": "Modelo carregado pelo faster-whisper/openai-whisper local.",
+          "default": "",
+          "placeholder": "Modelo/path explícito ou KITT_WHISPER_MODEL",
+          "description": "Sem fallback hardcoded. Configure o modelo/path que o faster-whisper deve carregar.",
           "apply_mode": "daemon_restart"
         },
         {
@@ -344,6 +398,51 @@
           "minimum": 1000,
           "maximum": 300000,
           "advanced": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_voice_name",
+          "label": "Voz TTS instalada",
+          "type": "string",
+          "default": "",
+          "placeholder": "Opcional: nome exato de uma voz instalada",
+          "description": "Sem nome hardcoded. Se vazio, usa seleção do SO e preferência masculina quando suportada.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_prefer_male",
+          "label": "Preferir voz masculina",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_rate",
+          "label": "Ritmo TTS",
+          "type": "integer",
+          "default": -1,
+          "minimum": -10,
+          "maximum": 10,
+          "description": "Negativo = mais calmo; positivo = mais rápido.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_pitch",
+          "label": "Pitch TTS",
+          "type": "integer",
+          "default": -2,
+          "minimum": -10,
+          "maximum": 10,
+          "description": "Aplicado nos backends que suportam pitch.",
+          "apply_mode": "daemon_restart"
+        },
+        {
+          "key": "tts_volume",
+          "label": "Volume TTS",
+          "type": "integer",
+          "default": 95,
+          "minimum": 0,
+          "maximum": 100,
           "apply_mode": "daemon_restart"
         },
         {

@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
 
@@ -29,9 +29,11 @@ const CATALOG: &str = include_str!("../control-center-web/catalog.json");
 #[derive(Clone)]
 struct State {
     bind: SocketAddr,
+    config_root: PathBuf,
     overlay_path: PathBuf,
     csrf: Arc<String>,
     catalog: Arc<Value>,
+    started_at: Instant,
 }
 
 #[derive(Debug)]
@@ -62,6 +64,7 @@ pub fn start(config_root: &Path) -> Result<(), String> {
 
     let state = State {
         bind,
+        config_root: config_root.to_path_buf(),
         overlay_path,
         csrf: Arc::new(format!(
             "{}{}",
@@ -69,6 +72,7 @@ pub fn start(config_root: &Path) -> Result<(), String> {
             Uuid::new_v4().simple()
         )),
         catalog: Arc::new(catalog),
+        started_at: Instant::now(),
     };
     let listener =
         TcpListener::bind(bind).map_err(|e| format!("Control Center bind {bind}: {e}"))?;
@@ -245,6 +249,24 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
                     None,
                 ),
             }
+        }
+        ("GET", "/api/v1/service/status") => {
+            write_json(&mut stream, 200, get_service_status(state), None)
+        }
+        ("POST", "/api/v1/service/restart") => {
+            write_json(&mut stream, 200, handle_service_restart(), None)
+        }
+        ("POST", "/api/v1/service/ping") => {
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            write_json(
+                &mut stream,
+                200,
+                json!({"status": "ok", "pong": true, "timestamp_ms": ts}),
+                None,
+            )
         }
         _ => write_json(&mut stream, 404, json!({"error":"not found"}), None),
     }
@@ -637,6 +659,122 @@ fn set_private_file(path: &Path) -> Result<(), String> {
 #[cfg(not(unix))]
 fn set_private_file(_path: &Path) -> Result<(), String> {
     Ok(())
+}
+
+fn get_service_status(state: &State) -> Value {
+    let assistant_dir = if state.config_root.join("assistant").exists() {
+        state.config_root.join("assistant")
+    } else {
+        state.config_root.clone()
+    };
+
+    let pid = std::process::id();
+    let uptime_secs = state.started_at.elapsed().as_secs();
+
+    let config_val = fs::read_to_string(assistant_dir.join("config.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .unwrap_or_else(|| json!({}));
+
+    let voice_val = fs::read_to_string(assistant_dir.join("voice.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .unwrap_or_else(|| json!({}));
+
+    let models_val = fs::read_to_string(assistant_dir.join("models.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .unwrap_or_else(|| json!({}));
+
+    let mem_path = assistant_dir.join("memory.db");
+    let mem_exists = mem_path.exists();
+    let mem_size = mem_path.metadata().map(|m| m.len()).unwrap_or(0);
+
+    let stt_probe = TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], 8000)),
+        Duration::from_millis(150),
+    )
+    .is_ok();
+
+    let wakeword_rel = voice_val
+        .get("wakeword_model_path")
+        .and_then(Value::as_str)
+        .unwrap_or("wakewords/kitt.rpw");
+    let wakeword_exists = assistant_dir.join(wakeword_rel).exists();
+
+    let logs = match std::process::Command::new("journalctl")
+        .args([
+            "--user",
+            "-u",
+            "kitt-assistant.service",
+            "-n",
+            "40",
+            "--no-pager",
+        ])
+        .output()
+    {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
+        Ok(out) => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            if err.trim().is_empty() {
+                String::from_utf8_lossy(&out.stdout).to_string()
+            } else {
+                format!("(journalctl: {})", err.trim())
+            }
+        }
+        Err(e) => format!("(journalctl não disponível: {e})"),
+    };
+
+    json!({
+        "status": "ok",
+        "daemon": {
+            "pid": pid,
+            "uptime_seconds": uptime_secs,
+            "bind": state.bind.to_string(),
+            "listen": config_val.get("listen").and_then(Value::as_str).unwrap_or("127.0.0.1:41827"),
+            "version": env!("CARGO_PKG_VERSION"),
+            "active": true
+        },
+        "voice": {
+            "enabled": voice_val.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+            "locale": voice_val.get("locale").and_then(Value::as_str).unwrap_or("pt-BR"),
+            "activation_mode": voice_val.get("activation_mode").and_then(Value::as_str).unwrap_or("auto"),
+            "stt_worker_model": voice_val.get("stt_worker_model").and_then(Value::as_str).unwrap_or(""),
+            "wake_phrases": voice_val.get("wake_phrases").cloned().unwrap_or_else(|| json!([])),
+            "wakeword_model_path": wakeword_rel,
+            "wakeword_model_exists": wakeword_exists,
+            "stt_worker_online": stt_probe
+        },
+        "models": {
+            "base_url": config_val.get("base_url").and_then(Value::as_str).unwrap_or(""),
+            "model": config_val.get("model").and_then(Value::as_str).unwrap_or(""),
+            "fast_model": models_val.get("fast").and_then(|f| f.get("model")).and_then(Value::as_str).unwrap_or(""),
+            "heavy_model": models_val.get("heavy").and_then(|h| h.get("model")).and_then(Value::as_str).unwrap_or("")
+        },
+        "memory": {
+            "exists": mem_exists,
+            "size_bytes": mem_size
+        },
+        "logs": logs
+    })
+}
+
+fn handle_service_restart() -> Value {
+    let out = std::process::Command::new("systemctl")
+        .args(["--user", "restart", "kitt-assistant.service"])
+        .output();
+    match out {
+        Ok(output) if output.status.success() => {
+            json!({"status": "ok", "message": "Comando de reinício enviado com sucesso para kitt-assistant.service."})
+        }
+        Ok(output) => {
+            let err = String::from_utf8_lossy(&output.stderr);
+            json!({"status": "error", "message": format!("Erro ao reiniciar: {}", err.trim())})
+        }
+        Err(e) => {
+            json!({"status": "error", "message": format!("Falha ao invocar systemctl: {e}")})
+        }
+    }
 }
 
 #[cfg(test)]

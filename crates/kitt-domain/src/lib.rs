@@ -123,7 +123,8 @@ pub trait ModelPort: Send + Sync {
 }
 
 pub trait TranscriptionPort: Send + Sync {
-    fn transcribe(&self, path: &Path, locale: Option<&str>) -> Result<String>;
+    fn transcribe(&self, path: &Path, locale: Option<&str>, prompt: Option<&str>)
+    -> Result<String>;
     fn is_local(&self) -> bool;
 }
 

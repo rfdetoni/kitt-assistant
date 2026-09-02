@@ -34,6 +34,19 @@ const STT_HEALTH_MAX_BYTES: u64 = 64 * 1024;
 const STT_HEALTH_CONNECT_TIMEOUT: Duration = Duration::from_millis(750);
 const STT_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
 const STT_START_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const DEFAULT_WAKE_PHRASES: &[&str] = &["kitt", "ei kitt", "hey kitt", "olá kitt"];
+const LEGACY_CONTROL_CENTER_WAKE_PHRASES: &[&str] = &["kitt", "kit", "hey kitt", "ei kitt"];
+const LEGACY_BROAD_WAKE_PHRASES: &[&str] = &[
+    "kitt",
+    "kit",
+    "kite",
+    "quit",
+    "quitt",
+    "hey kitt",
+    "ei kitt",
+    "ola kitt",
+    "computador",
+];
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -52,8 +65,13 @@ pub struct VoiceConfig {
     pub activation_mode: ActivationMode,
     pub wakeword_model_path: Option<String>,
     pub wake_phrases: Vec<String>,
+    pub wake_fuzzy_enabled: bool,
+    pub wake_fuzzy_max_distance: u8,
+    pub wake_cooldown_ms: u64,
     pub min_rms: f32,
     pub noise_multiplier: f32,
+    pub speech_start_ms: u64,
+    pub vad_release_ratio: f32,
     pub pre_roll_ms: u64,
     pub min_speech_ms: u64,
     pub silence_ms: u64,
@@ -73,26 +91,24 @@ impl Default for VoiceConfig {
             locale: "pt-BR".into(),
             activation_mode: ActivationMode::Auto,
             wakeword_model_path: Some("wakewords/kitt.rpw".into()),
-            wake_phrases: vec![
-                "kitt".into(),
-                "kit".into(),
-                "kite".into(),
-                "quit".into(),
-                "quitt".into(),
-                "hey kitt".into(),
-                "ei kitt".into(),
-                "ola kitt".into(),
-                "computador".into(),
-            ],
-            min_rms: 0.015,
-            noise_multiplier: 2.5,
-            pre_roll_ms: 300,
-            min_speech_ms: 250,
-            silence_ms: 650,
+            wake_phrases: DEFAULT_WAKE_PHRASES
+                .iter()
+                .map(|value| (*value).into())
+                .collect(),
+            wake_fuzzy_enabled: true,
+            wake_fuzzy_max_distance: 1,
+            wake_cooldown_ms: 1_200,
+            min_rms: 0.008,
+            noise_multiplier: 2.2,
+            speech_start_ms: 80,
+            vad_release_ratio: 0.65,
+            pre_roll_ms: 350,
+            min_speech_ms: 180,
+            silence_ms: 500,
             max_utterance_ms: 12_000,
-            command_timeout_ms: 7_000,
+            command_timeout_ms: 8_000,
             stt_autostart: true,
-            stt_worker_model: "base".into(),
+            stt_worker_model: String::new(),
             stt_start_timeout_ms: 60_000,
             tts_enabled: true,
             echo_guard_ms: 350,
@@ -105,21 +121,21 @@ impl VoiceConfig {
         fs::create_dir_all(config_dir).map_err(|e| format!("create voice config dir: {e}"))?;
         let path = config_dir.join("voice.json");
         if path.exists() {
-            let config: Self = serde_json::from_str(
+            let mut config: Self = serde_json::from_str(
                 &fs::read_to_string(&path).map_err(|e| format!("read voice.json: {e}"))?,
             )
             .map_err(|e| format!("parse voice.json: {e}"))?;
+            let migrated = config.migrate_known_broad_wake_default();
             config.validate()?;
+            if migrated {
+                write_voice_config(&path, &config)?;
+            }
             return Ok(config);
         }
 
         let config = Self::default();
         config.validate()?;
-        fs::write(
-            &path,
-            serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| format!("write voice.json: {e}"))?;
+        write_voice_config(&path, &config)?;
         Ok(config)
     }
 
@@ -141,6 +157,26 @@ impl VoiceConfig {
         if !(1.1..=20.0).contains(&self.noise_multiplier) {
             return Err("voice noise_multiplier must be between 1.1 and 20".into());
         }
+        if self.wake_phrases.len() > 16
+            || self
+                .wake_phrases
+                .iter()
+                .any(|phrase| phrase.chars().count() > 64)
+        {
+            return Err("voice wake phrases exceed safe limits".into());
+        }
+        if self.wake_fuzzy_max_distance > 2 {
+            return Err("voice wake_fuzzy_max_distance must be between 0 and 2".into());
+        }
+        if self.wake_cooldown_ms > 10_000 {
+            return Err("voice wake_cooldown_ms must be <= 10000".into());
+        }
+        if !(20..=500).contains(&self.speech_start_ms) {
+            return Err("voice speech_start_ms must be between 20 and 500".into());
+        }
+        if !(0.30..=1.0).contains(&self.vad_release_ratio) {
+            return Err("voice vad_release_ratio must be between 0.30 and 1.0".into());
+        }
         if self.min_speech_ms == 0
             || self.silence_ms == 0
             || self.max_utterance_ms <= self.min_speech_ms
@@ -148,13 +184,49 @@ impl VoiceConfig {
         {
             return Err("invalid voice timing configuration".into());
         }
-        if self.stt_worker_model.trim().is_empty() {
-            return Err("voice stt_worker_model cannot be empty".into());
-        }
         if !(1_000..=300_000).contains(&self.stt_start_timeout_ms) {
             return Err("voice stt_start_timeout_ms must be between 1000 and 300000".into());
         }
         Ok(())
+    }
+
+    fn migrate_known_broad_wake_default(&mut self) -> bool {
+        let normalized: Vec<String> = self
+            .wake_phrases
+            .iter()
+            .map(|phrase| normalize_token(phrase))
+            .collect();
+        let broad_legacy: Vec<String> = LEGACY_BROAD_WAKE_PHRASES
+            .iter()
+            .map(|phrase| normalize_token(phrase))
+            .collect();
+        let control_center_legacy: Vec<String> = LEGACY_CONTROL_CENTER_WAKE_PHRASES
+            .iter()
+            .map(|phrase| normalize_token(phrase))
+            .collect();
+        if normalized == broad_legacy || normalized == control_center_legacy {
+            self.wake_phrases = DEFAULT_WAKE_PHRASES
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn resolved_stt_worker_model(&self) -> Option<String> {
+        if let Some(model) = nonempty_owned(&self.stt_worker_model) {
+            return Some(model);
+        }
+        for name in ["KITT_WHISPER_MODEL", "WHISPER_MODEL"] {
+            if let Ok(value) = std::env::var(name) {
+                if let Some(model) = nonempty_owned(&value) {
+                    return Some(model);
+                }
+            }
+        }
+        None
     }
 
     fn wakeword_path(&self, config_dir: &Path) -> Option<PathBuf> {
@@ -188,6 +260,19 @@ impl VoiceConfig {
     }
 }
 
+fn write_voice_config(path: &Path, config: &VoiceConfig) -> Result<(), String> {
+    fs::write(
+        path,
+        serde_json::to_string_pretty(config).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("write voice.json: {e}"))
+}
+
+fn nonempty_owned(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
 #[derive(Debug)]
 enum CaptureEvent {
     WakeDetected,
@@ -198,6 +283,7 @@ enum CaptureEvent {
 pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
     let mut config = VoiceConfig::load_or_create(config_dir)?;
     settings_overlay::apply_voice(config_dir, &mut config)?;
+    config.migrate_known_broad_wake_default();
     config.validate()?;
     if !config.enabled {
         eprintln!("kitt voice disabled by voice.json");
@@ -464,6 +550,7 @@ fn run_wakeword_capture(
     let mut detector_buffer = VecDeque::<f32>::with_capacity(frame_size * 2);
     let mut segmenter = Segmenter::new(sample_rate, config.clone());
     let mut armed_until: Option<Instant> = None;
+    let mut last_wake_detected: Option<Instant> = None;
 
     while let Ok(chunk) = samples.recv() {
         if paused.load(Ordering::Acquire) {
@@ -484,9 +571,16 @@ fn run_wakeword_capture(
                 }
             }
             if potter.process_samples(frame).is_some() {
+                let now = Instant::now();
+                if last_wake_detected.is_some_and(|last| {
+                    now.duration_since(last) < Duration::from_millis(config.wake_cooldown_ms)
+                }) {
+                    potter.reset();
+                    continue;
+                }
+                last_wake_detected = Some(now);
                 detected_this_chunk = true;
-                armed_until =
-                    Some(Instant::now() + Duration::from_millis(config.command_timeout_ms));
+                armed_until = Some(now + Duration::from_millis(config.command_timeout_ms));
                 segmenter.reset();
                 let _ = send_event(&events, CaptureEvent::WakeDetected);
                 break;
@@ -692,7 +786,10 @@ fn worker_launch_candidates() -> Vec<(String, Vec<String>)> {
         ] {
             let path = dir.join(rel);
             if path.is_file() {
-                candidates.push((path.to_string_lossy().to_string(), vec!["-m".into(), "kitt_workers.stt_server".into()]));
+                candidates.push((
+                    path.to_string_lossy().to_string(),
+                    vec!["-m".into(), "kitt_workers.stt_server".into()],
+                ));
             }
         }
     }
@@ -741,13 +838,17 @@ fn spawn_local_stt_worker(runtime: &Arc<Runtime>, config: &VoiceConfig) -> Resul
         None => {}
     }
 
+    let model = config.resolved_stt_worker_model().ok_or_else(|| {
+        "local STT autostart has no model configured; set assistant.voice.stt_worker_model, KITT_WHISPER_MODEL or WHISPER_MODEL"
+            .to_string()
+    })?;
     let common_args = vec![
         "--host".to_string(),
         host,
         "--port".to_string(),
         port.to_string(),
         "--model".to_string(),
-        config.stt_worker_model.trim().to_string(),
+        model,
         "--parent-stdin-lifecycle".to_string(),
     ];
 
@@ -865,7 +966,12 @@ fn pipeline_loop(
     paused: Arc<AtomicBool>,
     events: Receiver<CaptureEvent>,
 ) {
-    let matcher = WakePhraseMatcher::new(&config.wake_phrases);
+    let matcher = WakePhraseMatcher::new(
+        &config.wake_phrases,
+        config.wake_fuzzy_enabled,
+        config.wake_fuzzy_max_distance,
+    );
+    let activation_prompt = matcher.prompt_hint().to_string();
     let mut awaiting_command_until: Option<Instant> = None;
 
     while let Ok(event) = events.recv() {
@@ -891,10 +997,17 @@ fn pipeline_loop(
                 paused.store(true, Ordering::Release);
                 let _pause = PauseReset(paused.clone());
 
-                let transcript = match runtime
-                    .service
-                    .transcribe(&path, Some(config.locale.as_str()))
-                {
+                let now = Instant::now();
+                let already_waiting = awaiting_command_until.is_some_and(|deadline| now < deadline);
+                let activation_probe = matches!(
+                    mode,
+                    ActivationMode::TranscriptPrefix | ActivationMode::Auto
+                ) && !already_waiting;
+                let transcript = match runtime.service.transcribe(
+                    &path,
+                    Some(config.locale.as_str()),
+                    activation_probe.then_some(activation_prompt.as_str()),
+                ) {
                     Ok(text) => text.trim().to_string(),
                     Err(error) => {
                         static LAST_STT_ERROR_LOG: std::sync::atomic::AtomicU64 =
@@ -922,7 +1035,6 @@ fn pipeline_loop(
 
                 eprintln!("kitt voice heard transcript: {:?}", transcript);
 
-                let now = Instant::now();
                 let waiting = awaiting_command_until.is_some_and(|deadline| now < deadline);
                 if awaiting_command_until.is_some() && !waiting {
                     awaiting_command_until = None;
@@ -1012,16 +1124,34 @@ impl Drop for TempAudioGuard {
 
 struct WakePhraseMatcher {
     phrases: Vec<Vec<String>>,
+    prompt_hint: String,
+    fuzzy_enabled: bool,
+    max_distance: u8,
 }
 
 impl WakePhraseMatcher {
-    fn new(phrases: &[String]) -> Self {
+    fn new(phrases: &[String], fuzzy_enabled: bool, max_distance: u8) -> Self {
+        let prompt_hint = phrases
+            .iter()
+            .map(|phrase| phrase.trim())
+            .filter(|phrase| !phrase.is_empty())
+            .collect::<Vec<_>>()
+            .join(". ");
         let phrases = phrases
             .iter()
             .map(|phrase| normalize_tokens(phrase))
             .filter(|tokens| !tokens.is_empty())
             .collect();
-        Self { phrases }
+        Self {
+            phrases,
+            prompt_hint,
+            fuzzy_enabled,
+            max_distance,
+        }
+    }
+
+    fn prompt_hint(&self) -> &str {
+        &self.prompt_hint
     }
 
     fn strip_prefix(&self, text: &str) -> Option<String> {
@@ -1030,23 +1160,99 @@ impl WakePhraseMatcher {
             .iter()
             .map(|token| normalize_token(token))
             .collect();
+
         for phrase in &self.phrases {
-            if phrase.is_empty() {
+            if normalized.len() < phrase.len() {
                 continue;
             }
-            if normalized.len() >= phrase.len() && normalized[..phrase.len()] == phrase[..] {
+            let candidate = &normalized[..phrase.len()];
+            if candidate == phrase.as_slice()
+                || (self.fuzzy_enabled && wake_phrase_matches(candidate, phrase, self.max_distance))
+            {
                 return Some(original[phrase.len()..].join(" "));
-            }
-            for offset in 1..=2 {
-                if normalized.len() >= offset + phrase.len()
-                    && normalized[offset..offset + phrase.len()] == phrase[..]
-                {
-                    return Some(original[offset + phrase.len()..].join(" "));
-                }
             }
         }
         None
     }
+}
+
+fn wake_phrase_matches(candidate: &[String], phrase: &[String], max_distance: u8) -> bool {
+    if candidate.len() != phrase.len() || candidate.is_empty() {
+        return false;
+    }
+    if candidate.len() > 1 && candidate[..candidate.len() - 1] != phrase[..phrase.len() - 1] {
+        return false;
+    }
+    wake_token_matches(
+        candidate.last().map(String::as_str).unwrap_or_default(),
+        phrase.last().map(String::as_str).unwrap_or_default(),
+        max_distance,
+    )
+}
+
+fn wake_token_matches(candidate: &str, expected: &str, max_distance: u8) -> bool {
+    if candidate == expected {
+        return true;
+    }
+    if matches!(candidate, "quit" | "quitt" | "kite") {
+        return false;
+    }
+    if candidate.len() < 2 || candidate.len() > 6 {
+        return false;
+    }
+    let first = candidate.as_bytes().first().copied();
+    if !matches!(first, Some(b'k') | Some(b'q')) {
+        return false;
+    }
+    let candidate = wake_phonetic_key(candidate);
+    let expected = wake_phonetic_key(expected);
+    bounded_edit_distance(&candidate, &expected, usize::from(max_distance))
+        .is_some_and(|distance| distance <= usize::from(max_distance))
+}
+
+fn wake_phonetic_key(token: &str) -> String {
+    let normalized = normalize_token(token);
+    let mut value = if let Some(stripped) = normalized.strip_prefix("qu") {
+        format!("k{stripped}")
+    } else {
+        normalized
+    };
+
+    let mut collapsed = String::with_capacity(value.len());
+    let mut previous = None;
+    for ch in value.chars() {
+        if previous != Some(ch) {
+            collapsed.push(ch);
+            previous = Some(ch);
+        }
+    }
+    value = collapsed;
+
+    if value.len() >= 4 && matches!(value.chars().last(), Some('e') | Some('i')) {
+        value.pop();
+    }
+    value
+}
+
+fn bounded_edit_distance(left: &str, right: &str, max_distance: usize) -> Option<usize> {
+    if left.len().abs_diff(right.len()) > max_distance {
+        return None;
+    }
+    let mut previous: Vec<usize> = (0..=right.len()).collect();
+    let mut current = vec![0; right.len() + 1];
+
+    for (row, left_byte) in left.bytes().enumerate() {
+        current[0] = row + 1;
+        for (column, right_byte) in right.bytes().enumerate() {
+            let substitution = previous[column] + usize::from(left_byte != right_byte);
+            let insertion = current[column] + 1;
+            let deletion = previous[column + 1] + 1;
+            current[column + 1] = substitution.min(insertion).min(deletion);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    let distance = previous[right.len()];
+    (distance <= max_distance).then_some(distance)
 }
 
 fn normalize_tokens(text: &str) -> Vec<String> {
@@ -1059,17 +1265,16 @@ fn normalize_tokens(text: &str) -> Vec<String> {
 fn normalize_token(token: &str) -> String {
     token
         .chars()
-        .map(|ch| match ch.to_ascii_lowercase() {
-            'á' | 'à' | 'ã' | 'â' | 'ä' => 'a',
-            'é' | 'è' | 'ê' | 'ë' => 'e',
-            'í' | 'ì' | 'î' | 'ï' => 'i',
-            'ó' | 'ò' | 'õ' | 'ô' | 'ö' => 'o',
-            'ú' | 'ù' | 'û' | 'ü' => 'u',
-            'ç' => 'c',
-            other => other,
+        .map(|ch| match ch {
+            'á' | 'à' | 'ã' | 'â' | 'ä' | 'Á' | 'À' | 'Ã' | 'Â' | 'Ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' | 'É' | 'È' | 'Ê' | 'Ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' | 'Í' | 'Ì' | 'Î' | 'Ï' => 'i',
+            'ó' | 'ò' | 'õ' | 'ô' | 'ö' | 'Ó' | 'Ò' | 'Õ' | 'Ô' | 'Ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' | 'Ú' | 'Ù' | 'Û' | 'Ü' => 'u',
+            'ç' | 'Ç' => 'c',
+            other => other.to_ascii_lowercase(),
         })
         .filter(|ch| ch.is_alphanumeric())
-        .flat_map(char::to_lowercase)
         .collect()
 }
 
@@ -1080,6 +1285,7 @@ struct Segmenter {
     pre_roll: VecDeque<f32>,
     current: Vec<f32>,
     speaking: bool,
+    candidate_voiced_samples: usize,
     speech_samples: usize,
     silence_samples: usize,
 }
@@ -1093,6 +1299,7 @@ impl Segmenter {
             pre_roll: VecDeque::new(),
             current: Vec::new(),
             speaking: false,
+            candidate_voiced_samples: 0,
             speech_samples: 0,
             silence_samples: 0,
         }
@@ -1103,22 +1310,36 @@ impl Segmenter {
             return None;
         }
         let rms = rms(samples);
-        let threshold = self
+        let start_threshold = self
             .config
             .min_rms
             .max(self.noise_floor * self.config.noise_multiplier);
-        let voiced = rms >= threshold;
+        let release_threshold = start_threshold * self.config.vad_release_ratio;
+        let voiced = if self.speaking {
+            rms >= release_threshold
+        } else {
+            rms >= start_threshold
+        };
 
         if !self.speaking {
+            self.extend_pre_roll(samples);
             if !voiced {
-                self.noise_floor = self.noise_floor * 0.98 + rms * 0.02;
-                self.extend_pre_roll(samples);
+                self.candidate_voiced_samples = 0;
+                let bounded_noise = rms.min(self.config.min_rms * 4.0);
+                self.noise_floor = self.noise_floor * 0.985 + bounded_noise * 0.015;
                 return None;
             }
+
+            self.candidate_voiced_samples += samples.len();
+            let attack = ms_to_samples(self.sample_rate, self.config.speech_start_ms);
+            if self.candidate_voiced_samples < attack {
+                return None;
+            }
+
             self.speaking = true;
             self.current.extend(self.pre_roll.drain(..));
-            self.current.extend_from_slice(samples);
-            self.speech_samples = samples.len();
+            self.speech_samples = self.candidate_voiced_samples;
+            self.candidate_voiced_samples = 0;
             self.silence_samples = 0;
         } else {
             self.current.extend_from_slice(samples);
@@ -1140,6 +1361,7 @@ impl Segmenter {
         let valid = self.speech_samples >= min_speech;
         let audio = std::mem::take(&mut self.current);
         self.speaking = false;
+        self.candidate_voiced_samples = 0;
         self.speech_samples = 0;
         self.silence_samples = 0;
         self.pre_roll.clear();
@@ -1158,6 +1380,7 @@ impl Segmenter {
         self.pre_roll.clear();
         self.current.clear();
         self.speaking = false;
+        self.candidate_voiced_samples = 0;
         self.speech_samples = 0;
         self.silence_samples = 0;
     }
@@ -1275,16 +1498,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wake_matcher_removes_kitt_prefix() {
-        let matcher = WakePhraseMatcher::new(&["KITT".into(), "ei KITT".into()]);
+    fn wake_matcher_is_phonetic_but_does_not_scan_arbitrary_offsets() {
+        let matcher = WakePhraseMatcher::new(
+            &["KITT".into(), "ei KITT".into(), "olá KITT".into()],
+            true,
+            1,
+        );
         assert_eq!(
             matcher.strip_prefix("KITT, que horas são?"),
             Some("que horas são?".into())
         );
         assert_eq!(
-            matcher.strip_prefix("Ei KITT abra o calendário"),
+            matcher.strip_prefix("Kit abra o calendário"),
             Some("abra o calendário".into())
         );
+        assert_eq!(
+            matcher.strip_prefix("Quite, qual é a temperatura?"),
+            Some("qual é a temperatura?".into())
+        );
+        assert_eq!(
+            matcher.strip_prefix("Ei kit abra o calendário"),
+            Some("abra o calendário".into())
+        );
+        assert_eq!(matcher.strip_prefix("quit now"), None);
+        assert_eq!(matcher.strip_prefix("computador abra a agenda"), None);
+        assert_eq!(matcher.strip_prefix("agora KITT abra a agenda"), None);
         assert_eq!(matcher.strip_prefix("conversa normal"), None);
     }
 
@@ -1293,7 +1531,8 @@ mod tests {
         let config = VoiceConfig {
             min_rms: 0.01,
             noise_multiplier: 2.0,
-            pre_roll_ms: 10,
+            speech_start_ms: 20,
+            pre_roll_ms: 40,
             min_speech_ms: 20,
             silence_ms: 20,
             max_utterance_ms: 500,
@@ -1303,6 +1542,25 @@ mod tests {
         assert!(segmenter.push(&[0.2; 20]).is_none());
         let result = segmenter.push(&[0.0; 20]);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn segmenter_release_hysteresis_keeps_quieter_speech_active() {
+        let config = VoiceConfig {
+            min_rms: 0.01,
+            noise_multiplier: 2.0,
+            speech_start_ms: 20,
+            vad_release_ratio: 0.5,
+            pre_roll_ms: 40,
+            min_speech_ms: 20,
+            silence_ms: 20,
+            max_utterance_ms: 500,
+            ..VoiceConfig::default()
+        };
+        let mut segmenter = Segmenter::new(1_000, config);
+        assert!(segmenter.push(&[0.03; 20]).is_none());
+        assert!(segmenter.push(&[0.008; 20]).is_none());
+        assert!(segmenter.push(&[0.0; 20]).is_some());
     }
 
     #[test]

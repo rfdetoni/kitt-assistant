@@ -37,9 +37,9 @@ impl OpenAiCompatibleModel {
         api_key: Option<String>,
         local: bool,
     ) -> Result<Self> {
-        if base_url.trim().is_empty() || model.trim().is_empty() {
+        if base_url.trim().is_empty() {
             return Err(AssistantError::Configuration(
-                "base_url and model are required".into(),
+                "model provider base_url is required".into(),
             ));
         }
         Ok(Self {
@@ -54,6 +54,12 @@ impl OpenAiCompatibleModel {
 
 impl ModelPort for OpenAiCompatibleModel {
     fn complete(&self, request: &ModelRequest) -> Result<ModelAnswer> {
+        if self.model.trim().is_empty() {
+            return Err(AssistantError::Configuration(
+                "no model is configured for this provider; select one in KITT Control Center or set the provider model explicitly"
+                    .into(),
+            ));
+        }
         let mut req = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
@@ -198,9 +204,14 @@ impl OpenAiCompatibleTranscriber {
         local: bool,
         allow_remote: bool,
     ) -> Result<Self> {
-        if base_url.trim().is_empty() || model.trim().is_empty() {
+        if base_url.trim().is_empty() {
             return Err(AssistantError::Configuration(
-                "transcription base_url and model are required".into(),
+                "transcription base_url is required".into(),
+            ));
+        }
+        if !local && model.trim().is_empty() {
+            return Err(AssistantError::Configuration(
+                "remote transcription requires an explicit model".into(),
             ));
         }
         Ok(Self {
@@ -215,7 +226,12 @@ impl OpenAiCompatibleTranscriber {
 }
 
 impl TranscriptionPort for OpenAiCompatibleTranscriber {
-    fn transcribe(&self, path: &Path, locale: Option<&str>) -> Result<String> {
+    fn transcribe(
+        &self,
+        path: &Path,
+        locale: Option<&str>,
+        prompt: Option<&str>,
+    ) -> Result<String> {
         if !self.local && !self.allow_remote {
             return Err(AssistantError::Transcription(
                 "remote voice transcription is disabled; set speech_to_text.allow_remote=true explicitly"
@@ -243,11 +259,15 @@ impl TranscriptionPort for OpenAiCompatibleTranscriber {
             .unwrap_or("audio.bin")
             .to_string();
         let file = multipart::Part::bytes(bytes).file_name(filename);
-        let mut form = multipart::Form::new()
-            .text("model", self.model.clone())
-            .part("file", file);
+        let mut form = multipart::Form::new().part("file", file);
+        if !self.model.trim().is_empty() {
+            form = form.text("model", self.model.clone());
+        }
         if let Some(language) = normalize_language(locale) {
             form = form.text("language", language);
+        }
+        if let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) {
+            form = form.text("prompt", prompt.chars().take(512).collect::<String>());
         }
 
         let mut req = self
@@ -321,34 +341,117 @@ fn bounded_json(response: Response, wrap: fn(String) -> AssistantError) -> Resul
     Ok(body)
 }
 
-#[derive(Default)]
-pub struct SystemTextToSpeech;
+#[derive(Debug, Clone)]
+pub struct SystemVoiceProfile {
+    pub voice_name: Option<String>,
+    pub prefer_male: bool,
+    pub rate: i32,
+    pub pitch: i32,
+    pub volume: u8,
+}
+
+impl Default for SystemVoiceProfile {
+    fn default() -> Self {
+        Self {
+            voice_name: None,
+            prefer_male: true,
+            rate: -1,
+            pitch: -2,
+            volume: 95,
+        }
+    }
+}
+
+impl SystemVoiceProfile {
+    fn normalized(&self) -> Self {
+        Self {
+            voice_name: self
+                .voice_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            prefer_male: self.prefer_male,
+            rate: self.rate.clamp(-10, 10),
+            pitch: self.pitch.clamp(-10, 10),
+            volume: self.volume.min(100),
+        }
+    }
+}
+
+pub struct SystemTextToSpeech {
+    profile: SystemVoiceProfile,
+}
+
+impl Default for SystemTextToSpeech {
+    fn default() -> Self {
+        Self::new(SystemVoiceProfile::default())
+    }
+}
 
 impl SystemTextToSpeech {
-    pub fn new() -> Self {
-        Self
+    pub fn new(profile: SystemVoiceProfile) -> Self {
+        Self {
+            profile: profile.normalized(),
+        }
     }
 }
 
 impl SpeechOutputPort for SystemTextToSpeech {
-    fn speak(&self, text: &str, _locale: Option<&str>) -> Result<()> {
+    fn speak(&self, text: &str, locale: Option<&str>) -> Result<()> {
         if text.trim().is_empty() {
             return Ok(());
         }
-        speak_system(text)
+        speak_system(text, locale, &self.profile)
     }
 }
 
+fn normalized_tts_locale(locale: Option<&str>) -> Option<String> {
+    let value = locale?.trim();
+    if value.is_empty() {
+        return None;
+    }
+    Some(value.replace('_', "-").to_ascii_lowercase())
+}
+
+fn macos_speech_rate(rate: i32) -> i32 {
+    (175 + rate.clamp(-10, 10) * 8).clamp(95, 255)
+}
+
+fn espeak_pitch(pitch: i32) -> i32 {
+    (50 + pitch.clamp(-10, 10) * 4).clamp(0, 99)
+}
+
 #[cfg(target_os = "windows")]
-fn speak_system(text: &str) -> Result<()> {
+fn speak_system(text: &str, locale: Option<&str>, profile: &SystemVoiceProfile) -> Result<()> {
     let script = concat!(
         "$text=[Console]::In.ReadToEnd();",
         "Add-Type -AssemblyName System.Speech;",
         "$speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer;",
+        "$voice=$env:KITT_TTS_VOICE_NAME;",
+        "$preferMale=$env:KITT_TTS_PREFER_MALE -eq '1';",
+        "if($voice){try{$speaker.SelectVoice($voice)}catch{}}",
+        "elseif($preferMale){try{",
+        "$culture=[System.Globalization.CultureInfo]::GetCultureInfo($env:KITT_TTS_LOCALE);",
+        "$speaker.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Male,[System.Speech.Synthesis.VoiceAge]::Adult,0,$culture)",
+        "}catch{try{$speaker.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Male)}catch{}}};",
+        "$speaker.Rate=[int]$env:KITT_TTS_RATE;",
+        "$speaker.Volume=[int]$env:KITT_TTS_VOLUME;",
         "$speaker.Speak($text);"
     );
     let mut child = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env(
+            "KITT_TTS_VOICE_NAME",
+            profile.voice_name.as_deref().unwrap_or_default(),
+        )
+        .env(
+            "KITT_TTS_PREFER_MALE",
+            if profile.prefer_male { "1" } else { "0" },
+        )
+        .env("KITT_TTS_LOCALE", locale.unwrap_or("pt-BR"))
+        .env("KITT_TTS_RATE", profile.rate.to_string())
+        .env("KITT_TTS_VOLUME", profile.volume.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -372,8 +475,14 @@ fn speak_system(text: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn speak_system(text: &str) -> Result<()> {
-    let status = Command::new("say")
+fn speak_system(text: &str, _locale: Option<&str>, profile: &SystemVoiceProfile) -> Result<()> {
+    let mut command = Command::new("say");
+    if let Some(voice) = profile.voice_name.as_deref() {
+        command.arg("-v").arg(voice);
+    }
+    let status = command
+        .arg("-r")
+        .arg(macos_speech_rate(profile.rate).to_string())
         .arg(text)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -390,9 +499,26 @@ fn speak_system(text: &str) -> Result<()> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn speak_system(text: &str) -> Result<()> {
-    match Command::new("spd-say")
-        .args(["-w", "--"])
+fn speak_system(text: &str, locale: Option<&str>, profile: &SystemVoiceProfile) -> Result<()> {
+    let mut speech_dispatcher = Command::new("spd-say");
+    speech_dispatcher
+        .arg("-w")
+        .arg("-r")
+        .arg((profile.rate * 10).to_string())
+        .arg("-p")
+        .arg((profile.pitch * 10).to_string())
+        .arg("-i")
+        .arg((i32::from(profile.volume) * 2 - 100).to_string());
+    if let Some(locale) = normalized_tts_locale(locale) {
+        speech_dispatcher.arg("-l").arg(locale);
+    }
+    if let Some(voice) = profile.voice_name.as_deref() {
+        speech_dispatcher.arg("-y").arg(voice);
+    } else if profile.prefer_male {
+        speech_dispatcher.arg("-t").arg("male1");
+    }
+    match speech_dispatcher
+        .arg("--")
         .arg(text)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -412,15 +538,28 @@ fn speak_system(text: &str) -> Result<()> {
     let path = temporary_text_path();
     write_private_tts_text(&path, text)?;
     let _guard = TempFileGuard(path.clone());
+    let fallback_voice = profile
+        .voice_name
+        .clone()
+        .or_else(|| normalized_tts_locale(locale));
     for program in ["espeak-ng", "espeak"] {
-        match Command::new(program)
-            .args(["-f"])
+        let mut command = Command::new(program);
+        if let Some(voice) = fallback_voice.as_deref() {
+            command.arg("-v").arg(voice);
+        }
+        command
+            .arg("-s")
+            .arg(macos_speech_rate(profile.rate).to_string())
+            .arg("-p")
+            .arg(espeak_pitch(profile.pitch).to_string())
+            .arg("-a")
+            .arg((u32::from(profile.volume) * 2).min(200).to_string())
+            .arg("-f")
             .arg(&path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-        {
+            .stderr(Stdio::null());
+        match command.status() {
             Ok(status) if status.success() => return Ok(()),
             Ok(_) => continue,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
@@ -437,7 +576,7 @@ fn speak_system(text: &str) -> Result<()> {
 }
 
 #[cfg(not(any(unix, target_os = "windows")))]
-fn speak_system(_text: &str) -> Result<()> {
+fn speak_system(_text: &str, _locale: Option<&str>, _profile: &SystemVoiceProfile) -> Result<()> {
     Err(AssistantError::SpeechOutput(
         "system TTS is not implemented for this platform".into(),
     ))
@@ -568,6 +707,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn voice_profile_is_bounded_and_has_no_named_voice_fallback() {
+        let profile = SystemVoiceProfile {
+            voice_name: Some("   ".into()),
+            prefer_male: true,
+            rate: -99,
+            pitch: 99,
+            volume: 255,
+        }
+        .normalized();
+        assert_eq!(profile.voice_name, None);
+        assert_eq!(profile.rate, -10);
+        assert_eq!(profile.pitch, 10);
+        assert_eq!(profile.volume, 100);
+    }
+
+    #[test]
     fn discovery_url_validation_rejects_credential_and_non_http_urls() {
         assert!(normalize_discovery_base_url("http://127.0.0.1:11434/v1").is_ok());
         assert!(normalize_discovery_base_url("https://api.example.com/v1").is_ok());
@@ -626,7 +781,7 @@ mod tests {
             .as_nanos();
         let temp = std::env::temp_dir().join(format!("test-audio-{nanos}.wav"));
         std::fs::write(&temp, b"dummy audio content").unwrap();
-        let result = transcriber.transcribe(&temp, None);
+        let result = transcriber.transcribe(&temp, None, None);
         assert!(result.is_err());
         assert!(
             result

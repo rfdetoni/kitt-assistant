@@ -63,6 +63,18 @@ function makeHarness() {
           json: async () => ({ revision: 1, values: { assistant: { fast_base_url: "http://old/v1", fast_model: "old-model" } } }),
         };
       }
+      if (path === "/api/v1/service/status") {
+        return {
+          ok: true, status: 200, json: async () => ({
+            status: "ok",
+            daemon: { active: true, pid: 1234, uptime_seconds: 120, listen: "127.0.0.1:41827", bind: "127.0.0.1:41828", version: "0.1.0" },
+            voice: { enabled: true, activation_mode: "auto", stt_worker_model: "base", stt_worker_online: true, wake_phrases: ["kitt"], wakeword_model_exists: false, wakeword_model_path: "wakewords/kitt.rpw" },
+            models: { base_url: "http://127.0.0.1:11434/v1", fast_model: "test-model" },
+            memory: { exists: true, size_bytes: 4096 },
+            logs: "kittd listening on 127.0.0.1:41827\nkitt voice enabled"
+          })
+        };
+      }
       if (path === "/api/v1/models/discover") {
         let resolve;
         const response = new Promise((res) => { resolve = res; });
@@ -82,6 +94,7 @@ function makeHarness() {
       ]
     }]};
     state.snapshot={revision:1,values:{assistant:{fast_base_url:"http://old/v1",fast_model:"old-model"}}};
+    state.csrf="test";
   `, context);
 
   return { context, pendingDiscoveries };
@@ -90,6 +103,18 @@ function makeHarness() {
 function resolveDiscovery(entry, models) {
   entry.resolve({ ok: true, status: 200, json: async () => ({ models }) });
 }
+
+test("model picker does not inject hardcoded fallback models", () => {
+  const { context } = makeHarness();
+  const html = vm.runInContext(`
+    control(
+      state.catalog.sections[0],
+      state.catalog.sections[0].fields.find((field)=>field.key==="fast_model")
+    )
+  `, context);
+  assert.equal(html.includes("whisper-1"), false);
+  assert.equal(html.includes("qwen3:4b"), false);
+});
 
 test("changing provider URL invalidates an in-flight model discovery", async () => {
   const { context, pendingDiscoveries } = makeHarness();
@@ -130,4 +155,15 @@ test("out-of-order discoveries keep only the newest response", async () => {
     Array.from(vm.runInContext(`state.modelsCache.get("assistant::fast_model")`, context)),
     ["new-model"],
   );
+});
+
+test("service monitor renders navigation and telemetries correctly", async () => {
+  const { context } = makeHarness();
+  await vm.runInContext(`fetchServiceStatus()`, context);
+  assert.equal(vm.runInContext(`state.serviceStatus?.daemon?.pid`, context), 1234);
+  assert.equal(vm.runInContext(`formatUptime(125)`, context), "2m 5s");
+  assert.equal(vm.runInContext(`formatBytes(4096)`, context), "4.0 KB");
+
+  const logHtml = vm.runInContext(`highlightLogs("error: failed to bind socket")`, context);
+  assert.equal(logHtml.includes("log-error"), true);
 });

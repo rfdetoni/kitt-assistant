@@ -72,8 +72,8 @@ impl ModelProfiles {
         let fast_model = std::env::var("KITT_FAST_MODEL")
             .or_else(|_| std::env::var("KITT_MODEL"))
             .unwrap_or_else(|_| legacy_model.to_string());
-        let heavy_model = std::env::var("KITT_HEAVY_MODEL").unwrap_or_else(|_| fast_model.clone());
-        let stt_model = std::env::var("KITT_STT_MODEL").unwrap_or_else(|_| "whisper-1".into());
+        let heavy_model = std::env::var("KITT_HEAVY_MODEL").unwrap_or_default();
+        let stt_model = std::env::var("KITT_STT_MODEL").unwrap_or_default();
 
         let fast_base_url =
             std::env::var("KITT_FAST_BASE_URL").unwrap_or_else(|_| legacy_base_url.to_string());
@@ -194,10 +194,7 @@ fn infer_local(base_url: &str) -> Option<bool> {
     Some(is_loopback_host(parsed.host_str()))
 }
 
-fn validate_profile(name: &str, base_url: &str, model: &str, local: bool) -> Result<(), String> {
-    if model.trim().is_empty() {
-        return Err(format!("{name} model cannot be empty"));
-    }
+fn validate_profile(name: &str, base_url: &str, _model: &str, local: bool) -> Result<(), String> {
     let parsed = url::Url::parse(base_url).map_err(|e| format!("invalid {name} base_url: {e}"))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(format!("{name} provider must use http or https"));

@@ -61,6 +61,15 @@ pub(crate) fn apply_core(config_dir: &Path, config: &mut Config) -> Result<(), S
     if let Some(value) = values.get("allow_personal_remote").and_then(Value::as_bool) {
         config.allow_personal_remote = value;
     }
+
+    let voice = section(config_dir, "assistant.voice")?;
+    set_optional_string(&voice, "tts_voice_name", &mut config.tts_voice_name);
+    if let Some(value) = voice.get("tts_prefer_male").and_then(Value::as_bool) {
+        config.tts_prefer_male = value;
+    }
+    set_i32(&voice, "tts_rate", &mut config.tts_rate)?;
+    set_i32(&voice, "tts_pitch", &mut config.tts_pitch)?;
+    set_u8(&voice, "tts_volume", &mut config.tts_volume)?;
     Ok(())
 }
 
@@ -154,6 +163,18 @@ pub(crate) fn apply_voice(config_dir: &Path, config: &mut VoiceConfig) -> Result
     if let Some(x) = v.get("noise_multiplier").and_then(Value::as_f64) {
         config.noise_multiplier = x as f32;
     }
+    if let Some(x) = v.get("wake_fuzzy_enabled").and_then(Value::as_bool) {
+        config.wake_fuzzy_enabled = x;
+    }
+    if let Some(x) = v.get("wake_fuzzy_max_distance").and_then(Value::as_u64) {
+        config.wake_fuzzy_max_distance =
+            u8::try_from(x).map_err(|_| "wake_fuzzy_max_distance out of range")?;
+    }
+    set_u64(&v, "wake_cooldown_ms", &mut config.wake_cooldown_ms);
+    set_u64(&v, "speech_start_ms", &mut config.speech_start_ms);
+    if let Some(x) = v.get("vad_release_ratio").and_then(Value::as_f64) {
+        config.vad_release_ratio = x as f32;
+    }
     set_u64(&v, "pre_roll_ms", &mut config.pre_roll_ms);
     set_u64(&v, "min_speech_ms", &mut config.min_speech_ms);
     set_u64(&v, "silence_ms", &mut config.silence_ms);
@@ -189,4 +210,18 @@ fn set_u64(map: &Map<String, Value>, key: &str, target: &mut u64) {
     if let Some(value) = map.get(key).and_then(Value::as_u64) {
         *target = value;
     }
+}
+
+fn set_i32(map: &Map<String, Value>, key: &str, target: &mut i32) -> Result<(), String> {
+    if let Some(value) = map.get(key).and_then(Value::as_i64) {
+        *target = i32::try_from(value).map_err(|_| format!("{key} out of range"))?;
+    }
+    Ok(())
+}
+
+fn set_u8(map: &Map<String, Value>, key: &str, target: &mut u8) -> Result<(), String> {
+    if let Some(value) = map.get(key).and_then(Value::as_u64) {
+        *target = u8::try_from(value).map_err(|_| format!("{key} out of range"))?;
+    }
+    Ok(())
 }

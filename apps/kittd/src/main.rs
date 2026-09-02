@@ -8,6 +8,7 @@ use kitt_application::AssistantService;
 use kitt_domain::{ModelTier as DomainModelTier, RouteHint, RoutingPolicy};
 use kitt_infrastructure::{
     AssistantMemory, OpenAiCompatibleModel, OpenAiCompatibleTranscriber, SystemTextToSpeech,
+    SystemVoiceProfile,
 };
 use kitt_memory_core::{
     MemoryKind as CoreMemoryKind, MemoryRecord, MemoryScope as CoreMemoryScope, MemoryStore,
@@ -45,6 +46,7 @@ const AUTH_READ_TIMEOUT: Duration = Duration::from_secs(5);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 struct Config {
     listen: String,
     base_url: String,
@@ -53,6 +55,11 @@ struct Config {
     local_provider: bool,
     allow_personal_remote: bool,
     hud_ttl_ms: u64,
+    tts_voice_name: Option<String>,
+    tts_prefer_male: bool,
+    tts_rate: i32,
+    tts_pitch: i32,
+    tts_volume: u8,
 }
 
 impl Default for Config {
@@ -60,11 +67,16 @@ impl Default for Config {
         Self {
             listen: "127.0.0.1:41827".into(),
             base_url: "http://127.0.0.1:11434/v1".into(),
-            model: std::env::var("KITT_MODEL").unwrap_or_else(|_| "qwen3:4b".into()),
+            model: std::env::var("KITT_MODEL").unwrap_or_default(),
             api_key_env: None,
             local_provider: true,
             allow_personal_remote: false,
             hud_ttl_ms: 8000,
+            tts_voice_name: None,
+            tts_prefer_male: true,
+            tts_rate: -1,
+            tts_pitch: -2,
+            tts_volume: 95,
         }
     }
 }
@@ -205,7 +217,13 @@ fn main() {
         )
         .unwrap_or_else(|e| fatal(e.to_string())),
     );
-    let speaker = Arc::new(SystemTextToSpeech::new());
+    let speaker = Arc::new(SystemTextToSpeech::new(SystemVoiceProfile {
+        voice_name: config.tts_voice_name.clone(),
+        prefer_male: config.tts_prefer_male,
+        rate: config.tts_rate,
+        pitch: config.tts_pitch,
+        volume: config.tts_volume,
+    }));
     let memory_adapter = Arc::new(AssistantMemory::new(
         memory.clone(),
         "global".into(),
@@ -545,7 +563,7 @@ fn transcribe(
     }
     let text = runtime
         .service
-        .transcribe(path, request.locale.as_deref())
+        .transcribe(path, request.locale.as_deref(), None)
         .map_err(|e| ("transcription_error", e.to_string()))?;
     if request.show_hud {
         runtime.hud.send(HudEvent::Text {
@@ -917,6 +935,26 @@ mod tests {
         assert!(validate_loopback("127.0.0.1:41827").is_ok());
         assert!(validate_loopback("[::1]:41827").is_ok());
         assert!(validate_loopback("0.0.0.0:41827").is_err());
+    }
+
+    #[test]
+    fn legacy_config_without_tts_fields_uses_voice_defaults() {
+        let config: Config = serde_json::from_str(
+            r#"{
+                "listen":"127.0.0.1:41827",
+                "base_url":"http://127.0.0.1:11434/v1",
+                "model":"",
+                "api_key_env":null,
+                "local_provider":true,
+                "allow_personal_remote":false,
+                "hud_ttl_ms":8000
+            }"#,
+        )
+        .unwrap();
+        assert!(config.tts_prefer_male);
+        assert_eq!(config.tts_rate, -1);
+        assert_eq!(config.tts_pitch, -2);
+        assert_eq!(config.tts_volume, 95);
     }
 
     #[test]
