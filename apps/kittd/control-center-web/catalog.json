@@ -1541,6 +1541,67 @@
           "apply_mode": "component_restart"
         }
       ]
+    },
+    {
+      "id": "agent_gateway.runtime",
+      "component": "kitt-agent-gateway",
+      "title": "Agent Gateway / JetBrains",
+      "description": "Roteia agentes ACP do JetBrains AI Assistant diretamente ao KITT Reverse Proxy.",
+      "version": 1,
+      "fields": [
+        {
+          "key": "kitt_only",
+          "label": "KITT Only",
+          "type": "boolean",
+          "default": true,
+          "description": "Os agentes gerenciados recebem somente endpoints KITT para o provider de modelo.",
+          "apply_mode": "live"
+        },
+        {
+          "key": "openai_model",
+          "label": "Modelo OpenAI/Responses",
+          "type": "string",
+          "default": "chatgpt-web",
+          "apply_mode": "live"
+        },
+        {
+          "key": "anthropic_model",
+          "label": "Modelo Anthropic Messages",
+          "type": "string",
+          "default": "claude-web",
+          "apply_mode": "live"
+        },
+        {
+          "key": "codex_enabled",
+          "label": "Registrar KITT · Codex",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "live"
+        },
+        {
+          "key": "claude_enabled",
+          "label": "Registrar KITT · Claude",
+          "type": "boolean",
+          "default": true,
+          "apply_mode": "live"
+        },
+        {
+          "key": "opencode_enabled",
+          "label": "Registrar KITT · OpenCode",
+          "type": "boolean",
+          "default": false,
+          "apply_mode": "live"
+        },
+        {
+          "key": "acp_path",
+          "label": "JetBrains acp.json",
+          "type": "path",
+          "default": "",
+          "placeholder": "Vazio = ~/.jetbrains/acp.json",
+          "advanced": true,
+          "apply_mode": "live"
+        }
+      ]
     }
   ]
 }

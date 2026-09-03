@@ -535,6 +535,68 @@ function bindReverseProxyLauncher() {
 }
 
 
+
+function agentGatewayRuntimeSection() {
+  return state.catalog?.sections.find((section) => section.id === "agent_gateway.runtime") || null;
+}
+
+function agentGatewayValue(section, key, fallback) {
+  const field = section?.fields.find((item) => item.key === key);
+  return field ? current(section, field) : fallback;
+}
+
+function renderAgentGatewayLauncher(section) {
+  const base = state.reverseProxyStatus?.api_url || reverseProxyApiUrl();
+  const openaiModel = agentGatewayValue(section, "openai_model", "chatgpt-web");
+  const anthropicModel = agentGatewayValue(section, "anthropic_model", "claude-web");
+  return `
+    <div class="reverse-proxy-launcher agent-gateway-launcher">
+      <div class="reverse-proxy-launch-head">
+        <div>
+          <h3>KITT Only · JetBrains ACP</h3>
+          <p>Registra agentes ACP que usam diretamente o KITT como provider, sem JetBrains AI como rota de modelo.</p>
+        </div>
+        <span class="status-pill neutral" id="agent-gateway-status">○ Não verificado</span>
+      </div>
+      <div class="reverse-proxy-quick-grid">
+        <div class="reverse-proxy-info"><span>OpenAI / Responses</span><code>${esc(base)}/v1 · ${esc(openaiModel)}</code></div>
+        <div class="reverse-proxy-info"><span>Anthropic Messages</span><code>${esc(base)}/v1/messages · ${esc(anthropicModel)}</code></div>
+      </div>
+      <div class="reverse-proxy-actions">
+        <button type="button" id="btn-agent-gateway-install" class="primary">Instalar no JetBrains</button>
+        <button type="button" id="btn-agent-gateway-verify" class="ghost">Verificar KITT Only</button>
+        <button type="button" id="btn-agent-gateway-remove" class="ghost">Remover entradas KITT</button>
+      </div>
+      <p class="reverse-proxy-help">Requer <code>kitt-agent-gateway</code>, <code>codex-acp</code> e/ou <code>claude-agent-acp</code> no PATH do usuário. O instalador preserva agentes ACP não-KITT já existentes.</p>
+    </div>
+  `;
+}
+
+async function agentGatewayAction(action) {
+  try {
+    const result = await api(`/api/v1/agent-gateway/${action}`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    if (action === "verify") {
+      const badge = $("agent-gateway-status");
+      if (badge) {
+        badge.textContent = result.status === "ok" ? "● KITT Only pronto" : "● Verificação falhou";
+        badge.className = `status-pill ${result.status === "ok" ? "good" : "bad"}`;
+      }
+    }
+    toast(result.message || result.status || `Agent Gateway: ${action}`);
+  } catch (error) {
+    toast(`Agent Gateway: ${error.message}`, "bad");
+  }
+}
+
+function bindAgentGatewayLauncher() {
+  $("btn-agent-gateway-install")?.addEventListener("click", () => void agentGatewayAction("install"));
+  $("btn-agent-gateway-verify")?.addEventListener("click", () => void agentGatewayAction("verify"));
+  $("btn-agent-gateway-remove")?.addEventListener("click", () => void agentGatewayAction("uninstall"));
+}
+
 async function pingService() {
   const start = performance.now();
   try {
@@ -584,6 +646,7 @@ const COMPONENT_LABELS = {
   "kitt-ai-workers": "AI Workers",
   "kitt-toolbox": "Toolbox",
   "kitt-reverse-proxy": "Reverse Proxy",
+  "kitt-agent-gateway": "Agent Gateway",
   "kitt-protocol": "Protocol",
   "kitt": "Ecosystem"
 };
@@ -939,6 +1002,7 @@ function renderConfigView() {
             <span class="badge ${changed ? "changed" : ""}">${changed ? "Modificado" : esc(section.component)}</span>
           </header>
           ${section.id === "reverse_proxy.runtime" ? renderReverseProxyLauncher(section) : ""}
+          ${section.id === "agent_gateway.runtime" ? renderAgentGatewayLauncher(section) : ""}
           <div class="fields">
             ${fields.map((field) => `
               <div class="field ${field.advanced ? "advanced" : ""}">
@@ -966,6 +1030,9 @@ function renderConfigView() {
   bindInputs();
   if (visible.some((section) => section.id === "reverse_proxy.runtime")) {
     bindReverseProxyLauncher();
+  }
+  if (visible.some((section) => section.id === "agent_gateway.runtime")) {
+    bindAgentGatewayLauncher();
   }
 }
 

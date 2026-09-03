@@ -281,6 +281,18 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
             Ok(value) => write_json(&mut stream, 200, value, None),
             Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
         },
+        ("POST", "/api/v1/agent-gateway/install") => match agent_gateway_action(state, "install") {
+            Ok(value) => write_json(&mut stream, 200, value, None),
+            Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
+        },
+        ("POST", "/api/v1/agent-gateway/uninstall") => match agent_gateway_action(state, "uninstall") {
+            Ok(value) => write_json(&mut stream, 200, value, None),
+            Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
+        },
+        ("POST", "/api/v1/agent-gateway/verify") => match agent_gateway_action(state, "verify") {
+            Ok(value) => write_json(&mut stream, 200, value, None),
+            Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
+        },
         ("POST", "/api/v1/service/restart") => {
             write_json(&mut stream, 200, handle_service_restart(), None)
         }
@@ -687,6 +699,118 @@ fn set_private_file(path: &Path) -> Result<(), String> {
 #[cfg(not(unix))]
 fn set_private_file(_path: &Path) -> Result<(), String> {
     Ok(())
+}
+
+
+fn section_values(state: &State, section: &str) -> Map<String, Value> {
+    read_overlay(&state.overlay_path)
+        .ok()
+        .and_then(|overlay| {
+            overlay
+                .get("components")
+                .and_then(Value::as_object)
+                .and_then(|components| components.get(section))
+                .and_then(Value::as_object)
+                .cloned()
+        })
+        .unwrap_or_default()
+}
+
+fn agent_gateway_action(state: &State, action: &str) -> Result<Value, String> {
+    if !matches!(action, "install" | "uninstall" | "verify") {
+        return Err("unsupported Agent Gateway action".into());
+    }
+
+    let executable = std::env::var("KITT_AGENT_GATEWAY_BIN")
+        .unwrap_or_else(|_| "kitt-agent-gateway".into());
+    let values = section_values(state, "agent_gateway.runtime");
+    let (_, _, api_url, _) = reverse_proxy_endpoint(state);
+    let openai_model = values
+        .get("openai_model")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("chatgpt-web");
+    let anthropic_model = values
+        .get("anthropic_model")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("claude-web");
+
+    let mut command = Command::new(&executable);
+    match action {
+        "install" => {
+            command
+                .args([
+                    "jetbrains",
+                    "install",
+                    "--base-url",
+                    &api_url,
+                    "--openai-model",
+                    openai_model,
+                    "--anthropic-model",
+                    anthropic_model,
+                ]);
+            if values.get("opencode_enabled").and_then(Value::as_bool) == Some(true) {
+                command.arg("--with-opencode");
+            }
+            if let Some(path) = values
+                .get("acp_path")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                command.args(["--path", path]);
+            }
+        }
+        "uninstall" => {
+            command.args(["jetbrains", "uninstall"]);
+            if let Some(path) = values
+                .get("acp_path")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                command.args(["--path", path]);
+            }
+        }
+        "verify" => {
+            command.args(["verify", "--base-url", &api_url]);
+        }
+        _ => unreachable!(),
+    }
+
+    let output = command
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .output()
+        .map_err(|error| {
+            format!(
+                "não foi possível executar {executable}: {error}. Instale o kitt-agent-gateway ou configure KITT_AGENT_GATEWAY_BIN"
+            )
+        })?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        return Err(format!(
+            "Agent Gateway {action} falhou: {}",
+            stderr.trim().is_empty().then_some(stdout.trim()).unwrap_or(stderr.trim())
+        ));
+    }
+
+    let parsed = serde_json::from_str::<Value>(stdout.trim()).unwrap_or_else(|_| {
+        json!({"status":"ok","output":stdout.trim()})
+    });
+    Ok(json!({
+        "status": "ok",
+        "action": action,
+        "result": parsed,
+        "message": match action {
+            "install" => "Entradas KITT instaladas em acp.json. Reinicie/reabra a lista de agentes do IDE se necessário.",
+            "uninstall" => "Entradas KITT removidas de acp.json.",
+            "verify" => "KITT Agent Gateway e Reverse Proxy verificados.",
+            _ => unreachable!()
+        }
+    }))
 }
 
 fn valid_reverse_proxy_preset(value: &str) -> bool {
