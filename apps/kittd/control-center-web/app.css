@@ -1,8 +1,8 @@
 :root {
   --font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --bg-base: #080a0d;
-  --bg-sidebar: rgba(12, 16, 20, 0.96);
-  --bg-card: rgba(16, 21, 26, 0.85);
+  --bg-sidebar: #0c1014;
+  --bg-card: #10151a;
   --bg-card-hover: rgba(22, 29, 36, 0.95);
   --bg-input: #0b0f13;
   --bg-input-focus: #0f141a;
@@ -11,7 +11,7 @@
   --line-focus: #e52e3e;
   --text-main: #f3f6f9;
   --text-muted: #8b9aa7;
-  --text-dim: #5c6c7b;
+  --text-dim: #97a4b1;
   --accent: #e52e3e;
   --accent-glow: rgba(229, 46, 62, 0.25);
   --accent-soft: rgba(229, 46, 62, 0.12);
@@ -25,8 +25,8 @@
   --bad-bg: rgba(247, 85, 96, 0.1);
   --bad-line: rgba(247, 85, 96, 0.3);
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-md: 6px;
+  --radius-lg: 6px;
 }
 
 * {
@@ -37,7 +37,7 @@
 
 body {
   font-family: var(--font);
-  background: radial-gradient(circle at 90% -10%, #200a0e 0%, transparent 40rem), var(--bg-base);
+  background: var(--bg-base);
   color: var(--text-main);
   min-height: 100vh;
   line-height: 1.5;
@@ -50,7 +50,7 @@ button, input, select, textarea {
 
 .shell {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: var(--nav-width, 250px) 5px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -59,13 +59,12 @@ button, input, select, textarea {
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 24px 16px;
+  padding: 18px 12px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 16px;
-  backdrop-filter: blur(12px);
   z-index: 10;
 }
 
@@ -219,15 +218,15 @@ button, input, select, textarea {
 
 /* Main Content Area */
 main {
-  padding: 32px 40px 96px;
-  max-width: 1300px;
+  padding: 0 24px 48px;
+  min-width: 0;
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 28px;
+  margin-bottom: 18px;
   gap: 20px;
 }
 
@@ -241,7 +240,7 @@ main {
 }
 
 .topbar h1 {
-  font-size: 26px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #fff;
@@ -279,15 +278,13 @@ button:disabled {
 }
 
 button.primary {
-  background: linear-gradient(135deg, #e52e3e, #b81c2a);
+  background: #ac2332;
   border-color: #b81c2a;
   color: #fff;
-  box-shadow: 0 0 16px var(--accent-glow);
 }
 
 button.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #f73849, #cc2332);
-  box-shadow: 0 0 20px rgba(229, 46, 62, 0.4);
+  background: #bf2939;
 }
 
 button.ghost {
@@ -314,7 +311,6 @@ button.ghost:hover:not(:disabled) {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 14px 16px;
-  backdrop-filter: blur(8px);
 }
 
 .metric small {
@@ -348,7 +344,6 @@ button.ghost:hover:not(:disabled) {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 .section-head {
@@ -392,7 +387,7 @@ button.ghost:hover:not(:disabled) {
 /* Fields Grid */
 .fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
 }
 
 .field {
@@ -598,7 +593,6 @@ dialog {
 
 dialog::backdrop {
   background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(4px);
 }
 
 dialog header {
@@ -726,13 +720,13 @@ pre#diff {
 
 .monitor-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
 
 .monitor-card {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  box-shadow: none;
 }
 
 .monitor-details {
@@ -828,7 +822,7 @@ pre#diff {
 /* Live Logs Terminal Card */
 .logs-card {
   border: 1px solid var(--line-light);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  box-shadow: none;
 }
 
 .logs-head {
@@ -907,9 +901,47 @@ pre#diff {
   background: transparent;
   padding: 16px 20px;
   max-height: 420px;
+  min-height: 160px;
+  resize: vertical;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Compact IDE workspace. Size preferences stay in this browser only. */
+:focus-visible { outline: 2px solid #ec919a; outline-offset: 3px; }
+.switch input:focus-visible + span { outline: 2px solid #ec919a; outline-offset: 3px; }
+.skip-link { position: fixed; left: 12px; top: -100px; z-index: 100; padding: 12px; color: white; background: var(--bg-card); }
+.skip-link:focus { top: 8px; }
+.resize-handle { position: sticky; top: 0; height: 100dvh; cursor: col-resize; touch-action: none; background: var(--bg-sidebar); }
+.resize-handle:hover, .resize-handle:focus-visible { background: var(--accent); }
+body.resizing { cursor: col-resize; user-select: none; }
+.sidebar { min-width: 0; }
+.topbar { position: sticky; top: 0; z-index: 5; padding: 16px 0; background: var(--bg-base); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.top-actions { flex-wrap: wrap; gap: 6px; }
+.overview { gap: 0; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 18px; }
+.metric { border: 0; border-radius: 0; background: transparent; padding: 10px 16px; }
+.metric strong { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.section-head { padding: 14px 18px; gap: 12px; }
+.field { padding: 16px 18px; min-width: 0; }
+.field.changed { box-shadow: inset 2px 0 var(--warn); }
+.field-label { gap: 8px; flex-wrap: wrap; }
+.control input, .control select, .model-picker-wrap { min-width: 0; }
+.workspace-status { position: fixed; bottom: 0; left: calc(var(--nav-width, 250px) + 5px); right: 0; display: flex; justify-content: space-between; gap: 12px; padding: 6px 18px; background: var(--bg-sidebar); border-top: 1px solid var(--line); font-size: 10px; color: var(--text-muted); z-index: 6; }
+pre#diff { min-height: 140px; resize: vertical; }
+@media (max-width: 960px) {
+  .resize-handle { display: none; }
+  .topbar { position: static; }
+  .workspace-status { left: 0; }
+  .sidebar { gap: 10px; }
+  #reset-layout { display: none; }
+  .brand { padding-bottom: 8px; }
+}
+@media (max-width: 600px) {
+  .workspace-status > span:first-child { display: none; }
+  .workspace-status { justify-content: flex-end; }
+  .model-picker-wrap { flex-wrap: wrap; }
+  .control input:not([type="checkbox"]), .control select, .search input { font-size: 16px; }
 }
 
 .log-line {
@@ -1023,6 +1055,12 @@ pre#diff {
     flex-direction: column;
   }
   .brand { padding-bottom: 8px; }
+}
+
+@media (max-width: 600px) {
+  body[data-view="config"] .overview { display: none; }
+  .top-actions button { flex-basis: 120px; padding: 9px 10px; }
+  .sidebar-foot { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

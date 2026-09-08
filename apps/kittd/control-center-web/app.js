@@ -150,7 +150,7 @@ function getSectionBaseUrl(sectionId, modelFieldKey) {
 function control(section, field) {
   const k = key(section, field);
   const value = current(section, field);
-  const attr = `data-key="${esc(k)}" data-section="${esc(section.id)}" data-field="${esc(field.key)}"`;
+  const attr = `id="field-${esc(k)}" aria-label="${esc(field.label || field.key)}" data-key="${esc(k)}" data-section="${esc(section.id)}" data-field="${esc(field.key)}"`;
 
   if (field.type === "boolean") {
     return `<label class="switch"><input type="checkbox" ${attr} ${value ? "checked" : ""}><span></span></label>`;
@@ -628,6 +628,7 @@ async function restartService() {
 }
 
 function render() {
+  if (document.body) document.body.dataset.view = state.view;
   renderNav();
   renderTopbar();
 
@@ -785,7 +786,7 @@ function renderTopbar() {
     }
   } else {
     if (eyebrowEl) eyebrowEl.textContent = "LOCAL • LOOPBACK ONLY";
-    if (titleEl) titleEl.textContent = "Configurações do ecossistema";
+    if (titleEl) titleEl.textContent = $("search")?.value.trim() ? "Resultados da busca" : (state.catalog?.sections.find((s) => s.id === state.section)?.title || "Configurações do ecossistema");
     if (actionsEl) {
       actionsEl.innerHTML = `
         <button id="btn-agent-web" class="ghost" title="Abrir KITT Agent Web (use 'kitt web' se estiver offline)">↗ Agent Web</button>
@@ -814,6 +815,9 @@ function renderTopbar() {
 }
 
 function renderMonitorView() {
+  const previousLogs = $("service-logs");
+  const logHeight = previousLogs?.style.height || "";
+  const logScroll = previousLogs?.scrollTop || 0;
   const status = state.serviceStatus;
   const overviewEl = $("overview");
   const contentEl = $("content");
@@ -956,6 +960,7 @@ function renderMonitorView() {
 
     const btnScroll = $("btn-scroll-bottom");
     const preLogs = $("service-logs");
+    if (preLogs) { preLogs.style.height = logHeight; preLogs.scrollTop = logScroll; }
     if (btnScroll && preLogs) {
       btnScroll.addEventListener("click", () => {
         preLogs.scrollTop = preLogs.scrollHeight;
@@ -1005,9 +1010,9 @@ function renderConfigView() {
           ${section.id === "agent_gateway.runtime" ? renderAgentGatewayLauncher(section) : ""}
           <div class="fields">
             ${fields.map((field) => `
-              <div class="field ${field.advanced ? "advanced" : ""}">
+              <div class="field ${field.advanced ? "advanced" : ""} ${isChanged(section, field) ? "changed" : ""}">
                 <div class="field-label">
-                  <span>${esc(field.label)}</span>
+                  <label for="field-${esc(key(section, field))}">${esc(field.label)}</label>
                   ${field.apply_mode !== "live" ? `<span class="restart">${field.apply_mode === "daemon_restart" ? "REINICIA KITT" : "RESTART"}</span>` : ""}
                 </div>
                 <div class="control">${control(section, field)}</div>
@@ -1028,6 +1033,7 @@ function renderConfigView() {
   if (revEl) revEl.textContent = `rev ${state.snapshot?.revision ?? "–"}`;
 
   bindInputs();
+  updatePendingStatus();
   if (visible.some((section) => section.id === "reverse_proxy.runtime")) {
     bindReverseProxyLauncher();
   }
@@ -1051,22 +1057,26 @@ function bindInputs() {
         return;
       }
 
-      if (field.type === "integer") value = Number.parseInt(value, 10);
-      if (field.type === "number") value = Number(value);
+      if ((field.type === "integer" || field.type === "number") && value !== "") value = Number(value);
       if (field.type === "string_list") value = value.split(",").map((v) => v.trim()).filter(Boolean);
 
-      state.pending.set(el.dataset.key, value);
+      const original = state.snapshot?.values?.[section.id]?.[field.key] ?? field.default ?? null;
+      if (JSON.stringify(value) === JSON.stringify(original)) state.pending.delete(el.dataset.key);
+      else state.pending.set(el.dataset.key, value);
+      el.closest(".field")?.classList.toggle("changed", state.pending.has(el.dataset.key));
       invalidateModelCachesForChangedField(section, field.key);
       const applyBtn = $("apply-all");
       const resetBtn = $("reset-all");
       if (applyBtn) applyBtn.disabled = state.pending.size === 0;
       if (resetBtn) resetBtn.disabled = state.pending.size === 0;
+      updatePendingStatus();
+      updateReverseProxyLauncherStatus();
     };
 
     el.addEventListener("input", handleValue);
     el.addEventListener("change", () => {
       handleValue();
-      render();
+      // Keep the focused input and the next clicked control alive on blur.
     });
   });
 
@@ -1082,6 +1092,14 @@ function bindInputs() {
     const fld = btn.dataset.discoverField;
     discoverModels(sec, fld, btn);
   }));
+}
+
+function updatePendingStatus() {
+  const count = state.pending.size;
+  const status = $("pending-status");
+  if (status) status.textContent = count ? `${count} ${count === 1 ? "alteração pendente" : "alterações pendentes"}` : "Sem alterações pendentes";
+  const apply = $("apply-all");
+  if (apply) apply.textContent = count ? `Revisar alterações (${count})` : "Aplicar alterações";
 }
 
 function bindNav() {
@@ -1116,6 +1134,9 @@ function changesObject() {
 }
 
 async function preview() {
+  const invalid = [...document.querySelectorAll("[data-key]")].find((input) => !input.checkValidity());
+  if (invalid) { invalid.reportValidity(); return; }
+  if (!state.pending.size) return;
   try {
     const result = await api("/api/v1/validate", {
       method: "POST",
@@ -1205,6 +1226,7 @@ if (searchInput) {
     if (state.searchTimer) clearTimeout(state.searchTimer);
     state.searchTimer = setTimeout(() => {
       state.searchTimer = null;
+      if (searchInput.value.trim()) state.view = "config";
       render();
     }, 120);
   });
@@ -1221,5 +1243,50 @@ if (btnConfirm) {
 }
 
 if (typeof window !== "undefined" && window.location) {
+  setupWorkspaceLayout();
   boot();
+}
+
+function setupWorkspaceLayout() {
+  const handle = $("sidebar-resize");
+  const storageKey = "kitt.control-center.nav-width";
+  let width = 250;
+  try { width = Number(localStorage.getItem(storageKey)) || 250; } catch (_) {}
+  let preferredWidth = width;
+  function resize(value, save = false) {
+    const max = Math.max(200, Math.min(380, innerWidth * .32));
+    width = Math.round(Math.max(200, Math.min(max, Number.isFinite(value) ? value : 250)));
+    document.documentElement.style.setProperty("--nav-width", `${width}px`);
+    handle.setAttribute("aria-valuemin", "200");
+    handle.setAttribute("aria-valuemax", String(Math.floor(max)));
+    handle.setAttribute("aria-valuenow", String(width));
+    if (save) {
+      preferredWidth = width;
+      try { localStorage.setItem(storageKey, String(width)); } catch (_) {}
+    }
+  }
+  let drag = null;
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    drag = {x: event.clientX, width}; handle.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing"); event.preventDefault();
+  });
+  handle.addEventListener("pointermove", (event) => { if (drag) resize(drag.width + event.clientX - drag.x); });
+  handle.addEventListener("lostpointercapture", () => { drag = null; document.body.classList.remove("resizing"); resize(width, true); });
+  handle.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+    event.preventDefault(); resize(event.key === "Home" ? 250 : width + (event.key === "ArrowRight" ? 20 : -20), true);
+  });
+  handle.addEventListener("dblclick", () => resize(250, true));
+  $("reset-layout").addEventListener("click", () => resize(250, true));
+  window.addEventListener("resize", () => resize(preferredWidth));
+  document.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k" && !$("diff-dialog").open) {
+      event.preventDefault(); $("search").focus(); $("search").select();
+    }
+  });
+  window.addEventListener("beforeunload", (event) => {
+    if (state.pending.size) { event.preventDefault(); event.returnValue = ""; }
+  });
+  resize(width);
 }
