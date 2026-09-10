@@ -43,7 +43,7 @@ class TestTUIRemoteCommands(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(c.id == "remote" for c in web_matches))
 
     async def test_remote_start_status_code_stop_lifecycle(self):
-        with patch("kitt.ui.remote_commands.start_daemon_detached", return_value={"status": "ok", "pid": 1234}):
+        with patch("kitt.daemon.process.start_daemon_detached", return_value={"status": "ok", "pid": 1234}):
             # 1. Start remote
             await self.ui._execute_command("/remote 8765")
             self.assertIsNotNone(self.ui._remote_server)
@@ -70,14 +70,14 @@ class TestTUIRemoteCommands(unittest.IsolatedAsyncioTestCase):
             self.assertIn("DESATIVADO", self.ui.state.transcript[-1].text)
 
     async def test_remote_daemon_start_failure(self):
-        with patch("kitt.ui.remote_commands.start_daemon_detached", return_value={"status": "error", "error": "Daemon test failure"}):
+        with patch("kitt.daemon.process.start_daemon_detached", return_value={"status": "error", "error": "Daemon test failure"}):
             await self.ui._execute_command("/remote 8767")
             self.assertIsNone(self.ui._remote_server)
             self.assertIn("Falha ao iniciar daemon", self.ui.state.transcript[-1].text)
             self.assertIn("Daemon test failure", self.ui.state.transcript[-1].text)
 
     async def test_remote_lan_flag(self):
-        with patch("kitt.ui.remote_commands.start_daemon_detached", return_value={"status": "ok", "pid": 1234}):
+        with patch("kitt.daemon.process.start_daemon_detached", return_value={"status": "ok", "pid": 1234}):
             await self.ui._execute_command("/remote lan 8766")
             try:
                 self.assertIsNotNone(self.ui._remote_server)
