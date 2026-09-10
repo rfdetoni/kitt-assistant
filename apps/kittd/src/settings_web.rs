@@ -285,10 +285,12 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
             Ok(value) => write_json(&mut stream, 200, value, None),
             Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
         },
-        ("POST", "/api/v1/agent-gateway/uninstall") => match agent_gateway_action(state, "uninstall") {
-            Ok(value) => write_json(&mut stream, 200, value, None),
-            Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
-        },
+        ("POST", "/api/v1/agent-gateway/uninstall") => {
+            match agent_gateway_action(state, "uninstall") {
+                Ok(value) => write_json(&mut stream, 200, value, None),
+                Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
+            }
+        }
         ("POST", "/api/v1/agent-gateway/verify") => match agent_gateway_action(state, "verify") {
             Ok(value) => write_json(&mut stream, 200, value, None),
             Err(error) => write_json(&mut stream, 400, json!({"error":error}), None),
@@ -701,7 +703,6 @@ fn set_private_file(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-
 fn section_values(state: &State, section: &str) -> Map<String, Value> {
     read_overlay(&state.overlay_path)
         .ok()
@@ -721,8 +722,8 @@ fn agent_gateway_action(state: &State, action: &str) -> Result<Value, String> {
         return Err("unsupported Agent Gateway action".into());
     }
 
-    let executable = std::env::var("KITT_AGENT_GATEWAY_BIN")
-        .unwrap_or_else(|_| "kitt-agent-gateway".into());
+    let executable =
+        std::env::var("KITT_AGENT_GATEWAY_BIN").unwrap_or_else(|_| "kitt-agent-gateway".into());
     let values = section_values(state, "agent_gateway.runtime");
     let (_, _, api_url, _) = reverse_proxy_endpoint(state);
     let openai_model = values
@@ -739,17 +740,16 @@ fn agent_gateway_action(state: &State, action: &str) -> Result<Value, String> {
     let mut command = Command::new(&executable);
     match action {
         "install" => {
-            command
-                .args([
-                    "jetbrains",
-                    "install",
-                    "--base-url",
-                    &api_url,
-                    "--openai-model",
-                    openai_model,
-                    "--anthropic-model",
-                    anthropic_model,
-                ]);
+            command.args([
+                "jetbrains",
+                "install",
+                "--base-url",
+                &api_url,
+                "--openai-model",
+                openai_model,
+                "--anthropic-model",
+                anthropic_model,
+            ]);
             if values.get("opencode_enabled").and_then(Value::as_bool) == Some(true) {
                 command.arg("--with-opencode");
             }
@@ -793,13 +793,16 @@ fn agent_gateway_action(state: &State, action: &str) -> Result<Value, String> {
     if !output.status.success() {
         return Err(format!(
             "Agent Gateway {action} falhou: {}",
-            stderr.trim().is_empty().then_some(stdout.trim()).unwrap_or(stderr.trim())
+            stderr
+                .trim()
+                .is_empty()
+                .then_some(stdout.trim())
+                .unwrap_or(stderr.trim())
         ));
     }
 
-    let parsed = serde_json::from_str::<Value>(stdout.trim()).unwrap_or_else(|_| {
-        json!({"status":"ok","output":stdout.trim()})
-    });
+    let parsed = serde_json::from_str::<Value>(stdout.trim())
+        .unwrap_or_else(|_| json!({"status":"ok","output":stdout.trim()}));
     Ok(json!({
         "status": "ok",
         "action": action,
