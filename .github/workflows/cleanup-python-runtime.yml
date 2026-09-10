@@ -1,0 +1,80 @@
+name: cleanup-python-runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-python-runtime.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: rfdetoni/kitt-agent-cli
+          ref: main
+          path: agent-source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: rfdetoni/kitt-protocol
+          ref: 90882e9a44001e96fa84bc30e235d86687e08825
+          path: protocol-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Remove generated Python artifacts and harden ignores
+        shell: bash
+        run: |
+          set -euo pipefail
+          find packages/kitt-assistant-runtime -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find packages/kitt-assistant-runtime -type d -name '*.egg-info' -prune -exec rm -rf {} +
+          find packages/kitt-assistant-runtime -type d -name '.pytest_cache' -prune -exec rm -rf {} +
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.gitignore')
+          lines = p.read_text(encoding='utf-8').splitlines()
+          for entry in ('__pycache__/', '*.py[cod]', '*.egg-info/', '.pytest_cache/'):
+              if entry not in lines:
+                  lines.append(entry)
+          p.write_text('\n'.join(lines).rstrip() + '\n', encoding='utf-8')
+          Path('.github/workflows/cleanup-python-runtime.yml').unlink()
+          PY
+      - name: Validate packaged runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -U pip pytest pytest-asyncio prompt-toolkit >/dev/null
+          python -m pip install --no-deps -e ./protocol-source/sdk/python >/dev/null
+          python -m pip install --no-deps -e ./agent-source >/dev/null
+          python -m pip install --no-deps -e ./packages/kitt-assistant-runtime >/dev/null
+          python -m compileall -q packages/kitt-assistant-runtime/kitt
+          python -m unittest discover -s packages/kitt-assistant-runtime/tests -v
+          python - <<'PY'
+          from pathlib import Path
+          import kitt.daemon.client
+          import kitt.remote.server
+          for module in (kitt.daemon.client, kitt.remote.server):
+              assert 'kitt-assistant-runtime' in str(Path(module.__file__).resolve())
+          print('assistant runtime ownership: ok')
+          PY
+          find packages/kitt-assistant-runtime -type d \( -name '__pycache__' -o -name '*.egg-info' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+      - name: Commit clean runtime tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KITT Migration Bot'
+          git config user.email '85571449+rfdetoni@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'chore(runtime): remove generated Python artifacts'
+          git push origin HEAD:main
