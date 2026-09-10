@@ -1,0 +1,67 @@
+name: repair-settings-web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/repair-settings-web.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install Linux audio build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Restore validated source and apply Clippy fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show 86bc2a20ed929315688965a25fed57cd05ada7ee:apps/kittd/src/settings_web.rs > apps/kittd/src/settings_web.rs
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('apps/kittd/src/settings_web.rs')
+          text = p.read_text(encoding='utf-8')
+          old = '''            stderr
+                .trim()
+                .is_empty()
+                .then_some(stdout.trim())
+                .unwrap_or(stderr.trim())
+'''
+          new = '''            if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            }
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one Clippy target, found {text.count(old)}')
+          p.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          cargo fmt --all
+      - name: Rust gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+      - name: Commit repaired source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KITT Migration Bot'
+          git config user.email '85571449+rfdetoni@users.noreply.github.com'
+          git add apps/kittd/src/settings_web.rs
+          git diff --cached --check
+          git commit -m 'fix(kittd): satisfy Rust 1.98 clippy'
+          git push origin HEAD:main
