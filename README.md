@@ -1,6 +1,6 @@
 # KITT Assistant
 
-> 24/7 personal assistant daemon with authenticated loopback IPC, embedded KITT Control Center Web SPA, and ephemeral HUD overlay.
+> 24/7 personal assistant daemon with authenticated loopback IPC, embedded KITT Control Center Web SPA, ephemeral HUD overlay, and the separately packaged Python resident runtime used by KITT Agent.
 
 Follows **Clean Architecture** with strict dependency boundaries:
 `domain <- application <- infrastructure <- apps`
@@ -15,6 +15,9 @@ Follows **Clean Architecture** with strict dependency boundaries:
   - Manages Fast/Heavy model routing, Hands-free Voice pipeline, memory integration, and ephemeral HUD lifecycle.
 - **`kittctl`**: Authenticated command-line client for OS hotkeys, terminal queries, and automation scripts.
 - **`kitt-hud`**: Transparent, borderless, always-on-top desktop overlay (Tauri + TypeScript + Vite) spawned on demand and automatically closed after response TTL.
+- **`packages/kitt-assistant-runtime`**: separately installable Python companion that owns the `kitt.daemon` and `kitt.remote` namespace portions used by the Agent control plane. These modules are no longer vendored inside `kitt-agent-cli`.
+
+The Rust daemon and the Python resident runtime have different responsibilities: `kittd` owns the native long-lived assistant service, while `kitt-assistant-runtime` owns Agent-facing daemon IPC/session and remote-web integration code that still benefits from Python orchestration. The packages compose through the shared `kitt` namespace instead of duplicating source.
 
 ---
 
@@ -47,7 +50,17 @@ Follows **Clean Architecture** with strict dependency boundaries:
 cargo build --release --workspace
 ```
 
-### 2. Build Ephemeral HUD (Optional)
+### 2. Validate the Python resident runtime
+
+The runtime is intentionally a separate distribution and is normally installed together with `kitt-agent-cli` by the ecosystem installer. For development, install the Agent control plane first and then this package into the same Python environment:
+
+```bash
+python -m pip install -e ../kitt-agent-cli
+python -m pip install --no-deps -e packages/kitt-assistant-runtime
+python -m unittest discover -s packages/kitt-assistant-runtime/tests -v
+```
+
+### 3. Build Ephemeral HUD (Optional)
 
 ```bash
 cd apps/kitt-hud
@@ -56,7 +69,7 @@ npm run build
 cd ../..
 ```
 
-### 3. Native Background Service Management
+### 4. Native Background Service Management
 
 `kittctl` provides native commands to manage `kittd` as a background OS service (systemd on Linux, LaunchAgent on macOS, Scheduled Tasks on Windows):
 
@@ -80,7 +93,7 @@ cd ../..
 ./target/release/kittctl service uninstall
 ```
 
-### 4. Interacting with `kittctl`
+### 5. Interacting with `kittctl`
 
 ```bash
 # Ping daemon health
@@ -127,7 +140,10 @@ Overrides applied in the Control Center GUI are layered atomically from `${XDG_C
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+python -m unittest discover -s packages/kitt-assistant-runtime/tests -v
 ```
+
+CI additionally installs the current Agent control plane with the runtime and verifies that `kitt.daemon` and `kitt.remote` resolve from `kitt-assistant-runtime`.
 
 ---
 
