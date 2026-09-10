@@ -793,11 +793,11 @@ fn agent_gateway_action(state: &State, action: &str) -> Result<Value, String> {
     if !output.status.success() {
         return Err(format!(
             "Agent Gateway {action} falhou: {}",
-            stderr
-                .trim()
-                .is_empty()
-                .then_some(stdout.trim())
-                .unwrap_or(stderr.trim())
+            if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            }
         ));
     }
 
