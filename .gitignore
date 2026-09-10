@@ -4,3 +4,7 @@ node_modules/
 **/node_modules/
 apps/kitt-hud/dist/
 apps/kitt-hud/src-tauri/gen/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/

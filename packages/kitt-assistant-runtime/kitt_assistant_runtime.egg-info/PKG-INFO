@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: kitt-assistant-runtime
-Version: 0.1.0
-Summary: K.I.T.T. Python assistant daemon and remote runtime
-License: MIT
-Requires-Python: >=3.12
-Requires-Dist: kitt-agent-cli<0.4,>=0.3.0
