@@ -49,3 +49,4 @@ jobs:
           git add apps/kittd/src/settings_web.rs
           git commit -m 'style(kittd): satisfy clippy 1.98'
           git push origin HEAD:main
+# one-shot rerun after validated source restoration
