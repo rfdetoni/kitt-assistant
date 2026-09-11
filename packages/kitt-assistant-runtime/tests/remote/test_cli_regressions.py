@@ -19,12 +19,13 @@ class CliRegressionTests(unittest.TestCase):
         self.assertEqual(web.subcommand, "web")
         self.assertEqual(web.port, 0)
 
-    def test_detached_launcher_no_longer_uses_unsupported_workspace_flag(self):
+    def test_detached_launcher_uses_supported_root_and_validated_cwd(self):
         source = inspect.getsource(process.start_daemon_detached)
         self.assertIn('"--root"', source)
         self.assertIn('"run"', source)
         self.assertNotIn('"--workspace"', source)
-        self.assertIn('"cwd": str(Path(__file__).resolve().parents[2])', source)
+        self.assertIn("_resolve_spawn_cwd(workspace)", source)
+        self.assertIn('"cwd": str(spawn_cwd)', source)
 
 
 if __name__ == "__main__":
