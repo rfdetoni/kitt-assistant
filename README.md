@@ -1,58 +1,91 @@
-# KITT Assistant
+# K.I.T.T. Assistant
 
-> 24/7 personal assistant daemon with authenticated loopback IPC, embedded KITT Control Center Web SPA, ephemeral HUD overlay, and the separately packaged Python resident runtime used by KITT Agent.
+<p align="center">
+  <strong>Resident local assistant, control center and voice/HUD runtime for K.I.T.T.</strong><br>
+  Rust daemon · authenticated loopback IPC · web Control Center · voice · ephemeral HUD · Python runtime
+</p>
 
-Follows **Clean Architecture** with strict dependency boundaries:
-`domain <- application <- infrastructure <- apps`
+<p align="center">
+  <a href="https://github.com/rfdetoni/kitt-assistant/blob/main/LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-resident%20daemon-000000?logo=rust&logoColor=white">
+  <img alt="Loopback" src="https://img.shields.io/badge/network-loopback--first-6f42c1">
+  <img alt="Control Center" src="https://img.shields.io/badge/UI-Control%20Center-3178C6">
+</p>
 
----
+K.I.T.T. Assistant is the long-lived local runtime of the K.I.T.T. ecosystem. It provides a low-overhead native daemon, authenticated IPC, the K.I.T.T. Control Center web application, voice orchestration, ephemeral desktop HUD output and the separately packaged Python runtime used by K.I.T.T. Agent for daemon/remote integration.
 
-## 🏛️ Components
+The implementation follows Clean Architecture boundaries:
 
-- **`kittd`**: Low-footprint Rust daemon (~5-8 MB RAM, 0% CPU idle).
-  - Serves authenticated IPC on `127.0.0.1:41827`.
-  - Serves **KITT Control Center Web SPA** on `127.0.0.1:41828`.
-  - Manages Fast/Heavy model routing, Hands-free Voice pipeline, memory integration, and ephemeral HUD lifecycle.
-- **`kittctl`**: Authenticated command-line client for OS hotkeys, terminal queries, and automation scripts.
-- **`kitt-hud`**: Transparent, borderless, always-on-top desktop overlay (Tauri + TypeScript + Vite) spawned on demand and automatically closed after response TTL.
-- **`packages/kitt-assistant-runtime`**: separately installable Python companion that owns the `kitt.daemon` and `kitt.remote` namespace portions used by the Agent control plane. These modules are no longer vendored inside `kitt-agent-cli`.
-
-The Rust daemon and the Python resident runtime have different responsibilities: `kittd` owns the native long-lived assistant service, while `kitt-assistant-runtime` owns Agent-facing daemon IPC/session and remote-web integration code that still benefits from Python orchestration. The packages compose through the shared `kitt` namespace instead of duplicating source.
-
----
-
-## 🎛️ KITT Control Center Web GUI
-
-`kittd` embeds and serves the **KITT Control Center** directly on loopback:
-
-- **URL**: `http://127.0.0.1:41828/`
-- **Features**: Single-page dark theme dashboard, global settings search, dynamic catalog generation, health checks, live diff viewer before persisting changes, and revisioned atomic configuration overlay.
-- **Security**: Loopback only (`127.0.0.1`, `localhost`, `[::1]`), CSRF tokens on mutation methods, strict CSP headers, `X-Frame-Options: DENY`, `no-store` caching.
+```text
+domain <- application <- infrastructure <- apps
+```
 
 ---
 
-## 🎙️ Voice & Audio Pipeline
+## What’s included
 
-- **Activation Modes**:
-  - `auto`: Uses local wakeword model if present; falls back gracefully to local transcript prefix matching.
-  - `wakeword`: Uses `.rpw` Rustpotter model.
-  - `transcript_prefix`: Prefix detection ("kitt", "hey kitt", "ei kitt").
-- **Resilience**: Automatic microphone stream recovery with exponential backoff on device disconnection.
-- **Privacy & Cleanup**: Audio utterance cache cleaned automatically; system TTS temporary files created with strict `0600` permissions.
+- `kittd`: low-footprint Rust resident daemon.
+- `kittctl`: authenticated CLI client and service manager.
+- K.I.T.T. Control Center SPA served locally by the daemon.
+- `kitt-hud`: transparent ephemeral desktop overlay built with Tauri/TypeScript/Vite.
+- Voice activation, microphone recovery, STT routing and system TTS integration.
+- Fast/Heavy model routing.
+- Shared memory integration with privacy-aware egress.
+- Native OS service management for Linux, macOS and Windows.
+- `packages/kitt-assistant-runtime`: Python `kitt.daemon` and `kitt.remote` capabilities consumed by the Agent.
 
 ---
 
-## 🚀 Building & Running
+## Quick links
 
-### 1. Build Workspace
+- **K.I.T.T. ecosystem:** https://github.com/rfdetoni/kitt
+- **Agent CLI:** https://github.com/rfdetoni/kitt-agent-cli
+- **Memory:** https://github.com/rfdetoni/kitt-memory
+- **Protocol:** https://github.com/rfdetoni/kitt-protocol
+- **AI workers / STT:** https://github.com/rfdetoni/kitt-ai-workers
+
+---
+
+## Runtime architecture
+
+```text
+                          ┌───────────────────────┐
+                          │        kittd          │
+                          │   resident Rust core  │
+                          └──────────┬────────────┘
+                                     │
+             ┌───────────────────────┼───────────────────────┐
+             │                       │                       │
+             ▼                       ▼                       ▼
+      Authenticated IPC       Control Center Web        Voice pipeline
+      127.0.0.1:41827         127.0.0.1:41828          STT / TTS / wake
+             │                       │                       │
+             ├──────────────┬────────┴──────────────┬────────┘
+             │              │                       │
+             ▼              ▼                       ▼
+          kittctl        KITT HUD              Memory / models
+
+KITT Agent
+    │
+    ▼
+kitt-assistant-runtime
+    ├── kitt.daemon
+    └── kitt.remote
+```
+
+The Rust daemon and Python runtime deliberately have different ownership: `kittd` owns the native long-lived service; `kitt-assistant-runtime` owns Agent-facing Python orchestration that benefits from sharing the `kitt.*` namespace.
+
+---
+
+## Requirements & build
+
+Build the Rust workspace:
 
 ```bash
 cargo build --release --workspace
 ```
 
-### 2. Validate the Python resident runtime
-
-The runtime is intentionally a separate distribution and is normally installed together with `kitt-agent-cli` by the ecosystem installer. For development, install the Agent control plane first and then this package into the same Python environment:
+Validate the Python resident runtime during development:
 
 ```bash
 python -m pip install -e ../kitt-agent-cli
@@ -60,7 +93,7 @@ python -m pip install --no-deps -e packages/kitt-assistant-runtime
 python -m unittest discover -s packages/kitt-assistant-runtime/tests -v
 ```
 
-### 3. Build Ephemeral HUD (Optional)
+Build the optional HUD:
 
 ```bash
 cd apps/kitt-hud
@@ -69,72 +102,125 @@ npm run build
 cd ../..
 ```
 
-### 4. Native Background Service Management
+For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) installer composes these pieces automatically.
 
-`kittctl` provides native commands to manage `kittd` as a background OS service (systemd on Linux, LaunchAgent on macOS, Scheduled Tasks on Windows):
+---
+
+## K.I.T.T. Control Center
+
+`kittd` embeds and serves the Control Center locally:
+
+```text
+http://127.0.0.1:41828/
+```
+
+The SPA provides global settings search, dynamic catalog generation, health checks, a diff viewer before writes and revisioned atomic configuration overlays.
+
+Web security includes loopback-only access, CSRF protection for mutation methods, strict CSP headers, `X-Frame-Options: DENY` and `no-store` caching.
+
+---
+
+## Service management
+
+`kittctl` manages `kittd` through native operating-system service mechanisms: systemd on Linux, LaunchAgent on macOS and Scheduled Tasks on Windows.
 
 ```bash
-# Install and register the background service
 ./target/release/kittctl service install
-
-# Start the background service
 ./target/release/kittctl service start
-
-# Check service status & daemon health
 ./target/release/kittctl service status
-
-# Restart the service
 ./target/release/kittctl service restart
-
-# Stop the service
 ./target/release/kittctl service stop
-
-# Uninstall the service
 ./target/release/kittctl service uninstall
 ```
 
-### 5. Interacting with `kittctl`
+---
+
+## CLI usage
 
 ```bash
-# Ping daemon health
+# Health
 ./target/release/kittctl ping
 
-# Query assistant (routes to Fast or Heavy model automatically)
+# Ask the assistant with automatic Fast/Heavy routing
 ./target/release/kittctl ask "Olá KITT"
 
-# Explicit routing hint
-./target/release/kittctl ask --route heavy "Escreva um algoritmo de ordenação em Rust"
+# Explicit heavy route
+./target/release/kittctl ask --route heavy \
+  "Escreva um algoritmo de ordenação em Rust"
 
-# Store memory
-./target/release/kittctl remember "Prefiro respostas concisas em português"
+# Persistent memory
+./target/release/kittctl remember \
+  "Prefiro respostas concisas em português"
 
-# Show image on HUD overlay
+# Show an image in the ephemeral HUD
 ./target/release/kittctl image /path/to/screenshot.png
 ```
 
 ---
 
-## ⚙️ Configuration & Overlay
+## Voice & audio
 
-Configuration files are loaded from `${XDG_CONFIG_HOME:-~/.config}/kitt/assistant/`:
-- `config.json`: Core daemon settings (`listen`, `base_url`, `model`, `api_key_env`, `allow_personal_remote`, `hud_ttl_ms`).
-- `models.json`: Fast/Heavy/STT routing profiles (`fast`, `heavy`, `speech_to_text`).
-- `voice.json`: Voice parameters (`enabled`, `locale`, `activation_mode`, `min_rms`, `silence_ms`, `tts_enabled`).
+Supported activation modes include:
 
-Overrides applied in the Control Center GUI are layered atomically from `${XDG_CONFIG_HOME:-~/.config}/kitt/control-center/overrides.json`.
+- `auto`: prefers a local wakeword model and falls back gracefully to transcript-prefix matching;
+- `wakeword`: uses a local Rustpotter `.rpw` model;
+- `transcript_prefix`: recognizes prefixes such as `kitt`, `hey kitt` and `ei kitt`.
 
----
+The microphone stream is recovered with exponential backoff after device failures. Audio utterance caches are cleaned automatically, and temporary system-TTS files use restrictive permissions where supported.
 
-## 🔒 Security & Loopback Isolation
-
-- Daemon binds strictly to loopback (`127.0.0.1`, `[::1]`). External addresses are rejected.
-- All IPC calls require the secret auth token stored at `~/.config/kitt/assistant/auth.token` (permissions `0600`).
-- Secret and private memories are stripped before calling remote providers.
-- 1 MiB bounded stream reader protects against memory exhaustion attacks.
+Heavy STT dependencies live in `kitt-ai-workers`; the Assistant can supervise the local `kitt-stt` process only when voice transcription requires it.
 
 ---
 
-## 🧪 Testing & Linting
+## Configuration
+
+Configuration is loaded from:
+
+```text
+${XDG_CONFIG_HOME:-~/.config}/kitt/assistant/
+```
+
+Main files:
+
+| File | Responsibility |
+| --- | --- |
+| `config.json` | daemon endpoints, model/API settings, privacy and HUD behavior |
+| `models.json` | Fast/Heavy/STT routing profiles |
+| `voice.json` | voice activation, locale, audio thresholds and TTS |
+
+Control Center overrides are layered atomically from:
+
+```text
+${XDG_CONFIG_HOME:-~/.config}/kitt/control-center/overrides.json
+```
+
+---
+
+## Security & privacy
+
+K.I.T.T. Assistant is loopback-first and treats its resident state as privileged local infrastructure.
+
+Key controls include:
+
+- daemon listeners restricted to loopback addresses;
+- authenticated IPC with a local secret token stored with restrictive permissions;
+- secret/private memory stripped from remote-provider paths unless policy explicitly permits it;
+- bounded stream readers to prevent unbounded allocation;
+- CSRF/CSP/frame/cache protections in Control Center;
+- temporary audio files created with restrictive permissions;
+- on-demand heavy workers rather than permanently resident ML runtimes.
+
+---
+
+## Performance philosophy
+
+The resident core stays in Rust so an always-on Assistant can remain inexpensive while idle. Heavy ML/STT work is delegated to on-demand workers, browser automation belongs to `kitt-reverse-proxy`, and coding-agent orchestration remains in `kitt-agent-cli`.
+
+This separation keeps the always-running process focused on IPC, lifecycle, routing and local UX instead of accumulating every ecosystem dependency in one daemon.
+
+---
+
+## Testing & linting
 
 ```bash
 cargo fmt --all -- --check
@@ -143,10 +229,30 @@ cargo test --workspace
 python -m unittest discover -s packages/kitt-assistant-runtime/tests -v
 ```
 
-CI additionally installs the current Agent control plane with the runtime and verifies that `kitt.daemon` and `kitt.remote` resolve from `kitt-assistant-runtime`.
+CI also composes the current Agent control plane with the runtime and verifies that `kitt.daemon` and `kitt.remote` resolve from `kitt-assistant-runtime`.
 
 ---
 
-## 📄 License
+## Contributing
 
-MIT License. See [LICENSE](LICENSE).
+Preserve the resident-service budget and Clean Architecture boundaries. Features that require heavyweight dependencies should generally run out of process rather than expanding `kittd`’s steady-state footprint.
+
+---
+
+## K.I.T.T. ecosystem
+
+| Repository | Responsibility |
+| --- | --- |
+| [`kitt`](https://github.com/rfdetoni/kitt) | installer and ecosystem composition |
+| [`kitt-agent-cli`](https://github.com/rfdetoni/kitt-agent-cli) | autonomous agent control plane |
+| [`kitt-reverse-proxy`](https://github.com/rfdetoni/kitt-reverse-proxy) | authorized provider gateway |
+| [`kitt-protocol`](https://github.com/rfdetoni/kitt-protocol) | shared contracts and SDKs |
+| [`kitt-memory`](https://github.com/rfdetoni/kitt-memory) | persistent memory engine |
+| [`kitt-toolbox`](https://github.com/rfdetoni/kitt-toolbox) | native code/system data plane |
+| [`kitt-ai-workers`](https://github.com/rfdetoni/kitt-ai-workers) | isolated AI/ML workers and evals |
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).
