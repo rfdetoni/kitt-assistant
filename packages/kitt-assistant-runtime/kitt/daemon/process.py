@@ -100,6 +100,70 @@ async def _stop_daemon_via_ipc(workspace: str) -> Dict[str, Any]:
         await client.close()
 
 
+def _bootstrap_error(message: str, *, errno_value: int | None = None) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "status": "error",
+        "error": message,
+        # This marker is intentionally narrow: no child process was created.
+        # Callers may safely choose a local execution path without risking two
+        # concurrent daemon authorities for the same workspace.
+        "bootstrap_failed": True,
+        "spawned": False,
+    }
+    if errno_value is not None:
+        result["errno"] = int(errno_value)
+    return result
+
+
+def _resolve_spawn_cwd(workspace: str) -> Path | None:
+    """Return an existing directory suitable for starting the daemon."""
+    candidates: list[Path] = []
+    try:
+        candidates.append(Path(__file__).resolve().parents[2])
+    except (OSError, IndexError):
+        pass
+    try:
+        candidates.append(Path(workspace).expanduser().resolve())
+    except OSError:
+        pass
+    try:
+        candidates.append(Path.cwd())
+    except OSError:
+        pass
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = os.path.normcase(os.path.abspath(str(candidate)))
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if candidate.is_dir():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def _resolve_python_executable() -> Path | None:
+    """Return the running interpreter only when it still exists on disk.
+
+    Starting a different Python discovered through PATH would cross the current
+    environment boundary and may execute an interpreter without KITT installed,
+    so a stale executable is reported as a bootstrap failure instead.
+    """
+    executable = str(getattr(sys, "executable", "") or "").strip()
+    if not executable:
+        return None
+    path = Path(executable)
+    try:
+        if path.is_file():
+            return path
+    except OSError:
+        pass
+    return None
+
+
 def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict[str, Any]:
     transport = IPCTransport(workspace)
     existing_pid = transport.read_pid()
@@ -126,11 +190,26 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
     elif existing_pid:
         transport.cleanup()
 
-    root = str(Path(workspace).resolve())
+    executable = _resolve_python_executable()
+    if executable is None:
+        return _bootstrap_error("KITT daemon bootstrap failed: current Python executable is unavailable")
+
+    spawn_cwd = _resolve_spawn_cwd(workspace)
+    if spawn_cwd is None:
+        return _bootstrap_error("KITT daemon bootstrap failed: no valid working directory is available")
+
+    try:
+        root = str(Path(workspace).resolve())
+    except OSError as exc:
+        return _bootstrap_error(
+            f"KITT daemon bootstrap failed while resolving workspace: {exc}",
+            errno_value=getattr(exc, "errno", None),
+        )
+
     # Global options precede the subcommand in argparse. The previous launcher
     # used unsupported ``daemon run --workspace`` and could never start.
     cmd = [
-        sys.executable,
+        str(executable),
         "-m",
         "kitt.cli.main",
         "--root",
@@ -142,8 +221,8 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
-        # Keep source checkout importable even when target workspace differs.
-        "cwd": str(Path(__file__).resolve().parents[2]),
+        # Prefer the package root, but never pass a stale/deleted cwd to Popen.
+        "cwd": str(spawn_cwd),
         "env": sanitized_subprocess_env(),
     }
     if os.name != "nt":
@@ -154,7 +233,14 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
             | getattr(subprocess, "DETACHED_PROCESS", 0)
         )
 
-    proc = subprocess.Popen(cmd, **kwargs)
+    try:
+        proc = subprocess.Popen(cmd, **kwargs)
+    except OSError as exc:
+        return _bootstrap_error(
+            f"KITT daemon bootstrap failed before process creation: {exc}",
+            errno_value=getattr(exc, "errno", None),
+        )
+
     deadline = time.monotonic() + max(1.0, float(timeout_seconds))
     while time.monotonic() < deadline:
         try:
@@ -178,6 +264,7 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
         "status": "error",
         "error": f"Daemon failed to report readiness within {timeout_seconds}s",
         "pid": proc.pid,
+        "spawned": True,
     }
 
 
