@@ -118,13 +118,15 @@ def _bootstrap_error(message: str, *, errno_value: int | None = None) -> Dict[st
 def _resolve_spawn_cwd(workspace: str) -> Path | None:
     """Return an existing directory suitable for starting the daemon."""
     candidates: list[Path] = []
-    try:
-        candidates.append(Path(__file__).resolve().parents[2])
-    except (OSError, IndexError):
-        pass
+    # Workspace survives atomic package/venv upgrades. Package directories may
+    # be renamed into .staging and deleted while a detached daemon still runs.
     try:
         candidates.append(Path(workspace).expanduser().resolve())
     except OSError:
+        pass
+    try:
+        candidates.append(Path(__file__).resolve().parents[2])
+    except (OSError, IndexError):
         pass
     try:
         candidates.append(Path.cwd())

@@ -17,6 +17,10 @@ def _transport_without_pid() -> MagicMock:
 
 
 class DaemonProcessBootstrapTests(unittest.TestCase):
+    def test_spawn_cwd_prefers_upgrade_stable_workspace(self) -> None:
+        with TemporaryDirectory() as temp:
+            self.assertEqual(process._resolve_spawn_cwd(temp), Path(temp).resolve())
+
     def test_resolve_python_executable_rejects_stale_interpreter(self) -> None:
         with patch.object(process.sys, "executable", "/definitely/missing/kitt-python"):
             self.assertIsNone(process._resolve_python_executable())
