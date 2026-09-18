@@ -72,7 +72,7 @@ jobs:
           import kitt.daemon.client
           import kitt.daemon.server
           import kitt.remote.server
-          assert kitt.__version__.startswith("0.40."), kitt.__version__
+          assert kitt.__version__.startswith("0.41."), kitt.__version__
           for module in (kitt.daemon.client, kitt.daemon.server, kitt.remote.server):
               path = Path(module.__file__).resolve()
               assert 'site-packages' in str(path), path
