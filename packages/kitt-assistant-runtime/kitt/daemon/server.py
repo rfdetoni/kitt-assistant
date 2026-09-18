@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+from importlib.metadata import PackageNotFoundError, version as package_version
 import logging
 import os
 import re
@@ -26,6 +27,14 @@ from kitt.security.capabilities import capabilities_for_tools
 from kitt.security.context import ExecutionSecurityContext
 
 logger = logging.getLogger("kitt.daemon.server")
+
+
+def _agent_version() -> str:
+    try:
+        return package_version("kitt-agent-cli")
+    except PackageNotFoundError:
+        return "dev"
+
 
 
 def get_default_socket_path() -> Path:
@@ -1048,7 +1057,7 @@ class DaemonServer:
                     continue
 
                 if action == "ping":
-                    await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "ok", "action": "ping"}))
+                    await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "ok", "action": "ping", "agent_version": _agent_version()}))
                     continue
 
                 if not self._workspace_allowed(msg.get("workspace")):
