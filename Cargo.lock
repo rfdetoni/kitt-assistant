@@ -993,14 +993,14 @@ dependencies = [
 
 [[package]]
 name = "kitt-application"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kitt-domain",
 ]
 
 [[package]]
 name = "kitt-domain"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kitt-memory-core",
  "serde",
@@ -1009,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "kitt-infrastructure"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kitt-domain",
  "kitt-memory-core",
@@ -1021,8 +1021,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-memory-core"
-version = "0.1.0"
-source = "git+https://github.com/rfdetoni/kitt-memory?rev=53d4d3325992ddd3505a1ac6fe59357dcf901a97#53d4d3325992ddd3505a1ac6fe59357dcf901a97"
+version = "0.1.1"
+source = "git+https://github.com/rfdetoni/kitt-memory?rev=d2e8e4e694d37eaa3d4bf9b3b853cd1547ca7d22#d2e8e4e694d37eaa3d4bf9b3b853cd1547ca7d22"
 dependencies = [
  "hex",
  "serde",
@@ -1034,8 +1034,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-memory-sqlite"
-version = "0.1.0"
-source = "git+https://github.com/rfdetoni/kitt-memory?rev=53d4d3325992ddd3505a1ac6fe59357dcf901a97#53d4d3325992ddd3505a1ac6fe59357dcf901a97"
+version = "0.1.1"
+source = "git+https://github.com/rfdetoni/kitt-memory?rev=d2e8e4e694d37eaa3d4bf9b3b853cd1547ca7d22#d2e8e4e694d37eaa3d4bf9b3b853cd1547ca7d22"
 dependencies = [
  "kitt-memory-core",
  "rusqlite",
@@ -1044,8 +1044,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-protocol"
-version = "0.1.0"
-source = "git+https://github.com/rfdetoni/kitt-protocol?rev=90882e9a44001e96fa84bc30e235d86687e08825#90882e9a44001e96fa84bc30e235d86687e08825"
+version = "0.1.1"
+source = "git+https://github.com/rfdetoni/kitt-protocol?rev=cdcffb1539e484c82bc1368b77315214712df88b#cdcffb1539e484c82bc1368b77315214712df88b"
 dependencies = [
  "serde",
  "serde_json",
@@ -1054,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "kittctl"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs",
  "kitt-protocol",
@@ -1063,7 +1063,7 @@ dependencies = [
 
 [[package]]
 name = "kittd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "cpal",

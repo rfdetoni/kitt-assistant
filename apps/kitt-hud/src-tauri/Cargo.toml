@@ -1,6 +1,6 @@
 [package]
 name = "kitt-hud"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 
@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", rev = "90882e9a44001e96fa84bc30e235d86687e08825" }
+kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", rev = "cdcffb1539e484c82bc1368b77315214712df88b" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

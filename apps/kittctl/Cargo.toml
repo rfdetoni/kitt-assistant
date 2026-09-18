@@ -6,6 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", rev = "90882e9a44001e96fa84bc30e235d86687e08825" }
+kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", rev = "cdcffb1539e484c82bc1368b77315214712df88b" }
 serde_json.workspace = true
 dirs.workspace = true
