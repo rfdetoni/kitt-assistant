@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from importlib.metadata import PackageNotFoundError, version as package_version
 import sys
 import uuid
 from pathlib import Path
@@ -8,6 +9,13 @@ from typing import Any, Callable, Dict, Optional
 
 from kitt.daemon.protocol import DaemonEvent, decode_line, encode_message
 from kitt.daemon.transport import IPCTransport
+
+
+def _agent_version() -> str:
+    try:
+        return package_version("kitt-agent-cli")
+    except PackageNotFoundError:
+        return "dev"
 
 
 class DaemonClient:
@@ -25,7 +33,7 @@ class DaemonClient:
         self._event_callback: Optional[Callable[[DaemonEvent], None]] = None
         self.resync_required = False
 
-    async def connect(self) -> bool:
+    async def connect(self, *, require_compatible: bool = True) -> bool:
         endpoint = self.transport.read_endpoint_metadata()
         if not endpoint and not self.socket_path.exists():
             return False
@@ -49,7 +57,12 @@ class DaemonClient:
             self._reader_task = asyncio.create_task(self._reader_loop())
             resp = await self._send_request({"action": "auth", "token": token})
             if resp.get("status") == "ok":
-                return True
+                if not require_compatible:
+                    return True
+                ping = await self._send_request({"action": "ping"})
+                remote_version = str(ping.get("agent_version") or "")
+                if ping.get("status") == "ok" and remote_version == _agent_version():
+                    return True
         except Exception:
             pass
         await self.close()
