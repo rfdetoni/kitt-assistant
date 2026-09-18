@@ -59,22 +59,24 @@ jobs:
       - name: Install split Python packages
         run: |
           python -m pip install -U pip pytest pytest-asyncio prompt-toolkit
-          python -m pip install --no-deps -e ./kitt-protocol/sdk/python
-          python -m pip install --no-deps -e ./kitt-agent-cli
-          python -m pip install --no-deps -e ./kitt-assistant/packages/kitt-assistant-runtime
+          python -m pip install --no-deps ./kitt-protocol/sdk/python
+          python -m pip install --no-deps ./kitt-agent-cli
+          python -m pip install --no-deps ./kitt-assistant/packages/kitt-assistant-runtime
       - name: Compile runtime
         run: python -m compileall -q kitt-assistant/packages/kitt-assistant-runtime/kitt
       - name: Prove runtime ownership
         run: |
           python - <<'PY'
           from pathlib import Path
+          import kitt
           import kitt.daemon.client
           import kitt.daemon.server
           import kitt.remote.server
+          assert kitt.__version__.startswith("0.40."), kitt.__version__
           for module in (kitt.daemon.client, kitt.daemon.server, kitt.remote.server):
               path = Path(module.__file__).resolve()
-              assert 'kitt-assistant-runtime' in str(path), path
-          print('assistant runtime namespace ownership: ok')
+              assert 'site-packages' in str(path), path
+          print('agent root + assistant runtime wheel composition: ok')
           PY
       - name: Run Assistant runtime suite
         run: python -m unittest discover -s kitt-assistant/packages/kitt-assistant-runtime/tests -v
