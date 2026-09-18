@@ -89,8 +89,8 @@ async def _probe_daemon(workspace: str) -> bool:
 async def _stop_daemon_via_ipc(workspace: str) -> Dict[str, Any]:
     client = DaemonClient(workspace_root=workspace)
     try:
-        if not await client.is_running():
-            return {"status": "error", "error": "Daemon is not running"}
+        if not await client.connect(require_compatible=False):
+            return {"status": "error", "error": "Daemon authentication failed"}
         try:
             response = await client.stop_daemon()
             return {"status": "ok", "response": response}
@@ -179,16 +179,37 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
                 }
         except Exception:
             pass
-        # A live PID with failed authenticated IPC is ambiguous. Never
-        # delete/replace its state and never signal it blindly.
-        return {
-            "status": "error",
-            "error": (
-                f"PID {existing_pid} is alive but KITT daemon authentication "
-                "failed; refusing to replace or signal it"
-            ),
-            "pid": existing_pid,
-        }
+
+        # The PID is live but the compatible probe failed. This can be a daemon
+        # from an older Agent release. Authenticate with the workspace token and
+        # ask it to stop through IPC; never signal an unverified process.
+        try:
+            stopped = asyncio.run(_stop_daemon_via_ipc(workspace))
+        except Exception:
+            stopped = {"status": "error", "error": "Daemon authenticated stop failed"}
+        if stopped.get("status") != "ok":
+            return {
+                "status": "error",
+                "error": (
+                    f"PID {existing_pid} is alive but KITT daemon authentication "
+                    "failed; refusing to replace or signal it"
+                ),
+                "pid": existing_pid,
+            }
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and _pid_alive(existing_pid):
+            time.sleep(0.05)
+        if _pid_alive(existing_pid):
+            return {
+                "status": "error",
+                "error": (
+                    f"Incompatible KITT daemon PID {existing_pid} accepted an "
+                    "authenticated stop request but did not exit"
+                ),
+                "pid": existing_pid,
+            }
+        transport.cleanup()
     elif existing_pid:
         transport.cleanup()
 
