@@ -58,10 +58,12 @@ jobs:
           python-version: '3.13'
       - name: Install split Python packages
         run: |
-          python -m pip install -U pip pytest pytest-asyncio prompt-toolkit
+          python -m pip install -U pip pytest pytest-asyncio
           python -m pip install --no-deps ./kitt-protocol/sdk/python
-          python -m pip install --no-deps ./kitt-agent-cli
+          python -m pip install ./kitt-agent-cli
+          python -m pip install --no-deps --force-reinstall ./kitt-protocol/sdk/python
           python -m pip install --no-deps ./kitt-assistant/packages/kitt-assistant-runtime
+          python -m pip check
       - name: Compile runtime
         run: python -m compileall -q kitt-assistant/packages/kitt-assistant-runtime/kitt
       - name: Prove runtime ownership
@@ -73,6 +75,18 @@ jobs:
           import kitt.daemon.server
           import kitt.remote.server
           assert kitt.__version__.startswith("0.41."), kitt.__version__
+          import inspect
+          from pathlib import Path as _Path
+          from kitt.core.completion_guard import install_completion_guard
+          class _Processor:
+              def _execute_tool_loop(self, cmd, request, exe_profile, exe_client, workspace_id, security_context, agent_route=None):
+                  if False:
+                      yield None
+          class _Registry:
+              root_path = _Path('.')
+          _processor = _Processor()
+          install_completion_guard(_processor, _Registry())
+          assert 'agent_route' in inspect.signature(_processor._execute_tool_loop).parameters
           for module in (kitt.daemon.client, kitt.daemon.server, kitt.remote.server):
               path = Path(module.__file__).resolve()
               assert 'site-packages' in str(path), path
