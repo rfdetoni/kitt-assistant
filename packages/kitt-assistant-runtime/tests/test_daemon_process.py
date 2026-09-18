@@ -44,6 +44,41 @@ class DaemonProcessBootstrapTests(unittest.TestCase):
         self.assertIn("before process creation", result["error"])
         transport.cleanup.assert_not_called()
 
+    def test_start_daemon_detached_replaces_authenticated_incompatible_daemon(self) -> None:
+        with TemporaryDirectory() as temp:
+            transport = MagicMock()
+            transport.read_pid.side_effect = [1234, 4321]
+            proc = MagicMock(pid=4321)
+            proc.poll.return_value = None
+
+            with (
+                patch.object(process, "IPCTransport", return_value=transport),
+                patch.object(process, "_pid_alive", side_effect=[True, False]),
+                patch.object(
+                    process,
+                    "_probe_daemon",
+                    new=AsyncMock(side_effect=[False, True]),
+                ),
+                patch.object(
+                    process,
+                    "_stop_daemon_via_ipc",
+                    new=AsyncMock(return_value={"status": "ok"}),
+                ) as stop,
+                patch.object(
+                    process,
+                    "_resolve_python_executable",
+                    return_value=Path(sys.executable),
+                ),
+                patch.object(process, "_resolve_spawn_cwd", return_value=Path(temp)),
+                patch.object(process.subprocess, "Popen", return_value=proc),
+            ):
+                result = process.start_daemon_detached(temp)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["pid"], 4321)
+        stop.assert_awaited_once_with(temp)
+        transport.cleanup.assert_called_once()
+
     def test_start_daemon_detached_marks_post_spawn_timeout_as_spawned(self) -> None:
         with TemporaryDirectory() as temp:
             transport = _transport_without_pid()
