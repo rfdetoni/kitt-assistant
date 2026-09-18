@@ -53,7 +53,7 @@ class DaemonProcessBootstrapTests(unittest.TestCase):
 
             with (
                 patch.object(process, "IPCTransport", return_value=transport),
-                patch.object(process, "_pid_alive", side_effect=[True, False]),
+                patch.object(process, "_pid_alive", side_effect=[True, False, False]),
                 patch.object(
                     process,
                     "_probe_daemon",
