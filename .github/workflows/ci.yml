@@ -72,11 +72,17 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import tomllib
           import kitt
           import kitt.daemon.client
           import kitt.daemon.server
           import kitt.remote.server
-          assert kitt.__version__.startswith("0.41."), kitt.__version__
+          with open("kitt-agent-cli/pyproject.toml", "rb") as fh:
+              expected_agent_version = tomllib.load(fh)["project"]["version"]
+          assert kitt.__version__ == expected_agent_version, (
+              kitt.__version__,
+              expected_agent_version,
+          )
           import inspect
           from pathlib import Path as _Path
           from kitt.core.completion_guard import install_completion_guard
