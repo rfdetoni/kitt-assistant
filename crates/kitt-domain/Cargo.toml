@@ -8,4 +8,4 @@ license.workspace=true
 [dependencies]
 serde.workspace=true
 thiserror.workspace=true
-kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", rev = "48384a5e8bb592226cc55abc24c2011fcbdf9dfe" }
+kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", rev = "f3031588bc68e47db1f3ffa61f280c7ad8488c52" }
