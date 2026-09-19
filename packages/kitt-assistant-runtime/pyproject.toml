@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kitt-assistant-runtime"
-version = "0.2.7"
+version = "0.2.8"
 description = "K.I.T.T. Python assistant daemon and remote runtime"
 requires-python = ">=3.12"
 license = {text = "MIT"}
-dependencies = ["kitt-agent-cli>=0.41.4,<0.42"]
+dependencies = ["kitt-agent-cli>=0.51.1,<0.53"]
 
 [tool.setuptools.packages.find]
 include = ["kitt.daemon*", "kitt.remote*"]
