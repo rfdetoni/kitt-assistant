@@ -1,4 +1,5 @@
 import asyncio
+import json
 import tempfile
 import time
 import unittest
@@ -127,3 +128,30 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(empty_replay), 0)
 
         await client2.close()
+    async def test_04_runtime_logging_can_be_reconfigured_on_live_daemon(self):
+        client = DaemonClient(workspace_root=str(self.root), token=self.server.token)
+        self.assertTrue(await client.connect())
+
+        log_path = self.root / ".kitt" / "logs" / "agent-cli.log"
+        response = await client.send_request(
+            "runtime.set_logging",
+            {
+                "workspace": str(self.root),
+                "level": 2,
+                "path": str(log_path),
+            },
+        )
+        self.assertEqual(response.get("status"), "ok")
+        self.assertEqual(response.get("level"), 2)
+        self.assertEqual(Path(response.get("path")).resolve(), log_path.resolve())
+
+        rendered = log_path.read_text(encoding="utf-8")
+        self.assertTrue(rendered.strip())
+        payload = json.loads(rendered.splitlines()[-1])
+        self.assertEqual(
+            payload.get("extra_data", {}).get("event"),
+            "daemon.logging.configured",
+        )
+
+        await client.close()
+
