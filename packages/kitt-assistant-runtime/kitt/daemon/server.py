@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from kitt import DAEMON_PROTOCOL_VERSION
 from kitt.core.runtime import KittRuntime
 from kitt.core.logging import configure_logging, debug_event
 from kitt.core.turn_command import TurnCommand
@@ -1058,7 +1059,14 @@ class DaemonServer:
                     continue
 
                 if action == "ping":
-                    await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "ok", "action": "ping", "agent_version": _agent_version()}))
+                    await q.put(encode_message({
+                        "type": "RESPONSE",
+                        "request_id": req_id,
+                        "status": "ok",
+                        "action": "ping",
+                        "agent_version": _agent_version(),
+                        "daemon_protocol_version": DAEMON_PROTOCOL_VERSION,
+                    }))
                     continue
 
                 if not self._workspace_allowed(msg.get("workspace")):
