@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from kitt.core.runtime import KittRuntime
+from kitt.core.logging import configure_logging, debug_event
 from kitt.core.turn_command import TurnCommand
 from kitt.daemon.protocol import DaemonEvent, decode_line, encode_message
 from kitt.daemon.redaction import sanitize_public_event_payload
@@ -1066,6 +1067,42 @@ class DaemonServer:
                         "request_id": req_id,
                         "status": "error",
                         "error": "Cross-workspace daemon request blocked",
+                    }))
+                    continue
+
+                # Logging is process-global and must be applied before creating
+                # or touching the workspace runtime. This lets a new frontend
+                # reconfigure an already-running daemon without restarting it.
+                if action == "runtime.set_logging":
+                    try:
+                        level = int(msg.get("level", 0))
+                        raw_path = str(msg.get("path") or "").strip()
+                        configured = configure_logging(
+                            level=level,
+                            path=raw_path or None,
+                        )
+                        debug_event(
+                            logger,
+                            "daemon.logging.configured",
+                            level=level,
+                            path=str(configured) if configured is not None else None,
+                            workspace=str(self.workspace_root),
+                        )
+                    except (TypeError, ValueError, OSError) as exc:
+                        await q.put(encode_message({
+                            "type": "RESPONSE",
+                            "request_id": req_id,
+                            "status": "error",
+                            "error": str(exc),
+                        }))
+                        continue
+                    await q.put(encode_message({
+                        "type": "RESPONSE",
+                        "request_id": req_id,
+                        "status": "ok",
+                        "action": action,
+                        "level": level,
+                        "path": str(configured) if configured is not None else None,
                     }))
                     continue
 
