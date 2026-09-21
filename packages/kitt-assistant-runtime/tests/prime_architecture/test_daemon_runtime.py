@@ -153,5 +153,11 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
             "daemon.logging.configured",
         )
 
+        disabled = await client.send_request(
+            "runtime.set_logging",
+            {"workspace": str(self.root), "level": 0, "path": None},
+        )
+        self.assertEqual(disabled.get("status"), "ok")
+        self.assertEqual(disabled.get("level"), 0)
         await client.close()
 
