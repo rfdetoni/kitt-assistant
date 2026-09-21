@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from importlib.metadata import PackageNotFoundError, version as package_version
+from kitt import DAEMON_PROTOCOL_VERSION
 import sys
 import uuid
 from pathlib import Path
@@ -61,7 +62,12 @@ class DaemonClient:
                     return True
                 ping = await self._send_request({"action": "ping"})
                 remote_version = str(ping.get("agent_version") or "")
-                if ping.get("status") == "ok" and remote_version == _agent_version():
+                remote_protocol = int(ping.get("daemon_protocol_version") or 0)
+                if (
+                    ping.get("status") == "ok"
+                    and remote_version == _agent_version()
+                    and remote_protocol == DAEMON_PROTOCOL_VERSION
+                ):
                     return True
         except Exception:
             pass
