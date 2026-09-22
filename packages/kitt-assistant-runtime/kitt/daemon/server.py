@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 import json
 from importlib.metadata import PackageNotFoundError, version as package_version
 import logging
@@ -29,6 +30,11 @@ from kitt.security.capabilities import capabilities_for_tools
 from kitt.security.context import ExecutionSecurityContext
 
 logger = logging.getLogger("kitt.daemon.server")
+
+_EVENT_BATCH_MAX = 24
+_EVENT_BATCH_INTERVAL_SECONDS = 0.05
+_IPC_BATCH_MAX_MESSAGES = 32
+_IPC_BATCH_MAX_BYTES = 512 * 1024
 
 
 def _agent_version() -> str:
@@ -90,6 +96,10 @@ class DaemonServer:
         self._active_turns: Dict[str, str] = {}
         self._direct_pending: Dict[str, dict[str, Any]] = {}
         self._instance_lock_fd = None
+        self._blocking_executor = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="kitt-daemon-blocking",
+        )
 
     def _ensure_token(self) -> str:
         try:
@@ -242,6 +252,7 @@ class DaemonServer:
         self.transport.cleanup()
         self.transport.release_instance_lock(self._instance_lock_fd)
         self._instance_lock_fd = None
+        self._blocking_executor.shutdown(wait=False, cancel_futures=True)
 
     def _workspace_lock(self, workspace_root: str) -> asyncio.Lock:
         return self._workspace_locks.setdefault(workspace_root, asyncio.Lock())
@@ -1014,7 +1025,7 @@ class DaemonServer:
                 if not stop.is_set():
                     put("done", None, timeout=5.0)
 
-        threading.Thread(target=produce, name=thread_name, daemon=True).start()
+        self._blocking_executor.submit(produce)
         try:
             while True:
                 kind, value = await q.get()
@@ -1524,10 +1535,27 @@ class DaemonServer:
     async def _client_writer_loop(self, writer, q):
         try:
             while self._running:
-                data = await q.get()
-                writer.write(data)
+                first = await q.get()
+                batch = [first]
+                total_bytes = len(first)
+                while len(batch) < _IPC_BATCH_MAX_MESSAGES and total_bytes < _IPC_BATCH_MAX_BYTES:
+                    try:
+                        item = q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    if total_bytes + len(item) > _IPC_BATCH_MAX_BYTES:
+                        # Preserve ordering without forcing a second drain in
+                        # this cycle: put the oversized tail back at the end
+                        # only when there was no interleaving consumer.
+                        q.task_done()
+                        await q.put(item)
+                        break
+                    batch.append(item)
+                    total_bytes += len(item)
+                writer.write(b"".join(batch))
                 await writer.drain()
-                q.task_done()
+                for _ in batch:
+                    q.task_done()
         except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
             pass
 
@@ -1554,22 +1582,56 @@ class DaemonServer:
             next_seq = max(next_seq, r["id"])
         return events, more, next_seq
 
-    def record_event(self, db, session_id, event_type, payload):
-        now = time.time()
-        payload = sanitize_public_event_payload(event_type, _jsonable(payload))
+    def record_events(self, db, session_id, items):
+        if not items:
+            return []
+        prepared = []
+        for event_type, payload, created_at in items:
+            clean = sanitize_public_event_payload(event_type, _jsonable(payload))
+            prepared.append((event_type, clean, float(created_at)))
+
+        events = []
         with db.get_connection() as conn:
-            cur = conn.execute(
-                "INSERT INTO daemon_events(session_id,event_type,payload_json,created_at) VALUES(?,?,?,?)",
-                (session_id, event_type, json.dumps(payload, ensure_ascii=False), now),
+            for event_type, payload, created_at in prepared:
+                cur = conn.execute(
+                    "INSERT INTO daemon_events(session_id,event_type,payload_json,created_at) VALUES(?,?,?,?)",
+                    (
+                        session_id,
+                        event_type,
+                        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                        created_at,
+                    ),
+                )
+                events.append(
+                    DaemonEvent(cur.lastrowid, session_id, event_type, payload, created_at)
+                )
+
+        for event in events:
+            self._broadcast_event(event)
+        return events
+
+    def record_event(self, db, session_id, event_type, payload):
+        events = self.record_events(
+            db,
+            session_id,
+            [(event_type, payload, time.time())],
+        )
+        return events[0]
+
+    def _record_turn_events(self, db, session_id, events):
+        now = time.time()
+        items = []
+        for event in events:
+            payload = (
+                dataclasses.asdict(event)
+                if dataclasses.is_dataclass(event)
+                else getattr(event, "__dict__", {})
             )
-            seq = cur.lastrowid
-        evt = DaemonEvent(seq, session_id, event_type, payload, now)
-        self._broadcast_event(evt)
-        return evt
+            items.append((type(event).__name__, payload, now))
+        return self.record_events(db, session_id, items)
 
     def _record_turn_event(self, db, session_id, event):
-        payload = dataclasses.asdict(event) if dataclasses.is_dataclass(event) else getattr(event, "__dict__", {})
-        return self.record_event(db, session_id, type(event).__name__, payload)
+        return self._record_turn_events(db, session_id, [event])[0]
 
     def _broadcast_event(self, event):
         msg = encode_message({"type": "EVENT", "session_id": event.session_id, "event": event.to_dict()})
@@ -1596,6 +1658,8 @@ class DaemonServer:
         lock = self._session_locks.setdefault(cmd.conversation_id, asyncio.Lock())
         async with lock:
             paused_for_approval = False
+            pending_events = []
+            last_flush = time.monotonic()
             if not cmd.no_history:
                 try:
                     rt.history.repo.save_message(cmd.conversation_id, cmd.turn_id, "user", cmd.prompt)
@@ -1604,7 +1668,27 @@ class DaemonServer:
             try:
                 async for event in rt.processor.arun_turn(cmd):
                     event_name = type(event).__name__
-                    self._record_turn_event(rt.database, cmd.conversation_id, event)
+                    pending_events.append(event)
+                    critical = event_name in {
+                        "ApprovalRequired",
+                        "TurnCompleted",
+                        "TurnFailed",
+                        "TurnCancelled",
+                        "TurnBlocked",
+                    }
+                    now = time.monotonic()
+                    if (
+                        critical
+                        or len(pending_events) >= _EVENT_BATCH_MAX
+                        or now - last_flush >= _EVENT_BATCH_INTERVAL_SECONDS
+                    ):
+                        self._record_turn_events(
+                            rt.database,
+                            cmd.conversation_id,
+                            pending_events,
+                        )
+                        pending_events.clear()
+                        last_flush = now
                     if event_name == "ApprovalRequired":
                         paused_for_approval = True
                     if event_name in {"TurnCompleted", "TurnFailed", "TurnCancelled", "TurnBlocked"}:
@@ -1616,8 +1700,12 @@ class DaemonServer:
                                 rt.history.repo.save_message(cmd.conversation_id, cmd.turn_id, "assistant", response)
                             except Exception:
                                 logger.exception("Failed persisting daemon assistant response")
+                if pending_events:
+                    self._record_turn_events(rt.database, cmd.conversation_id, pending_events)
             except Exception as exc:
                 self._active_turns.pop(cmd.turn_id, None)
+                if pending_events:
+                    self._record_turn_events(rt.database, cmd.conversation_id, pending_events)
                 self.record_event(rt.database, cmd.conversation_id, "TurnFailed", {"error": str(exc)})
             finally:
                 if not paused_for_approval:
@@ -1628,19 +1716,41 @@ class DaemonServer:
         async with lock:
             self._active_turns[grant.turn_id] = session_id
             paused_for_approval = False
+            pending_events = []
+            last_flush = time.monotonic()
             try:
                 async for event in self._astream_blocking(
                     lambda: rt.processor.continue_turn(grant.turn_id, grant),
                     f"kitt-continue-{grant.turn_id[:8]}",
                 ):
                     event_name = type(event).__name__
-                    self._record_turn_event(rt.database, session_id, event)
+                    pending_events.append(event)
+                    critical = event_name in {
+                        "ApprovalRequired",
+                        "TurnCompleted",
+                        "TurnFailed",
+                        "TurnCancelled",
+                        "TurnBlocked",
+                    }
+                    now = time.monotonic()
+                    if (
+                        critical
+                        or len(pending_events) >= _EVENT_BATCH_MAX
+                        or now - last_flush >= _EVENT_BATCH_INTERVAL_SECONDS
+                    ):
+                        self._record_turn_events(rt.database, session_id, pending_events)
+                        pending_events.clear()
+                        last_flush = now
                     if event_name == "ApprovalRequired":
                         paused_for_approval = True
                     if event_name in {"TurnCompleted", "TurnFailed", "TurnCancelled", "TurnBlocked"}:
                         self._active_turns.pop(grant.turn_id, None)
+                if pending_events:
+                    self._record_turn_events(rt.database, session_id, pending_events)
             except Exception as exc:
                 self._active_turns.pop(grant.turn_id, None)
+                if pending_events:
+                    self._record_turn_events(rt.database, session_id, pending_events)
                 self.record_event(rt.database, session_id, "TurnFailed", {"error": str(exc)})
             finally:
                 if not paused_for_approval:
