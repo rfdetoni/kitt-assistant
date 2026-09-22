@@ -221,6 +221,7 @@ class DaemonServer:
                 )
             self.transport.release_instance_lock(self._instance_lock_fd)
             self._instance_lock_fd = None
+            self._blocking_executor.shutdown(wait=False, cancel_futures=True)
             raise
 
     async def stop(self):
@@ -1542,13 +1543,6 @@ class DaemonServer:
                     try:
                         item = q.get_nowait()
                     except asyncio.QueueEmpty:
-                        break
-                    if total_bytes + len(item) > _IPC_BATCH_MAX_BYTES:
-                        # Preserve ordering without forcing a second drain in
-                        # this cycle: put the oversized tail back at the end
-                        # only when there was no interleaving consumer.
-                        q.task_done()
-                        await q.put(item)
                         break
                     batch.append(item)
                     total_bytes += len(item)
