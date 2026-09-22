@@ -1605,6 +1605,9 @@ class DaemonServer:
         return events
 
     def record_event(self, db, session_id, event_type, payload):
+        # Keep the public-event security invariant explicit at this boundary;
+        # record_events applies the same sanitizer for batched turn events.
+        payload = sanitize_public_event_payload(event_type, _jsonable(payload))
         events = self.record_events(
             db,
             session_id,
