@@ -9,9 +9,9 @@ license.workspace = true
 kitt-domain = { path = "../../crates/kitt-domain" }
 kitt-application = { path = "../../crates/kitt-application" }
 kitt-infrastructure = { path = "../../crates/kitt-infrastructure" }
-kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", rev = "c4ae476521e812ec1497a442cce6b276a26d9f80" }
-kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", rev = "f3031588bc68e47db1f3ffa61f280c7ad8488c52" }
-kitt-memory-sqlite = { git = "https://github.com/rfdetoni/kitt-memory", rev = "f3031588bc68e47db1f3ffa61f280c7ad8488c52" }
+kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", rev = "937b96863d12b10222f3ee7b92a939ee198c654c" }
+kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", rev = "e65330ab60cf986dc9eb10fea0509e4f8b10cea3" }
+kitt-memory-sqlite = { git = "https://github.com/rfdetoni/kitt-memory", rev = "e65330ab60cf986dc9eb10fea0509e4f8b10cea3" }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
