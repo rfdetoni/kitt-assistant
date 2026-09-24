@@ -484,29 +484,23 @@ class DaemonServer:
             raise ValueError("Turn is not active in the requested session")
 
     def _prune_direct_pending(self, rt) -> None:
-        now = time.time()
-        expired = [
-            approval_id
-            for approval_id, item in self._direct_pending.items()
-            if float(item.get("expires_at", 0)) <= now
-        ]
-        for approval_id in expired:
-            self._direct_pending.pop(approval_id, None)
-            try:
-                rt.approval.deny(approval_id, "Direct UI approval expired")
-            except Exception:
-                pass
-        if len(self._direct_pending) > 64:
-            oldest = sorted(
-                self._direct_pending.items(),
-                key=lambda pair: float(pair[1].get("created_at", 0)),
-            )[: len(self._direct_pending) - 64]
-            for approval_id, _ in oldest:
+        """Reconcile direct approvals without timing out active user decisions.
+
+        Pending approvals are human-interaction state. They remain available
+        until explicitly approved, denied, cancelled, or otherwise transitioned
+        out of PENDING. Capacity is enforced before creating a new direct
+        approval; existing decisions are never evicted to make room.
+        """
+        try:
+            pending_ids = {
+                req.approval_id
+                for req in rt.approval.list_pending(rt.workspace_id)
+            }
+        except Exception:
+            return
+        for approval_id in list(self._direct_pending):
+            if approval_id not in pending_ids:
                 self._direct_pending.pop(approval_id, None)
-                try:
-                    rt.approval.deny(approval_id, "Direct UI approval capacity exceeded")
-                except Exception:
-                    pass
 
     async def _ui_tool_execute(self, rt, session_id: str, tool_name: str, args: dict) -> dict[str, Any]:
         self._require_session(rt, session_id)
@@ -638,14 +632,12 @@ class DaemonServer:
         approval_id: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        now = time.time()
         clauses = [
             "a.workspace_id=?",
             "a.state='PENDING'",
-            "CAST(a.expires_at AS REAL)>?",
             "p.id IS NOT NULL",
         ]
-        params: list[Any] = [rt.workspace_id, now]
+        params: list[Any] = [rt.workspace_id]
         if session_id:
             self._require_session(rt, session_id)
             clauses.append("a.conversation_id=?")
@@ -950,7 +942,7 @@ class DaemonServer:
             limit=1,
         )
         if not pending:
-            raise ValueError("Approval is unknown, expired, or no longer pending")
+            raise ValueError("Approval is unknown or no longer pending")
         item = pending[0]
         sid = str(item["conversation_id"])
         if action == "approval.approve":

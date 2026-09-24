@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from kitt.daemon.client import DaemonClient
 from kitt.daemon.server import DaemonServer
@@ -127,3 +128,109 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(empty_replay), 0)
 
         await client2.close()
+
+
+    async def test_04_pending_approval_survives_arbitrary_daemon_wait(self):
+        """Persisted PENDING approvals remain discoverable regardless of elapsed wall time."""
+        rt = await self.server._get_or_create_runtime()
+        turn_id = "turn-no-timeout"
+        approval_id = "approval-no-timeout"
+        action_hash = "hash-no-timeout"
+        now = time.time()
+
+        with rt.database.get_connection() as conn:
+            ordinal = conn.execute(
+                "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM turns WHERE conversation_id = ?",
+                (self.session_id,),
+            ).fetchone()[0]
+            conn.execute(
+                """INSERT INTO turns
+                   (id, conversation_id, ordinal, state, mode, started_at)
+                   VALUES (?, ?, ?, 'RUNNING', 'auto', ?)""",
+                (turn_id, self.session_id, ordinal, now),
+            )
+
+        req = rt.approval.register_request(
+            turn_id,
+            self.session_id,
+            rt.workspace_id,
+            action_hash,
+            approval_id,
+            tool_name="process.run",
+            summary="wait for user",
+        )
+        self.assertEqual(req.expires_at, 0.0)
+
+        with rt.database.get_connection() as conn:
+            conn.execute(
+                """INSERT INTO pending_actions
+                   (id, approval_request_id, turn_id, conversation_id, workspace_id,
+                    tool_name, normalized_args_json, action_hash, source_response_sha256,
+                    affected_paths_json, before_hashes_json, created_at, expires_at,
+                    state, security_context_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+                (
+                    "pending-no-timeout",
+                    approval_id,
+                    turn_id,
+                    self.session_id,
+                    rt.workspace_id,
+                    "process.run",
+                    '{"argv":["echo","ok"]}',
+                    action_hash,
+                    "source-hash",
+                    "[]",
+                    "{}",
+                    now,
+                    0.0,
+                    "{}",
+                ),
+            )
+
+        with patch("kitt.daemon.server.time.time", return_value=now + 7 * 24 * 60 * 60):
+            approvals = self.server._approval_payloads(
+                rt,
+                session_id=self.session_id,
+                approval_id=approval_id,
+                limit=1,
+            )
+
+        self.assertEqual(len(approvals), 1)
+        self.assertEqual(approvals[0]["approval_id"], approval_id)
+        self.assertEqual(approvals[0]["expires_at"], 0.0)
+
+    async def test_05_direct_pending_is_never_age_or_capacity_evicted(self):
+        """Existing direct approvals stay active; capacity only blocks creating new ones."""
+        rt = await self.server._get_or_create_runtime()
+        now = time.time()
+
+        for idx in range(65):
+            approval_id = f"direct-{idx}"
+            action_hash = f"direct-hash-{idx}"
+            rt.approval.register_request(
+                f"direct-turn-{idx}",
+                self.session_id,
+                rt.workspace_id,
+                action_hash,
+                approval_id,
+                tool_name="run_command",
+                summary="direct approval",
+            )
+            self.server._direct_pending[approval_id] = {
+                "approval_id": approval_id,
+                "turn_id": f"direct-turn-{idx}",
+                "conversation_id": self.session_id,
+                "workspace_id": rt.workspace_id,
+                "tool_name": "run_command",
+                "args": {"argv": ["echo", str(idx)]},
+                "action_hash": action_hash,
+                "security_context": None,
+                "created_at": now - idx,
+                "expires_at": 0.0,
+            }
+
+        with patch("kitt.daemon.server.time.time", return_value=now + 30 * 24 * 60 * 60):
+            self.server._prune_direct_pending(rt)
+
+        self.assertEqual(len(self.server._direct_pending), 65)
+        self.assertEqual(len(rt.approval.list_pending(rt.workspace_id)), 65)

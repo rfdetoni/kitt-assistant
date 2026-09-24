@@ -75,6 +75,8 @@ kitt-assistant-runtime
 
 The Rust daemon and Python runtime deliberately have different ownership: `kittd` owns the native long-lived service; `kitt-assistant-runtime` owns Agent-facing Python orchestration that benefits from sharing the `kitt.*` namespace.
 
+The Python daemon treats human tool/command approvals as durable interaction state: `PENDING` approvals have no wall-clock timeout and are not evicted to make room for newer approval prompts. Capacity limits apply as backpressure to new requests; grant TTLs begin only after the user explicitly approves.
+
 ---
 
 ## Requirements & build
