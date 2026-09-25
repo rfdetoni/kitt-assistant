@@ -10,3 +10,8 @@ The package intentionally shares the `kitt` namespace with the Agent control pla
 ## Approval lifetime
 
 Human tool/command approvals are durable interaction state. A request in `PENDING` has no wall-clock timeout and remains listable/decidable across long idle periods. The daemon never evicts an active approval to satisfy queue capacity; when the direct-approval queue is full it rejects creation of a new request instead. Short-lived, single-use TTLs apply only after an approval grant is issued.
+
+
+## Agent compatibility
+
+Runtime 0.2.15 supports `kitt-agent-cli>=0.68.1,<0.73`. Agent CLI 0.72 is validated in the Assistant CI through the composed shared `kitt.*` namespace. The version range is intentionally bounded so future Agent contract changes must be reviewed rather than accepted implicitly.

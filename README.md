@@ -106,6 +106,10 @@ cd ../..
 
 For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) installer composes these pieces automatically.
 
+### Python runtime compatibility
+
+`kitt-assistant-runtime 0.2.15` supports Agent CLI releases from 0.68.1 through the 0.72 line. CI composes the current Agent control plane with the Assistant runtime on Python 3.14 and verifies namespace ownership, daemon/remote imports and the runtime test suite.
+
 ---
 
 ## K.I.T.T. Control Center
