@@ -4,8 +4,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
-
-DAEMON_PROTOCOL_VERSION = 1
+from kitt import DAEMON_PROTOCOL_VERSION
 
 
 @dataclass(frozen=True)
