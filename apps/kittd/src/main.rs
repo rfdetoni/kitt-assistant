@@ -582,8 +582,10 @@ fn memory_recall(
     let query = RecallQuery {
         namespace: request.namespace,
         workspace_id: request.workspace_id,
+        scope_key: request.scope_key,
         text: request.query,
-        limit: request.limit.clamp(1, 50),
+        limit: request.limit.min(50),
+        as_of: request.as_of,
         allow_private: request.allow_private,
         allow_secret: request.allow_secret,
     };
@@ -605,6 +607,7 @@ fn memory_remember(
         content: request.content,
         sensitivity: protocol_sensitivity_to_core(request.sensitivity),
         scope: protocol_scope_to_core(request.scope),
+        scope_key: request.scope_key,
         importance: request.importance,
         confidence: request.confidence,
         pinned: request.pinned,
@@ -627,6 +630,7 @@ fn memory_to_dto(record: MemoryRecord) -> MemoryDto {
         content: record.content,
         sensitivity: core_sensitivity_to_protocol(record.sensitivity),
         scope: core_scope_to_protocol(&record.scope),
+        scope_key: record.scope_key,
         importance: record.importance,
         confidence: record.confidence,
         pinned: record.pinned,

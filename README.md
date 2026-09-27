@@ -108,7 +108,7 @@ For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) i
 
 ### Python runtime compatibility
 
-`kitt-assistant-runtime 0.2.15` supports Agent CLI releases from 0.68.1 through the 0.72 line. CI composes the current Agent control plane with the Assistant runtime on Python 3.14 and verifies namespace ownership, daemon/remote imports and the runtime test suite.
+`kitt-assistant-runtime 0.2.16` supports Agent CLI releases from 0.68.1 through the 0.74 line. CI composes the current Agent control plane with the Assistant runtime on Python 3.14 and verifies namespace ownership, daemon/remote imports and the runtime test suite.
 
 ---
 
@@ -262,3 +262,8 @@ Preserve the resident-service budget and Clean Architecture boundaries. Features
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+
+### Shared memory v0.2 integration
+
+The daemon is pinned to kitt-memory 0.2.0 and kitt-protocol 0.2.0. Protocol-v1 memory requests now preserve optional conversation `scope_key` and point-in-time `as_of` fields end-to-end. Workspace/global callers remain compatible with omitted fields, while conversation-scoped records are isolated by their explicit key.
