@@ -352,10 +352,10 @@ impl VoiceConfig {
             return Some(model);
         }
         for name in ["KITT_WHISPER_MODEL", "WHISPER_MODEL"] {
-            if let Ok(value) = std::env::var(name) {
-                if let Some(model) = nonempty_owned(&value) {
-                    return Some(model);
-                }
+            if let Ok(value) = std::env::var(name)
+                && let Some(model) = nonempty_owned(&value)
+            {
+                return Some(model);
             }
         }
         None
@@ -612,11 +612,12 @@ pub fn start(runtime: Arc<Runtime>, config_dir: &Path) -> Result<(), String> {
     }
 
     // If warmup strategy is startup, start worker early
-    if config.stt_warm_strategy == "startup" && runtime.service.transcriber_is_local() {
-        if let Err(error) = ensure_local_stt_ready(&runtime, &config) {
-            show_voice_error(&runtime, &format!("STT local indisponível: {error}"));
-            return Err(error);
-        }
+    if config.stt_warm_strategy == "startup"
+        && runtime.service.transcriber_is_local()
+        && let Err(error) = ensure_local_stt_ready(&runtime, &config)
+    {
+        show_voice_error(&runtime, &format!("STT local indisponível: {error}"));
+        return Err(error);
     }
 
     let paused = Arc::new(AtomicBool::new(false));
@@ -982,10 +983,10 @@ pub fn local_worker_endpoint(base_url: &str) -> Result<(String, u16), String> {
 
 fn worker_launch_candidates() -> Vec<(String, Vec<String>)> {
     let mut candidates = Vec::new();
-    if let Ok(bin) = std::env::var("KITT_STT_WORKER_BIN") {
-        if !bin.trim().is_empty() {
-            candidates.push((bin, Vec::new()));
-        }
+    if let Ok(bin) = std::env::var("KITT_STT_WORKER_BIN")
+        && !bin.trim().is_empty()
+    {
+        candidates.push((bin, Vec::new()));
     }
     candidates.push(("kitt-stt".into(), Vec::new()));
 
@@ -996,14 +997,14 @@ fn worker_launch_candidates() -> Vec<(String, Vec<String>)> {
             probe_dirs.push(p.to_path_buf());
         }
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(p) = exe.parent() {
-            probe_dirs.push(p.to_path_buf());
-            if let Some(p2) = p.parent() {
-                probe_dirs.push(p2.to_path_buf());
-                if let Some(p3) = p2.parent() {
-                    probe_dirs.push(p3.to_path_buf());
-                }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(p) = exe.parent()
+    {
+        probe_dirs.push(p.to_path_buf());
+        if let Some(p2) = p.parent() {
+            probe_dirs.push(p2.to_path_buf());
+            if let Some(p3) = p2.parent() {
+                probe_dirs.push(p3.to_path_buf());
             }
         }
     }
@@ -1028,10 +1029,10 @@ fn worker_launch_candidates() -> Vec<(String, Vec<String>)> {
         }
     }
 
-    if let Ok(python) = std::env::var("KITT_STT_PYTHON") {
-        if !python.trim().is_empty() {
-            candidates.push((python, vec!["-m".into(), "kitt_workers.stt_server".into()]));
-        }
+    if let Ok(python) = std::env::var("KITT_STT_PYTHON")
+        && !python.trim().is_empty()
+    {
+        candidates.push((python, vec!["-m".into(), "kitt_workers.stt_server".into()]));
     }
 
     for dir in &probe_dirs {
@@ -1336,15 +1337,15 @@ fn pipeline_loop(
 
                 // Ensure local STT worker is ready before transcribing
                 tracker.set_state(VoiceState::SttWarming);
-                if runtime.service.transcriber_is_local() {
-                    if let Err(error) = ensure_local_stt_ready(&runtime, &config) {
-                        tracker.set_state(VoiceState::Recovering);
-                        tracker.inc_stt_restarts();
-                        tracker.set_error(Some(format!("stt startup: {error}")));
-                        show_voice_error(&runtime, &format!("STT local indisponível: {error}"));
-                        tracker.set_state(VoiceState::Idle);
-                        continue;
-                    }
+                if runtime.service.transcriber_is_local()
+                    && let Err(error) = ensure_local_stt_ready(&runtime, &config)
+                {
+                    tracker.set_state(VoiceState::Recovering);
+                    tracker.inc_stt_restarts();
+                    tracker.set_error(Some(format!("stt startup: {error}")));
+                    show_voice_error(&runtime, &format!("STT local indisponível: {error}"));
+                    tracker.set_state(VoiceState::Idle);
+                    continue;
                 }
 
                 tracker.set_state(VoiceState::Transcribing);

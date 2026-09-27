@@ -138,12 +138,12 @@ impl HudBroadcaster {
             .write_all(ack_line.as_bytes())
             .map_err(|e| e.to_string())?;
 
-        if let Ok(last) = self.last_event.lock() {
-            if let Some(line) = last.as_ref() {
-                stream
-                    .write_all(line.as_bytes())
-                    .map_err(|e| e.to_string())?;
-            }
+        if let Ok(last) = self.last_event.lock()
+            && let Some(line) = last.as_ref()
+        {
+            stream
+                .write_all(line.as_bytes())
+                .map_err(|e| e.to_string())?;
         }
 
         clients.push(stream);
@@ -791,10 +791,10 @@ fn ensure_hud(runtime: &Arc<Runtime>) {
         Ok(guard) => guard,
         Err(_) => return,
     };
-    if let Some(child) = guard.as_mut() {
-        if matches!(child.try_wait(), Ok(None)) {
-            return;
-        }
+    if let Some(child) = guard.as_mut()
+        && matches!(child.try_wait(), Ok(None))
+    {
+        return;
     }
     let executable = std::env::var_os("KITT_HUD_BIN")
         .map(PathBuf::from)
