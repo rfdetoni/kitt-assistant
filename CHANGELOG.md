@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 / runtime 0.2.17 - 2026-09-27
+
+- Unify Python daemon handshake/event protocol version on the Agent's `DAEMON_PROTOCOL_VERSION` authority and add an end-to-end parity test.
+- Move HUD socket writes outside the global subscriber mutex so slow clients cannot serialize all event delivery.
+- Pin kitt-memory 0.2.1 and refresh the Cargo lock.
+- Make standalone Assistant CI reproducible by pinning a known-compatible Agent 0.74.4 revision instead of mutable `main`.
+
+
 ## 0.1.4 / runtime 0.2.16 / HUD 0.1.4 - 2026-09-27
 
 - Pin kitt-memory 0.2.0 and kitt-protocol 0.2.0 across daemon, domain and infrastructure crates.
