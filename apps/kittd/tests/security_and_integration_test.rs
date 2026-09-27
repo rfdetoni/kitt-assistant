@@ -158,6 +158,7 @@ fn authenticated_ping_and_memory_roundtrip() {
                 kind: MemoryKind::ProjectRule,
                 sensitivity: Sensitivity::Private,
                 scope: MemoryScope::Workspace,
+                scope_key: None,
                 importance: 0.8,
                 confidence: 1.0,
                 pinned: true,
@@ -174,8 +175,10 @@ fn authenticated_ping_and_memory_roundtrip() {
             MemoryRecallRequest {
                 namespace: "agent-cli".into(),
                 workspace_id: "test-ws".into(),
+                scope_key: None,
                 query: "rede local".into(),
                 limit: 8,
+                as_of: None,
                 allow_private: true,
                 allow_secret: false,
             },
