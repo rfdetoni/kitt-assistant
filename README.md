@@ -108,7 +108,7 @@ For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) i
 
 ### Python runtime compatibility
 
-`kitt-assistant-runtime 0.2.16` supports Agent CLI releases from 0.68.1 through the 0.74 line. CI composes the current Agent control plane with the Assistant runtime on Python 3.14 and verifies namespace ownership, daemon/remote imports and the runtime test suite.
+`kitt-assistant-runtime 0.2.17` supports Agent CLI releases from 0.68.1 through the 0.74 line. Standalone CI composes a pinned known-compatible Agent 0.74.4 revision with the Assistant runtime on Python 3.14; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
 
 ---
 
@@ -266,4 +266,12 @@ MIT. See [LICENSE](LICENSE).
 
 ### Shared memory v0.2 integration
 
-The daemon is pinned to kitt-memory 0.2.0 and kitt-protocol 0.2.0. Protocol-v1 memory requests now preserve optional conversation `scope_key` and point-in-time `as_of` fields end-to-end. Workspace/global callers remain compatible with omitted fields, while conversation-scoped records are isolated by their explicit key.
+The daemon is pinned to kitt-memory 0.2.1 and kitt-protocol 0.2.0. Protocol-v1 memory requests now preserve optional conversation `scope_key` and point-in-time `as_of` fields end-to-end. Workspace/global callers remain compatible with omitted fields, while conversation-scoped records are isolated by their explicit key.
+
+
+## Assistant 0.1.5 / runtime 0.2.17 — consistency hardening
+
+- The Python daemon protocol now imports one `DAEMON_PROTOCOL_VERSION` authority from the Agent package. Handshake metadata and `DaemonEvent.protocol_version` can no longer drift independently.
+- HUD event fan-out snapshots subscriber sockets under the mutex and performs bounded socket writes after releasing it, so a slow HUD client does not stall all subscribers or subscription management.
+- Rust memory dependencies are pinned to kitt-memory 0.2.1.
+- Standalone Python-runtime CI uses an immutable known-compatible Agent 0.74.4 SHA rather than mutable `main`; the root ecosystem integration remains authoritative for the exact promoted component set.
