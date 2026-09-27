@@ -146,10 +146,10 @@ pub fn discover_models_from_url(base_url: &str, api_key: Option<&str>) -> Result
         && let Some(data) = body.get("data").and_then(Value::as_array)
     {
         let mut list: Vec<String> = data
-                    .iter()
-                    .filter_map(|m| m.get("id").and_then(Value::as_str))
-                    .map(str::to_string)
-                    .collect();
+            .iter()
+            .filter_map(|m| m.get("id").and_then(Value::as_str))
+            .map(str::to_string)
+            .collect();
         if !list.is_empty() {
             list.sort();
             list.dedup();
@@ -167,14 +167,14 @@ pub fn discover_models_from_url(base_url: &str, api_key: Option<&str>) -> Result
         && let Some(models) = body.get("models").and_then(Value::as_array)
     {
         let mut list: Vec<String> = models
-                    .iter()
-                    .filter_map(|m| {
-                        m.get("name")
-                            .or_else(|| m.get("model"))
-                            .and_then(Value::as_str)
-                    })
-                    .map(str::to_string)
-                    .collect();
+            .iter()
+            .filter_map(|m| {
+                m.get("name")
+                    .or_else(|| m.get("model"))
+                    .and_then(Value::as_str)
+            })
+            .map(str::to_string)
+            .collect();
         if !list.is_empty() {
             list.sort();
             list.dedup();
