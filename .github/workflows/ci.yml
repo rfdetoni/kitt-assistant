@@ -41,11 +41,11 @@ jobs:
         with:
           path: kitt-assistant
           persist-credentials: false
-      - name: Checkout current Agent control plane
+      - name: Checkout known-compatible Agent control plane
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-agent-cli
-          ref: main
+          ref: 3c13aae0d693f2a218a194921d1d5d94afa20e6e
           path: kitt-agent-cli
           persist-credentials: false
       - name: Checkout protocol dependency
