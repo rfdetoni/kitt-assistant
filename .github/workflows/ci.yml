@@ -25,9 +25,9 @@ jobs:
           components: rustfmt, clippy
       - name: Format
         run: cargo fmt --all --check
-      - name: Refresh lock for staging
+      - name: Refresh memory lock for staging
         run: |
-          cargo update
+          cargo update -p kitt-memory-core -p kitt-memory-sqlite -p kitt-protocol
           echo '---KITT_LOCK_BEGIN---'
           cat Cargo.lock
           echo '---KITT_LOCK_END---'
