@@ -48,16 +48,16 @@ fn resolve_kittd_binary(explicit: Option<PathBuf>) -> PathBuf {
     }
 
     // Try sibling of current executable
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(parent) = current_exe.parent() {
-            let candidate = if cfg!(windows) {
-                parent.join("kittd.exe")
-            } else {
-                parent.join("kittd")
-            };
-            if candidate.is_file() {
-                return fs::canonicalize(&candidate).unwrap_or(candidate);
-            }
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(parent) = current_exe.parent()
+    {
+        let candidate = if cfg!(windows) {
+            parent.join("kittd.exe")
+        } else {
+            parent.join("kittd")
+        };
+        if candidate.is_file() {
+            return fs::canonicalize(&candidate).unwrap_or(candidate);
         }
     }
 

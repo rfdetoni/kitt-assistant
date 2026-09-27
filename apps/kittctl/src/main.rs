@@ -94,10 +94,10 @@ fn main() {
         | kinds::ASSISTANT_TRANSCRIBE_RESPONSE => {
             if let Some(text) = response.payload.get("text").and_then(Value::as_str) {
                 println!("{text}");
-                if response.kind == kinds::ASSISTANT_ASK_ROUTED_RESPONSE {
-                    if let Some(tier) = response.payload.get("tier").and_then(Value::as_str) {
-                        eprintln!("[route:{tier}]");
-                    }
+                if response.kind == kinds::ASSISTANT_ASK_ROUTED_RESPONSE
+                    && let Some(tier) = response.payload.get("tier").and_then(Value::as_str)
+                {
+                    eprintln!("[route:{tier}]");
                 }
             } else {
                 fatal("assistant response missing text");

@@ -141,20 +141,19 @@ pub fn discover_models_from_url(base_url: &str, api_key: Option<&str>) -> Result
     if let Some(key) = api_key.filter(|key| !key.trim().is_empty()) {
         req = req.bearer_auth(key);
     }
-    if let Ok(resp) = req.send() {
-        if let Ok(body) = bounded_json(resp, AssistantError::Model) {
-            if let Some(data) = body.get("data").and_then(Value::as_array) {
-                let mut list: Vec<String> = data
+    if let Ok(resp) = req.send()
+        && let Ok(body) = bounded_json(resp, AssistantError::Model)
+        && let Some(data) = body.get("data").and_then(Value::as_array)
+    {
+        let mut list: Vec<String> = data
                     .iter()
                     .filter_map(|m| m.get("id").and_then(Value::as_str))
                     .map(str::to_string)
                     .collect();
-                if !list.is_empty() {
-                    list.sort();
-                    list.dedup();
-                    return Ok(list);
-                }
-            }
+        if !list.is_empty() {
+            list.sort();
+            list.dedup();
+            return Ok(list);
         }
     }
 
@@ -163,10 +162,11 @@ pub fn discover_models_from_url(base_url: &str, api_key: Option<&str>) -> Result
         .unwrap_or(&base)
         .trim_end_matches('/');
     let tags_url = format!("{root_base}/api/tags");
-    if let Ok(resp) = client.get(&tags_url).send() {
-        if let Ok(body) = bounded_json(resp, AssistantError::Model) {
-            if let Some(models) = body.get("models").and_then(Value::as_array) {
-                let mut list: Vec<String> = models
+    if let Ok(resp) = client.get(&tags_url).send()
+        && let Ok(body) = bounded_json(resp, AssistantError::Model)
+        && let Some(models) = body.get("models").and_then(Value::as_array)
+    {
+        let mut list: Vec<String> = models
                     .iter()
                     .filter_map(|m| {
                         m.get("name")
@@ -175,12 +175,10 @@ pub fn discover_models_from_url(base_url: &str, api_key: Option<&str>) -> Result
                     })
                     .map(str::to_string)
                     .collect();
-                if !list.is_empty() {
-                    list.sort();
-                    list.dedup();
-                    return Ok(list);
-                }
-            }
+        if !list.is_empty() {
+            list.sort();
+            list.dedup();
+            return Ok(list);
         }
     }
 
@@ -675,10 +673,9 @@ fn speak_system(text: &str, locale: Option<&str>, profile: &SystemVoiceProfile) 
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
+        && wait_child_with_timeout(child, profile.timeout).is_ok()
     {
-        if wait_child_with_timeout(child, profile.timeout).is_ok() {
-            return Ok(());
-        }
+        return Ok(());
     }
 
     let path = temporary_text_path();
@@ -705,10 +702,10 @@ fn speak_system(text: &str, locale: Option<&str>, profile: &SystemVoiceProfile) 
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        if let Ok(child) = command.spawn() {
-            if wait_child_with_timeout(child, profile.timeout).is_ok() {
-                return Ok(());
-            }
+        if let Ok(child) = command.spawn()
+            && wait_child_with_timeout(child, profile.timeout).is_ok()
+        {
+            return Ok(());
         }
     }
     Err(AssistantError::SpeechOutput(
