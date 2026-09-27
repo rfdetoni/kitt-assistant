@@ -33,7 +33,7 @@ use std::{
     process::{Child, Command},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     thread,
     time::Duration,
@@ -103,8 +103,9 @@ impl Drop for ConnectionGuard<'_> {
 
 #[derive(Clone)]
 struct HudBroadcaster {
-    clients: Arc<Mutex<Vec<TcpStream>>>,
+    clients: Arc<Mutex<Vec<(u64, TcpStream)>>>,
     last_event: Arc<Mutex<Option<String>>>,
+    next_client_id: Arc<AtomicU64>,
 }
 
 impl HudBroadcaster {
@@ -112,6 +113,7 @@ impl HudBroadcaster {
         Self {
             clients: Arc::new(Mutex::new(Vec::new())),
             last_event: Arc::new(Mutex::new(None)),
+            next_client_id: Arc::new(AtomicU64::new(1)),
         }
     }
 
@@ -146,7 +148,8 @@ impl HudBroadcaster {
                 .map_err(|e| e.to_string())?;
         }
 
-        clients.push(stream);
+        let client_id = self.next_client_id.fetch_add(1, Ordering::Relaxed);
+        clients.push((client_id, stream));
         Ok(())
     }
 
@@ -162,8 +165,27 @@ impl HudBroadcaster {
         if let Ok(mut last) = self.last_event.lock() {
             *last = Some(line.clone());
         }
-        if let Ok(mut clients) = self.clients.lock() {
-            clients.retain_mut(|stream| stream.write_all(line.as_bytes()).is_ok());
+
+        // Never hold the subscriber-list mutex while doing socket I/O. A slow
+        // HUD client has its own write timeout and cannot stall event delivery
+        // or subscription management for every other client.
+        let snapshots = match self.clients.lock() {
+            Ok(clients) => clients
+                .iter()
+                .filter_map(|(id, stream)| stream.try_clone().ok().map(|copy| (*id, copy)))
+                .collect::<Vec<_>>(),
+            Err(_) => return,
+        };
+        let mut failed = Vec::new();
+        for (id, mut stream) in snapshots {
+            if stream.write_all(line.as_bytes()).is_err() {
+                failed.push(id);
+            }
+        }
+        if !failed.is_empty()
+            && let Ok(mut clients) = self.clients.lock()
+        {
+            clients.retain(|(id, _)| !failed.contains(id));
         }
     }
 }
