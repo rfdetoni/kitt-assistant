@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from kitt import DAEMON_PROTOCOL_VERSION
 from kitt.daemon.client import DaemonClient
+from kitt.daemon.protocol import DaemonEvent
 from kitt.daemon.server import DaemonServer
 from kitt.history.database import HistoryDatabase
 
@@ -46,6 +48,22 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.server.stop()
         self.temp_dir.cleanup()
+
+    async def test_00_event_and_handshake_share_daemon_protocol_version(self):
+        event = DaemonEvent(
+            sequence_id=1,
+            session_id=self.session_id,
+            event_type="probe",
+            payload={},
+            created_at=time.time(),
+        )
+        self.assertEqual(event.protocol_version, DAEMON_PROTOCOL_VERSION)
+
+        client = DaemonClient(workspace_root=str(self.root), token=self.server.token)
+        self.assertTrue(await client.connect())
+        ping = await client.send_request("ping")
+        self.assertEqual(ping.get("daemon_protocol_version"), DAEMON_PROTOCOL_VERSION)
+        await client.close()
 
     async def test_01_daemon_real_turn_executes_and_emits_events(self):
         """Verify DaemonServer executes turn and emits real stream of turn events."""
