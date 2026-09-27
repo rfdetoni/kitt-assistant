@@ -25,8 +25,13 @@ jobs:
           components: rustfmt, clippy
       - name: Format
         run: cargo fmt --all --check
-      - name: Locked build
-        run: cargo build --workspace --locked
+      - name: Refresh lock for staging
+        run: |
+          cargo update
+          echo '---KITT_LOCK_BEGIN---'
+          cat Cargo.lock
+          echo '---KITT_LOCK_END---'
+          cargo build --workspace
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Tests
