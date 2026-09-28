@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8 - 2026-09-28
+
+- Make resident microphone/wake-word capture a `kittd` Cargo feature named `voice`.
+- Keep `voice` enabled for normal source builds while allowing the ecosystem installer to compile a portable non-audio daemon when Linux ALSA development packages are unavailable.
+- Preserve Control Center, memory, HUD, model routing, transcription APIs and TTS abstractions in non-audio builds.
+
+
 ## 0.1.7 / runtime 0.2.19 / HUD 0.1.7 - 2026-09-28
 
 - Integrate KITT Protocol 0.3.0 and Memory 0.3.0 and extend Python-runtime compatibility through Agent CLI 0.75.x.

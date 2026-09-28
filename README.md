@@ -287,3 +287,10 @@ The daemon is pinned to kitt-memory 0.2.1 and kitt-protocol 0.2.1. Protocol-v1 m
 ## Assistant 0.1.7 / runtime 0.2.19 — semantic Surface renderer
 
 Assistant now consumes KITT Protocol 0.3.0 and Memory 0.3.0. The Python daemon negotiates the host Surface component catalog, exposes a narrow semantic action route and persists `SurfaceAction` events. Remote Web renders validated Surface snapshots using a dedicated declarative renderer with bounded graph traversal and safe text DOM APIs; buttons send only semantic actions back to the daemon. Arbitrary model HTML/JavaScript and generic browser-side SafeRuntime execution remain unsupported.
+
+
+## 0.1.8 — optional native voice build
+
+The resident Assistant no longer requires Linux ALSA development packages merely to install the KITT ecosystem. The `kittd` voice-capture stack is now the Cargo feature `voice` (enabled by default for normal source builds), while the installer may compile `kittd` with `--no-default-features` when Linux native audio development dependencies are unavailable.
+
+Disabling the build feature only removes resident microphone capture/wake-word processing. Core Assistant APIs, model routing, memory, Control Center, HUD transport, transcription requests and system TTS abstractions remain available.

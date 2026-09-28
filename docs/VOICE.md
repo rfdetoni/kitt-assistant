@@ -1,5 +1,7 @@
 # K.I.T.T. Assistant — Hands-free Voice
 
+> Build note: resident microphone capture is the optional Cargo feature `voice`. It is enabled by default for normal source builds. The automatic ecosystem installer may disable that feature on Linux when the host lacks the native ALSA development toolchain; this keeps the rest of the Assistant installable without root-level package changes.
+
 This implementation keeps the assistant daemon resident and keeps the expensive pieces out of the idle path.
 
 ## Runtime flow

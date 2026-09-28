@@ -1,6 +1,7 @@
 mod model_config;
 mod settings_overlay;
 mod settings_web;
+#[cfg(feature = "voice")]
 mod voice;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -279,9 +280,12 @@ fn main() {
         .unwrap_or_else(|e| fatal(format!("bind {}: {e}", config.listen)));
     eprintln!("kittd listening on {}", config.listen);
 
+    #[cfg(feature = "voice")]
     if let Err(error) = voice::start(runtime.clone(), &paths.dir) {
         eprintln!("kitt voice startup: {error}");
     }
+    #[cfg(not(feature = "voice"))]
+    eprintln!("kitt voice capture disabled in this build");
     let kitt_root = paths.dir.parent().unwrap_or(&paths.dir);
     if let Err(error) = settings_web::start(kitt_root) {
         eprintln!("KITT Control Center startup: {error}");

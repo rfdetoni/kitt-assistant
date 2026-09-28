@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = ["voice"]
+voice = ["dep:cpal", "dep:hound", "dep:rustpotter"]
+
 [dependencies]
 kitt-domain = { path = "../../crates/kitt-domain" }
 kitt-application = { path = "../../crates/kitt-application" }
@@ -18,7 +22,7 @@ uuid.workspace = true
 dirs.workspace = true
 base64.workspace = true
 url.workspace = true
-cpal.workspace = true
-hound.workspace = true
-rustpotter.workspace = true
+cpal = { workspace = true, optional = true }
+hound = { workspace = true, optional = true }
+rustpotter = { workspace = true, optional = true }
 reqwest.workspace = true
