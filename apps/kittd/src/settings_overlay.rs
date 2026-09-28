@@ -1,11 +1,9 @@
 //! Merge KITT Control Center overrides into kittd native configuration.
 // Target: apps/kittd/src/settings_overlay.rs
 
-use crate::{
-    Config,
-    model_config::ModelProfiles,
-    voice::{ActivationMode, VoiceConfig},
-};
+#[cfg(feature = "voice")]
+use crate::voice::{ActivationMode, VoiceConfig};
+use crate::{Config, model_config::ModelProfiles};
 use serde_json::{Map, Value};
 use std::{fs, path::Path};
 
@@ -126,6 +124,7 @@ pub(crate) fn apply_models(config_dir: &Path, profiles: &mut ModelProfiles) -> R
     Ok(())
 }
 
+#[cfg(feature = "voice")]
 pub(crate) fn apply_voice(config_dir: &Path, config: &mut VoiceConfig) -> Result<(), String> {
     let v = section(config_dir, "assistant.voice")?;
     if let Some(x) = v.get("enabled").and_then(Value::as_bool) {
