@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9 / runtime 0.2.20 - 2026-09-28
+
+- Align the Python runtime with Agent CLI 0.76.x.
+- Document standalone kitt-memoryd as the durable Agent-memory authority.
+- Keep Assistant optional for Agent + Reverse Proxy installations.
+
+
 ## 0.1.8 - 2026-09-28
 
 - Make resident microphone/wake-word capture a `kittd` Cargo feature named `voice`.

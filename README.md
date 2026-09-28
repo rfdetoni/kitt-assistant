@@ -108,7 +108,7 @@ For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) i
 
 ### Python runtime compatibility
 
-`kitt-assistant-runtime 0.2.19` supports Agent CLI releases from 0.68.1 through the 0.75 line on Python 3.14+. Standalone CI composes a pinned known-compatible Agent 0.75.1 revision with the Assistant runtime on Python 3.14; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
+`kitt-assistant-runtime 0.2.20` supports Agent CLI 0.76.x on Python 3.14+. Standalone CI composes a pinned known-compatible Agent 0.75.1 revision with the Assistant runtime on Python 3.14; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
 
 ---
 
@@ -294,3 +294,8 @@ Assistant now consumes KITT Protocol 0.3.0 and Memory 0.3.0. The Python daemon n
 The resident Assistant no longer requires Linux ALSA development packages merely to install the KITT ecosystem. The `kittd` voice-capture stack is now the Cargo feature `voice` (enabled by default for normal source builds), while the installer may compile `kittd` with `--no-default-features` when Linux native audio development dependencies are unavailable.
 
 Disabling the build feature only removes resident microphone capture/wake-word processing. Core Assistant APIs, model routing, memory, Control Center, HUD transport, transcription requests and system TTS abstractions remain available.
+
+
+## 0.1.9 / runtime 0.2.20 — external memory authority
+
+The Assistant remains an optional UX/runtime component. Durable Agent memory is no longer hosted by Assistant/kittd: Agent CLI 0.76+ talks to standalone `kitt-memoryd`, owned by the kitt-memory repository. Assistant runtime compatibility is aligned to Agent 0.76.x without becoming a dependency of the minimal Agent + Reverse Proxy installation.
