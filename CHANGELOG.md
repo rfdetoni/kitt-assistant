@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6 / runtime 0.2.18 / HUD 0.1.6 - 2026-09-27
+
+- Require Python 3.14+ for the Assistant Python runtime, matching the single current-interpreter support policy.
+- Pin Rust daemon/CLI and HUD to kitt-protocol 0.2.1 while preserving wire protocol v1.
+- Refresh Cargo/npm lock metadata and HUD/Tauri package versions for the 0.1.6 snapshot.
+
+
 ## 0.1.5 / runtime 0.2.17 - 2026-09-27
 
 - Unify Python daemon handshake/event protocol version on the Agent's `DAEMON_PROTOCOL_VERSION` authority and add an end-to-end parity test.
