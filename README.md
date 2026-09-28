@@ -306,3 +306,11 @@ The Assistant remains an optional UX/runtime component. Durable Agent memory is 
 The Python companion runtime now accepts `kitt-agent-cli>=0.76.0,<0.78`, covering the promoted Agent CLI 0.77.0 evidence-first execution release while preserving 0.76.x compatibility. Resident daemon ownership, approval durability and memory boundaries are unchanged.
 
 Workspace/HUD version metadata and Cargo/npm locks are aligned to Assistant 0.1.10.
+
+
+## 0.1.11 — voice-disabled build hotfix
+
+- Fixed `kittd` compilation when the `voice` feature is disabled: Control Center voice-overlay types are now compiled only when `feature = "voice"` is active.
+- CI now runs the same `cargo build --workspace --no-default-features --locked` path used by the ecosystem installer when Linux ALSA development headers are unavailable.
+- Core Assistant APIs, model routing, memory integration, Control Center, HUD transport, transcription requests and system TTS remain available in the voice-disabled build.
+- Assistant workspace and HUD metadata are aligned at `0.1.11`. The Python companion runtime remains `0.2.21` because its code and compatibility contract are unchanged.
