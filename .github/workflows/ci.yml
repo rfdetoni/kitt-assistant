@@ -27,6 +27,8 @@ jobs:
         run: cargo fmt --all --check
       - name: Locked build
         run: cargo build --workspace --locked
+      - name: Voice-disabled locked build
+        run: cargo build --workspace --no-default-features --locked
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Tests
