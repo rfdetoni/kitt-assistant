@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.12 / runtime 0.2.22 / HUD 0.1.12 - 2026-09-28
+
+- Widen Assistant runtime compatibility through Agent CLI 0.78.x (`f51dbba8a0506e90366ddb4e95026dc6c6614699`).
+- Pin standalone Python-runtime CI to the promoted Agent 0.78.0 revision.
+- Align Rust workspace, HUD/Tauri metadata and lockfiles at 0.1.12.
+- Preserve daemon/remote APIs, approval durability, Protocol 0.4.0 and standalone Memory ownership.
+
 ## 0.1.9 / runtime 0.2.20 - 2026-09-28
 
 - Align the Python runtime with Agent CLI 0.76.x.

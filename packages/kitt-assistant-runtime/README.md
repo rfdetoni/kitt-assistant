@@ -14,7 +14,7 @@ Human tool/command approvals are durable interaction state. A request in `PENDIN
 
 ## Agent compatibility
 
-Runtime 0.2.21 supports `kitt-agent-cli>=0.76.0,<0.78` on Python 3.14+. Agent CLI 0.77 is validated by the root ecosystem through the composed shared `kitt.*` namespace. The version range remains intentionally bounded so future Agent contract changes require review.
+Runtime 0.2.22 supports `kitt-agent-cli>=0.76.0,<0.79` on Python 3.14+. Agent CLI 0.78.0 is validated by the root ecosystem through the composed shared `kitt.*` namespace. The version range remains intentionally bounded so future Agent contract changes require review.
 
 
 ## Runtime 0.2.19 semantic Surface support
@@ -25,3 +25,8 @@ The daemon exposes capability negotiation and a narrow semantic Surface action e
 ## Runtime 0.2.21 Agent 0.77 compatibility
 
 The companion runtime accepts both Agent 0.76.x and 0.77.x. No daemon/remote API is duplicated or widened; this release only acknowledges the reviewed Agent 0.77 control-plane contract and keeps the shared namespace composition installable.
+
+
+## Runtime 0.2.22 Agent 0.78 compatibility
+
+The companion runtime widens its reviewed Agent range to `>=0.76.0,<0.79` and is validated against Agent CLI 0.78.0 revision `f51dbba8a0506e90366ddb4e95026dc6c6614699`. No daemon/remote API, approval lifetime or memory ownership semantics are changed.

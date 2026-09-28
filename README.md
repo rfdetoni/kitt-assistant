@@ -108,7 +108,7 @@ For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) i
 
 ### Python runtime compatibility
 
-`kitt-assistant-runtime 0.2.21` supports Agent CLI 0.76.x and 0.77.x on Python 3.14+. Standalone CI composes a pinned known-compatible Agent 0.75.1 revision with the Assistant runtime on Python 3.14; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
+`kitt-assistant-runtime 0.2.22` supports Agent CLI 0.76.x, 0.77.x and 0.78.x on Python 3.14+. Standalone CI composes the promoted Agent 0.78.0 revision with the Assistant runtime on Python 3.14; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
 
 ---
 
@@ -314,3 +314,11 @@ Workspace/HUD version metadata and Cargo/npm locks are aligned to Assistant 0.1.
 - CI now runs the same `cargo build --workspace --no-default-features --locked` path used by the ecosystem installer when Linux ALSA development headers are unavailable.
 - Core Assistant APIs, model routing, memory integration, Control Center, HUD transport, transcription requests and system TTS remain available in the voice-disabled build.
 - Assistant workspace and HUD metadata are aligned at `0.1.11`. The Python companion runtime remains `0.2.21` because its code and compatibility contract are unchanged.
+
+
+## 0.1.12 / runtime 0.2.22 — Agent 0.78 compatibility
+
+- Widen the Python companion runtime range to `kitt-agent-cli>=0.76.0,<0.79` after validating Agent CLI 0.78.0.
+- Pin standalone Python-runtime CI to Agent CLI 0.78.0 revision `f51dbba8a0506e90366ddb4e95026dc6c6614699`.
+- Align Rust workspace, HUD/Tauri metadata and lockfiles at Assistant 0.1.12.
+- Preserve approval durability, protocol versions, memory ownership and daemon/remote API contracts.
