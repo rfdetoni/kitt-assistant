@@ -250,6 +250,7 @@ class RemoteRequestHandler(BaseHTTPRequestHandler):
             "/": "index.html",
             "/index.html": "index.html",
             "/app.js": "app.js",
+            "/surface.js": "surface.js",
             "/app.css": "app.css",
         }
         filename = mapping.get(path)

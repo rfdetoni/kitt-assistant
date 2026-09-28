@@ -1,3 +1,5 @@
+import {SurfaceRenderer} from "./surface.js";
+
 const state = {
   csrf: "",
   sessions: [],
@@ -32,6 +34,13 @@ const els = {
   logoutButton: $("logoutButton"), navToggle: $("navToggle"), inspectorToggle: $("inspectorToggle"), sidebar: $("sidebar"),
   inspector: document.querySelector(".inspector"), toast: $("toast"),
 };
+
+const surfaceRenderer = new SurfaceRenderer({
+  container: els.conversation,
+  request: api,
+  notify: toast,
+  getSessionId: () => state.sessionId,
+});
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -92,7 +101,7 @@ async function bootstrap() {
     const me = await api("/api/me");
     state.csrf = me.csrf || "";
     hidePairing();
-    await Promise.all([loadStatus(), loadSessions()]);
+    await Promise.all([loadStatus(), loadSurfaceCapabilities(), loadSessions()]);
     setConnected(true);
   } catch (_) {
     showPairing();
@@ -110,6 +119,15 @@ async function loadStatus() {
   } catch (err) {
     setConnected(false);
     toast(err.message, "bad");
+  }
+}
+
+async function loadSurfaceCapabilities() {
+  try {
+    const payload = await api("/api/surfaces/capabilities");
+    surfaceRenderer.setCapabilities(payload?.capabilities?.components || []);
+  } catch (_) {
+    surfaceRenderer.setCapabilities([]);
   }
 }
 
@@ -154,6 +172,7 @@ async function selectSession(sessionId) {
   state.children.clear();
   state.artifacts = [];
   state.diff = {loaded: false, available: false, content: ""};
+  surfaceRenderer.reset();
   state.messagesNextBefore = "";
   state.messagesHasMore = false;
   clearConversation();
@@ -306,6 +325,7 @@ function hydrateHistoricalEvent(evt) {
   } else if (type === "ToolStarted" || type === "ToolCompleted") {
     state.tools.unshift({type, ...p, timestamp: evt.created_at});
     state.tools = state.tools.slice(0, 80);
+    if (type === "ToolCompleted" && p?.metadata?.surface) surfaceRenderer.render(p.metadata.surface);
   } else if (type === "ChildAgentSpawned") {
     state.children.set(p.child_id, {name: p.name || p.child_id, status: "running", ...p});
   } else if (type === "ChildAgentProgress" || type === "ChildAgentFinished") {
@@ -342,6 +362,7 @@ function handleEvent(evt) {
   } else if (type === "ToolCompleted") {
     state.tools.unshift({type, ...p, timestamp: evt.created_at});
     state.tools = state.tools.slice(0, 80);
+    if (p?.metadata?.surface) surfaceRenderer.render(p.metadata.surface);
   } else if (type === "ApprovalRequired") {
     const approval = {
       approval_id: p.approval_request_id,

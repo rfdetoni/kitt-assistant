@@ -220,3 +220,25 @@ body.resizing { user-select: none; cursor: col-resize; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+
+/* Declarative KITT Surface renderer. Model output is never interpreted as HTML. */
+.surface-card { border-left-color: #6b3037; background: linear-gradient(180deg, rgba(255,39,56,.035), transparent); }
+.surface-body { display: grid; gap: 10px; }
+.surface-node { display: grid; gap: 8px; min-width: 0; }
+.surface-node > .surface-node { margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--line-soft); }
+.surface-heading { margin: 0; font-size: 15px; color: #fff; }
+.surface-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.surface-badge { width: fit-content; border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; color: #dfe5eb; background: var(--panel-2); font-size: 11px; }
+.surface-metric { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; padding: 9px 11px; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--panel); }
+.surface-metric-label { color: var(--muted); font-size: 11px; }
+.surface-metric-value { font: 16px var(--mono); }
+.surface-progress { width: min(460px, 100%); accent-color: var(--red); }
+.surface-button { width: fit-content; min-height: 36px; border: 1px solid #81212a; border-radius: 6px; padding: 7px 12px; color: #fff; background: #71151d; }
+.surface-button:disabled { opacity: .55; cursor: progress; }
+.surface-input { width: min(520px, 100%); min-height: 36px; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; color: var(--text); background: var(--panel); }
+.surface-toggle { color: var(--muted); font-size: 12px; }
+.surface-alert { border-left: 3px solid var(--amber); padding: 9px 11px; background: rgba(255,179,71,.07); white-space: pre-wrap; }
+.surface-code { max-height: 360px; overflow: auto; margin: 0; padding: 11px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--bg); color: #b9c2cc; white-space: pre; font: 11px/1.55 var(--mono); }
+.surface-artifact { font: 11px var(--mono); color: var(--muted); }
+.surface-list { margin: 0; padding-left: 22px; }
