@@ -502,6 +502,87 @@ class DaemonServer:
             if approval_id not in pending_ids:
                 self._direct_pending.pop(approval_id, None)
 
+    def _surface_capabilities(self, rt) -> dict[str, Any]:
+        service = getattr(rt, "surface_service", None)
+        if service is None:
+            raise RuntimeError("Surface service is unavailable")
+        return service.capabilities()
+
+    async def _surface_action(
+        self,
+        rt,
+        session_id: str,
+        surface_id: str,
+        component_id: str,
+        action_id: str,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self._require_session(rt, session_id)
+        id_pattern = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+        surface_id = str(surface_id or "").strip()
+        component_id = str(component_id or "").strip()
+        action_id = str(action_id or "").strip()
+        if not id_pattern.fullmatch(surface_id):
+            raise ValueError("Invalid surface_id")
+        if not id_pattern.fullmatch(component_id):
+            raise ValueError("Invalid component_id")
+        if not id_pattern.fullmatch(action_id):
+            raise ValueError("Invalid action")
+        if context is None:
+            context = {}
+        if not isinstance(context, dict):
+            raise ValueError("Surface action context must be an object")
+        encoded_context = json.dumps(context, ensure_ascii=False, sort_keys=True)
+        if len(encoded_context.encode("utf-8")) > 16 * 1024:
+            raise ValueError("Surface action context exceeds 16 KiB")
+
+        turn_id = f"ui_surface_{uuid.uuid4().hex}"
+        security_context = ExecutionSecurityContext.create_user_context(
+            workspace_id=rt.workspace_id,
+            conversation_id=session_id,
+            turn_id=turn_id,
+            capabilities=(),
+        )
+        runtime_args = {
+            "operation": "surface.action",
+            "arguments": {
+                "surface_id": surface_id,
+                "component_id": component_id,
+                "action": action_id,
+                "context": dict(context),
+            },
+        }
+        result = await asyncio.to_thread(
+            rt.registry.execute_tool,
+            "kitt_runtime",
+            runtime_args,
+            turn_id,
+            session_id,
+            rt.workspace_id,
+            ["kitt_runtime"],
+            None,
+            None,
+            "USER",
+            security_context,
+        )
+        if result.requires_approval:
+            raise RuntimeError("Semantic surface actions must not require tool approval")
+        if not result.success:
+            raise RuntimeError(str(result.error or "Surface action failed"))
+
+        payload = dict((result.metadata or {}).get("surface_action") or {})
+        if not payload and result.output:
+            try:
+                parsed = json.loads(result.output)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                parsed = None
+            if isinstance(parsed, dict):
+                payload = parsed
+        if not payload:
+            raise RuntimeError("Surface action returned no semantic payload")
+        self.record_event(rt.database, session_id, "SurfaceAction", payload)
+        return {"surface_action": payload}
+
     async def _ui_tool_execute(self, rt, session_id: str, tool_name: str, args: dict) -> dict[str, Any]:
         self._require_session(rt, session_id)
         allowed = {"run_command", "child_spawn"}
@@ -1122,7 +1203,46 @@ class DaemonServer:
                     str(self.workspace_root)
                 )
 
-                if action == "runtime.status":
+                if action == "surface.capabilities":
+                    try:
+                        capabilities = self._surface_capabilities(rt)
+                    except Exception as exc:
+                        await q.put(encode_message({
+                            "type": "RESPONSE", "request_id": req_id,
+                            "status": "error", "error": str(exc),
+                        }))
+                        continue
+                    await q.put(encode_message({
+                        "type": "RESPONSE",
+                        "request_id": req_id,
+                        "status": "ok",
+                        "action": action,
+                        "capabilities": capabilities,
+                    }))
+                elif action == "surface.action":
+                    try:
+                        payload = await self._surface_action(
+                            rt,
+                            str(msg.get("session_id", "")),
+                            str(msg.get("surface_id", "")),
+                            str(msg.get("component_id", "")),
+                            str(msg.get("surface_action", "")),
+                            msg.get("context") or {},
+                        )
+                    except Exception as exc:
+                        await q.put(encode_message({
+                            "type": "RESPONSE", "request_id": req_id,
+                            "status": "error", "error": str(exc),
+                        }))
+                        continue
+                    await q.put(encode_message({
+                        "type": "RESPONSE",
+                        "request_id": req_id,
+                        "status": "ok",
+                        "action": action,
+                        **payload,
+                    }))
+                elif action == "runtime.status":
                     snapshot = rt.snapshot()
                     await q.put(encode_message({
                         "type": "RESPONSE",

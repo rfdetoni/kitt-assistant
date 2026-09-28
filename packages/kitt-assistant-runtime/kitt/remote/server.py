@@ -37,6 +37,9 @@ _INPUT_RE = re.compile(r"^/api/sessions/([A-Za-z0-9_-]{1,128})/input$")
 _CANCEL_RE = re.compile(r"^/api/turns/([A-Za-z0-9_-]{1,160})/cancel$")
 _APPROVAL_RE = re.compile(r"^/api/approvals/([A-Za-z0-9_-]{1,160})/(approve|deny)$")
 _ARTIFACT_RE = re.compile(r"^/api/artifacts/([A-Za-z0-9_-]{1,180})$")
+_SURFACE_ACTION_RE = re.compile(
+    r"^/api/surfaces/([A-Za-z0-9_.:-]{1,128})/actions/([A-Za-z0-9_.:-]{1,128})$"
+)
 
 
 @dataclass(frozen=True)
@@ -332,6 +335,9 @@ class RemoteRequestHandler(BaseHTTPRequestHandler):
                     return
                 self._json(HTTPStatus.OK, self.app.gateway.artifacts(session_id))
                 return
+            if path == "/api/surfaces/capabilities":
+                self._json(HTTPStatus.OK, self.app.gateway.surface_capabilities())
+                return
             if path == "/api/diff":
                 self._json(HTTPStatus.OK, self.app.gateway.workspace_diff())
                 return
@@ -450,6 +456,32 @@ class RemoteRequestHandler(BaseHTTPRequestHandler):
                     self._error(HTTPStatus.BAD_REQUEST, "session_id is required")
                     return
                 self._json(HTTPStatus.OK, self.app.gateway.cancel_turn(session_id, match.group(1)))
+                return
+            surface_match = _SURFACE_ACTION_RE.match(path)
+            if surface_match:
+                surface_id, action_id = surface_match.groups()
+                session_id = str(body.get("session_id") or "").strip()
+                component_id = str(body.get("component_id") or "").strip()
+                context = body.get("context") or {}
+                if not session_id or not component_id:
+                    self._error(
+                        HTTPStatus.BAD_REQUEST,
+                        "session_id and component_id are required",
+                    )
+                    return
+                if not isinstance(context, dict):
+                    self._error(HTTPStatus.BAD_REQUEST, "context must be an object")
+                    return
+                self._json(
+                    HTTPStatus.ACCEPTED,
+                    self.app.gateway.surface_action(
+                        session_id,
+                        surface_id,
+                        component_id,
+                        action_id,
+                        context,
+                    ),
+                )
                 return
             match = _APPROVAL_RE.match(path)
             if match:

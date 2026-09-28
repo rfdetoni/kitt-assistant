@@ -65,6 +65,45 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ping.get("daemon_protocol_version"), DAEMON_PROTOCOL_VERSION)
         await client.close()
 
+    async def test_00b_surface_capability_and_semantic_action_round_trip(self):
+        rt = await self.server._get_or_create_runtime()
+        snapshot = rt.surface_service.publish(
+            {
+                "id": "test-surface",
+                "catalog_id": "kitt.core.v1",
+                "root": "root",
+                "components": [
+                    {
+                        "id": "root",
+                        "component": "Button",
+                        "props": {"label": "Apply", "action": "apply"},
+                        "children": [],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(snapshot["revision"], 1)
+
+        client = DaemonClient(workspace_root=str(self.root), token=self.server.token)
+        self.assertTrue(await client.connect())
+        capabilities = await client.send_request("surface.capabilities")
+        self.assertEqual(capabilities.get("status"), "ok")
+        self.assertIn("Button", capabilities["capabilities"]["components"])
+
+        result = await client.send_request(
+            "surface.action",
+            {
+                "session_id": self.session_id,
+                "surface_id": "test-surface",
+                "component_id": "root",
+                "surface_action": "apply",
+                "context": {"source": "test"},
+            },
+        )
+        self.assertEqual(result.get("status"), "ok")
+        self.assertEqual(result["surface_action"]["action"], "apply")
+        await client.close()
+
     async def test_01_daemon_real_turn_executes_and_emits_events(self):
         """Verify DaemonServer executes turn and emits real stream of turn events."""
         client = DaemonClient(workspace_root=str(self.root), token=self.server.token)

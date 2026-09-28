@@ -101,6 +101,28 @@ class DaemonGateway:
             {"session_id": session_id, "artifact_id": artifact_id, "offset": max(0, int(offset))},
         )
 
+    def surface_capabilities(self) -> dict:
+        return self.request("surface.capabilities")
+
+    def surface_action(
+        self,
+        session_id: str,
+        surface_id: str,
+        component_id: str,
+        action: str,
+        context: dict | None = None,
+    ) -> dict:
+        return self.request(
+            "surface.action",
+            {
+                "session_id": session_id,
+                "surface_id": surface_id,
+                "component_id": component_id,
+                "surface_action": action,
+                "context": dict(context or {}),
+            },
+        )
+
     def workspace_diff(self) -> dict:
         return self.request("workspace.diff")
 
