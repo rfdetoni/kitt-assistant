@@ -108,7 +108,7 @@ For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) i
 
 ### Python runtime compatibility
 
-`kitt-assistant-runtime 0.2.18` supports Agent CLI releases from 0.68.1 through the 0.74 line on Python 3.14+. Standalone CI composes a pinned known-compatible Agent 0.74.4 revision with the Assistant runtime on Python 3.14; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
+`kitt-assistant-runtime 0.2.19` supports Agent CLI releases from 0.68.1 through the 0.75 line on Python 3.14+. Standalone CI composes a pinned known-compatible Agent 0.75.1 revision with the Assistant runtime on Python 3.14; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
 
 ---
 
@@ -282,3 +282,8 @@ The daemon is pinned to kitt-memory 0.2.1 and kitt-protocol 0.2.1. Protocol-v1 m
 - Python runtime metadata now requires Python 3.14+, matching the interpreter continuously validated by the ecosystem.
 - Rust daemon, CLI, HUD and CI are pinned to KITT Protocol 0.2.1; wire protocol v1 remains unchanged.
 - HUD package/Tauri metadata and Cargo/npm locks are aligned with the same 0.1.6/Protocol 0.2.1 snapshot.
+
+
+## Assistant 0.1.7 / runtime 0.2.19 — semantic Surface renderer
+
+Assistant now consumes KITT Protocol 0.3.0 and Memory 0.3.0. The Python daemon negotiates the host Surface component catalog, exposes a narrow semantic action route and persists `SurfaceAction` events. Remote Web renders validated Surface snapshots using a dedicated declarative renderer with bounded graph traversal and safe text DOM APIs; buttons send only semantic actions back to the daemon. Arbitrary model HTML/JavaScript and generic browser-side SafeRuntime execution remain unsupported.

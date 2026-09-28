@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7 / runtime 0.2.19 / HUD 0.1.7 - 2026-09-28
+
+- Integrate KITT Protocol 0.3.0 and Memory 0.3.0 and extend Python-runtime compatibility through Agent CLI 0.75.x.
+- Add capability-aware declarative Surface rendering to the remote Control Center with bounded component graphs and text-only DOM projection.
+- Add a narrow daemon/HTTP semantic `surface.action` path; browser clients never receive a generic `kitt_runtime` execution endpoint.
+- Pin standalone Python CI to Agent CLI 0.75.1 and refresh Rust/npm/Tauri locks.
+
 ## 0.1.6 / runtime 0.2.18 / HUD 0.1.6 - 2026-09-27
 
 - Require Python 3.14+ for the Assistant Python runtime, matching the single current-interpreter support policy.
