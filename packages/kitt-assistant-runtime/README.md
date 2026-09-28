@@ -14,4 +14,4 @@ Human tool/command approvals are durable interaction state. A request in `PENDIN
 
 ## Agent compatibility
 
-Runtime 0.2.16 supports `kitt-agent-cli>=0.68.1,<0.75`. Agent CLI 0.74 is validated in the Assistant CI through the composed shared `kitt.*` namespace. The version range is intentionally bounded so future Agent contract changes must be reviewed rather than accepted implicitly.
+Runtime 0.2.18 supports `kitt-agent-cli>=0.68.1,<0.75` on Python 3.14+. Agent CLI 0.74 is validated in the Assistant CI through the composed shared `kitt.*` namespace. The version range is intentionally bounded so future Agent contract changes must be reviewed rather than accepted implicitly.
