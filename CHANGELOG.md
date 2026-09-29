@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.14 / runtime 0.2.24 / HUD 0.1.14 - 2026-09-29
+
+- Validate the companion runtime against Agent CLI 0.78.4 (`7d56faec43fa6f5c0e4b1f63c0c18e269a0eb9d8`).
+- Align workspace and HUD version metadata at 0.1.14.
+- Preserve existing daemon, approval and Memory 0.5.0 contracts.
+
+
 ## 0.1.13 / runtime 0.2.23 / HUD 0.1.13 - 2026-09-29
 
 - Pin native memory dependencies to KITT Memory 0.5.0.
