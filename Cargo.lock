@@ -991,8 +991,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-memory-core"
-version = "0.4.0"
-source = "git+https://github.com/rfdetoni/kitt-memory?rev=73105776fc38cd92ebcffe65b38bd03059c92c11#73105776fc38cd92ebcffe65b38bd03059c92c11"
+version = "0.5.0"
+source = "git+https://github.com/rfdetoni/kitt-memory?rev=defa05c7712c726a4accc3626757b270d190387b#defa05c7712c726a4accc3626757b270d190387b"
 dependencies = [
  "hex",
  "serde",
@@ -1004,8 +1004,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-memory-sqlite"
-version = "0.4.0"
-source = "git+https://github.com/rfdetoni/kitt-memory?rev=73105776fc38cd92ebcffe65b38bd03059c92c11#73105776fc38cd92ebcffe65b38bd03059c92c11"
+version = "0.5.0"
+source = "git+https://github.com/rfdetoni/kitt-memory?rev=defa05c7712c726a4accc3626757b270d190387b#defa05c7712c726a4accc3626757b270d190387b"
 dependencies = [
  "kitt-memory-core",
  "rusqlite",
