@@ -108,7 +108,7 @@ For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) i
 
 ### Python runtime compatibility
 
-`kitt-assistant-runtime 0.2.24` supports Agent CLI 0.76.x, 0.77.x and 0.78.x on Python 3.14+. Standalone CI composes Agent 0.78.6 with the Assistant runtime on Python 3.14+; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
+`kitt-assistant-runtime 0.2.25` supports Agent CLI 0.76.x, 0.77.x and 0.78.x on Python 3.14+. K.I.T.T. sibling dependencies now follow their `main` branches; the root ecosystem CI resolves those moving refs once per run and validates the composed result.
 
 ---
 
@@ -273,7 +273,7 @@ The daemon is pinned to kitt-memory 0.2.1 and kitt-protocol 0.2.1. Protocol-v1 m
 
 - The Python daemon protocol now imports one `DAEMON_PROTOCOL_VERSION` authority from the Agent package. Handshake metadata and `DaemonEvent.protocol_version` can no longer drift independently.
 - HUD event fan-out snapshots subscriber sockets under the mutex and performs bounded socket writes after releasing it, so a slow HUD client does not stall all subscribers or subscription management.
-- Rust memory dependencies are pinned to kitt-memory 0.2.1.
+- Rust memory dependencies historically used fixed revisions; current Assistant manifests follow `kitt-memory` `main`.
 - Standalone Python-runtime CI uses an immutable known-compatible Agent 0.74.4 SHA rather than mutable `main`; the root ecosystem integration remains authoritative for the exact promoted component set.
 
 
@@ -340,3 +340,8 @@ Standalone CI now validates Agent CLI 0.78.4 revision `7d56faec43fa6f5c0e4b1f63c
 ## Agent 0.78.6 compatibility
 
 Assistant runtime 0.2.24 remains API-compatible with Agent CLI 0.78.6. CI now validates the composed Python namespace against revision `d6eae285b62e22add5b870fbfb14dbab1a6b4186`, including the structural reverse-proxy tool-schema transport.
+
+
+## Assistant 0.1.15 / runtime 0.2.25 — main-first ecosystem dependencies
+
+Native Assistant dependencies now follow `kitt-memory` and `kitt-protocol` `main` instead of embedding cross-repository SHAs. The HUD follows `kitt-protocol#main`, and the root ecosystem installer refreshes those K.I.T.T. dependencies inside its temporary build checkout before compiling. Component lockfiles remain local build artifacts, not ecosystem revision authorities.
