@@ -14,7 +14,7 @@ Human tool/command approvals are durable interaction state. A request in `PENDIN
 
 ## Agent compatibility
 
-Runtime 0.2.22 supports `kitt-agent-cli>=0.76.0,<0.79` on Python 3.14+. Agent CLI 0.78.0 is validated by the root ecosystem through the composed shared `kitt.*` namespace. The version range remains intentionally bounded so future Agent contract changes require review.
+Runtime 0.2.23 supports `kitt-agent-cli>=0.76.0,<0.79` on Python 3.14+. Agent CLI 0.78.3 is validated by standalone CI and the root ecosystem through the composed shared `kitt.*` namespace. The version range remains intentionally bounded so future Agent contract changes require review.
 
 
 ## Runtime 0.2.19 semantic Surface support
@@ -30,3 +30,8 @@ The companion runtime accepts both Agent 0.76.x and 0.77.x. No daemon/remote API
 ## Runtime 0.2.22 Agent 0.78 compatibility
 
 The companion runtime widens its reviewed Agent range to `>=0.76.0,<0.79` and is validated against Agent CLI 0.78.0 revision `f51dbba8a0506e90366ddb4e95026dc6c6614699`. No daemon/remote API, approval lifetime or memory ownership semantics are changed.
+
+
+## Runtime 0.2.23 — Agent 0.78.3 compatibility
+
+The companion runtime keeps the reviewed `>=0.76.0,<0.79` range and validates Agent CLI 0.78.3 revision `718e837bada08c69a88d83fc41e890d2f2b748d1`. Durable semantic memory remains owned by standalone `kitt-memoryd`; Assistant does not reintroduce a second Agent-memory authority.
