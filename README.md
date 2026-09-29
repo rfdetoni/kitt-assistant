@@ -327,6 +327,6 @@ Workspace/HUD version metadata and Cargo/npm locks are aligned to Assistant 0.1.
 ## 0.1.13 / runtime 0.2.23 — Memory 0.5 / Agent 0.78.3 alignment
 
 - Pin native Assistant memory dependencies to KITT Memory 0.5.0, keeping standalone `kitt-memoryd` as the durable Agent-memory authority.
-- Validate the Python companion runtime against Agent CLI 0.78.3 revision `718e837bada08c69a88d83fc41e890d2f2b748d1`.
+- Validate the Python companion runtime against Agent CLI 0.78.3 revision `89a63da16368a59eac5eee185373bfbf89f516b1`.
 - Align Rust workspace, HUD/Tauri metadata and lockfiles at Assistant 0.1.13.
 - Preserve daemon/remote APIs, approval durability, Protocol 0.4.0 and the existing `kitt-agent-cli>=0.76.0,<0.79` compatibility range.
