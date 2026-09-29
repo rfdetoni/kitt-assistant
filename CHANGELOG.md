@@ -3,7 +3,7 @@
 ## 0.1.13 / runtime 0.2.23 / HUD 0.1.13 - 2026-09-29
 
 - Pin native memory dependencies to KITT Memory 0.5.0.
-- Validate the Python runtime against Agent CLI 0.78.3 (`718e837bada08c69a88d83fc41e890d2f2b748d1`).
+- Validate the Python runtime against Agent CLI 0.78.3 (`89a63da16368a59eac5eee185373bfbf89f516b1`).
 - Align Rust workspace, HUD/Tauri metadata and lockfiles at 0.1.13.
 - Preserve Protocol 0.4.0, standalone memory authority and daemon/remote APIs.
 
