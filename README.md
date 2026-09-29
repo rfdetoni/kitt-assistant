@@ -330,3 +330,8 @@ Workspace/HUD version metadata and Cargo/npm locks are aligned to Assistant 0.1.
 - Validate the Python companion runtime against Agent CLI 0.78.3 revision `89a63da16368a59eac5eee185373bfbf89f516b1`.
 - Align Rust workspace, HUD/Tauri metadata and lockfiles at Assistant 0.1.13.
 - Preserve daemon/remote APIs, approval durability, Protocol 0.4.0 and the existing `kitt-agent-cli>=0.76.0,<0.79` compatibility range.
+
+
+## 0.1.14 / runtime 0.2.24 — Agent 0.78.4 staged execution
+
+Standalone CI now validates Agent CLI 0.78.4 revision `7d56faec43fa6f5c0e4b1f63c0c18e269a0eb9d8`. The Assistant runtime keeps its existing Agent 0.78 compatibility range while validating the reduced bootstrap/delta reverse-proxy prompt contract.
