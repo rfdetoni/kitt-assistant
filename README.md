@@ -335,3 +335,8 @@ Workspace/HUD version metadata and Cargo/npm locks are aligned to Assistant 0.1.
 ## 0.1.14 / runtime 0.2.24 — Agent 0.78.4 staged execution
 
 Standalone CI now validates Agent CLI 0.78.4 revision `7d56faec43fa6f5c0e4b1f63c0c18e269a0eb9d8`. The Assistant runtime keeps its existing Agent 0.78 compatibility range while validating the reduced bootstrap/delta reverse-proxy prompt contract.
+
+
+## Agent 0.78.6 compatibility
+
+Assistant runtime 0.2.24 remains API-compatible with Agent CLI 0.78.6. CI now validates the composed Python namespace against revision `5ae22f3a2adb589605a3731948c828099da32148`, including the structural reverse-proxy tool-schema transport.
