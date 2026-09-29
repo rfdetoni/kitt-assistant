@@ -35,3 +35,8 @@ The companion runtime widens its reviewed Agent range to `>=0.76.0,<0.79` and is
 ## Runtime 0.2.23 — Agent 0.78.3 compatibility
 
 The companion runtime keeps the reviewed `>=0.76.0,<0.79` range and validates Agent CLI 0.78.3 revision `89a63da16368a59eac5eee185373bfbf89f516b1`. Durable semantic memory remains owned by standalone `kitt-memoryd`; Assistant does not reintroduce a second Agent-memory authority.
+
+
+## Runtime 0.2.24 — Agent 0.78.4 compatibility
+
+The runtime validates Agent CLI 0.78.4 revision `7d56faec43fa6f5c0e4b1f63c0c18e269a0eb9d8`, including structured discovery-state propagation and staged reverse-proxy execution. Public daemon and approval contracts are unchanged.
