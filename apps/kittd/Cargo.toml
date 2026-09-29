@@ -13,9 +13,9 @@ voice = ["dep:cpal", "dep:hound", "dep:rustpotter"]
 kitt-domain = { path = "../../crates/kitt-domain" }
 kitt-application = { path = "../../crates/kitt-application" }
 kitt-infrastructure = { path = "../../crates/kitt-infrastructure" }
-kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", rev = "5369821eb12128a08d80a56874351aaf02ef5cc7" }
-kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", rev = "defa05c7712c726a4accc3626757b270d190387b" }
-kitt-memory-sqlite = { git = "https://github.com/rfdetoni/kitt-memory", rev = "defa05c7712c726a4accc3626757b270d190387b" }
+kitt-protocol = { git = "https://github.com/rfdetoni/kitt-protocol", branch = "main" }
+kitt-memory-core = { git = "https://github.com/rfdetoni/kitt-memory", branch = "main" }
+kitt-memory-sqlite = { git = "https://github.com/rfdetoni/kitt-memory", branch = "main" }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

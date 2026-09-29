@@ -1,6 +1,6 @@
 {
   "name": "kitt-hud",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
-    "@kitt/protocol": "git+https://github.com/rfdetoni/kitt-protocol.git#5369821eb12128a08d80a56874351aaf02ef5cc7"
+    "@kitt/protocol": "git+https://github.com/rfdetoni/kitt-protocol.git#main"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
