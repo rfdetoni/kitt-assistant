@@ -108,7 +108,7 @@ For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) i
 
 ### Python runtime compatibility
 
-`kitt-assistant-runtime 0.2.23` supports Agent CLI 0.76.x, 0.77.x and 0.78.x on Python 3.14+. Standalone CI composes Agent 0.78.3 with the Assistant runtime on Python 3.14; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
+`kitt-assistant-runtime 0.2.24` supports Agent CLI 0.76.x, 0.77.x and 0.78.x on Python 3.14+. Standalone CI composes Agent 0.78.6 with the Assistant runtime on Python 3.14+; the ecosystem repository separately validates the exact promoted snapshot. This keeps historical Assistant commits reproducible instead of following a moving Agent `main`.
 
 ---
 
