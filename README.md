@@ -339,4 +339,4 @@ Standalone CI now validates Agent CLI 0.78.4 revision `7d56faec43fa6f5c0e4b1f63c
 
 ## Agent 0.78.6 compatibility
 
-Assistant runtime 0.2.24 remains API-compatible with Agent CLI 0.78.6. CI now validates the composed Python namespace against revision `5ae22f3a2adb589605a3731948c828099da32148`, including the structural reverse-proxy tool-schema transport.
+Assistant runtime 0.2.24 remains API-compatible with Agent CLI 0.78.6. CI now validates the composed Python namespace against revision `f223e0dd750f90d565d58c9241c721b5067b9c78`, including the structural reverse-proxy tool-schema transport.
