@@ -1448,8 +1448,14 @@ class DaemonServer:
                         rt.approval.remember(
                             str(msg.get("tool_name", "")),
                             str(msg.get("path_glob", "**")),
-                            decision, scope,
+                            decision,
+                            scope,
                             conversation_id=sid if scope == "session" else None,
+                            workspace_id=rt.workspace_id,
+                            executable_identity=(
+                                str(msg.get("executable_identity", "")).strip()
+                                or None
+                            ),
                         )
                     except Exception as exc:
                         await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "error", "error": str(exc)}))
