@@ -1,5 +1,11 @@
 # Changelog
 
+## runtime 0.2.26 - 2026-09-30
+
+- Require and validate Agent CLI 0.80.x as the companion control-plane contract.
+- Forward executable principal identity through daemon `approval.remember` so workspace saved permissions preserve the same USER/GOAL/CHILD scoping as local Agent execution.
+- Keep policy, approval, run coordination, budgets, ContextEpochs and workspace snapshots owned by Agent CLI rather than duplicating those authorities in the Assistant runtime.
+
 ## 0.1.14 / runtime 0.2.24 / HUD 0.1.14 - 2026-09-29
 
 - Validate the companion runtime against Agent CLI 0.78.4 (`7d56faec43fa6f5c0e4b1f63c0c18e269a0eb9d8`).
