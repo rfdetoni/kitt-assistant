@@ -639,6 +639,10 @@ class DaemonServer:
                     "action_hash": action_hash,
                     "approval_request_id": approval_id,
                     "workspace_id": rt.workspace_id,
+                    "executable_identity": (
+                        f"{security_context.principal_type}:"
+                        f"{security_context.principal_id}"
+                    ),
                 },
             )
             return {
