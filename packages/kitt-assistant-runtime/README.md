@@ -7,6 +7,12 @@ Source extraction baseline: `rfdetoni/kitt-agent-cli@710597fc15677e3d88097623f11
 The package intentionally shares the `kitt` namespace with the Agent control plane. It depends on `kitt-agent-cli` for orchestration/domain services and contains no duplicate Agent core implementation.
 
 
+## Runtime 0.2.26 — Agent 0.80 authority compatibility
+
+Runtime 0.2.26 is paired with `kitt-agent-cli>=0.80.0,<0.81` on Python 3.14+. The daemon preserves Agent CLI as the single approval/policy authority and now forwards the executable principal identity when a workspace permission is remembered. This keeps daemon-mode `SavedPermission` semantics identical to local-mode execution: a permission bound to one USER/GOAL/CHILD principal cannot authorize a different principal.
+
+Agent CLI continues to own run coordination, execution budgets, ContextEpochs, workspace snapshots and Task Episode evidence. The Assistant runtime only transports daemon/remote operations and does not duplicate those control-plane owners.
+
 ## Approval lifetime
 
 Human tool/command approvals are durable interaction state. A request in `PENDING` has no wall-clock timeout and remains listable/decidable across long idle periods. The daemon never evicts an active approval to satisfy queue capacity; when the direct-approval queue is full it rejects creation of a new request instead. Short-lived, single-use TTLs apply only after an approval grant is issued.
@@ -14,7 +20,7 @@ Human tool/command approvals are durable interaction state. A request in `PENDIN
 
 ## Agent compatibility
 
-Runtime 0.2.23 supports `kitt-agent-cli>=0.76.0,<0.79` on Python 3.14+. Agent CLI 0.78.3 is validated by standalone CI and the root ecosystem through the composed shared `kitt.*` namespace. The version range remains intentionally bounded so future Agent contract changes require review.
+Runtime 0.2.26 supports `kitt-agent-cli>=0.80.0,<0.81` on Python 3.14+. Agent CLI 0.80 is the reviewed control-plane contract for durable run coordination, budgets, authority snapshots, ContextEpochs and identity-scoped saved permissions. The version range remains intentionally bounded so future Agent contract changes require review.
 
 
 ## Runtime 0.2.19 semantic Surface support
