@@ -1,5 +1,10 @@
 # Changelog
 
+## runtime 0.2.27 - 2026-10-01
+
+- Widen the reviewed Python companion range to `kitt-agent-cli>=0.81.0,<0.83` so the current Agent 0.81 control plane and the architectural-completion 0.82 release remain installable together.
+- Keep approval, policy, budget, run coordination, ContextEpoch and workspace snapshot authority in Agent CLI; this is a compatibility-only runtime release.
+
 ## runtime 0.2.26 - 2026-09-30
 
 - Require and validate Agent CLI 0.80.x as the companion control-plane contract.
