@@ -7,9 +7,9 @@ Source extraction baseline: `rfdetoni/kitt-agent-cli@710597fc15677e3d88097623f11
 The package intentionally shares the `kitt` namespace with the Agent control plane. It depends on `kitt-agent-cli` for orchestration/domain services and contains no duplicate Agent core implementation.
 
 
-## Runtime 0.2.26 — Agent 0.80 authority compatibility
+## Runtime 0.2.27 — Agent 0.81–0.82 authority compatibility
 
-Runtime 0.2.26 is paired with `kitt-agent-cli>=0.80.0,<0.81` on Python 3.14+. The daemon preserves Agent CLI as the single approval/policy authority and now forwards the executable principal identity when a workspace permission is remembered. This keeps daemon-mode `SavedPermission` semantics identical to local-mode execution: a permission bound to one USER/GOAL/CHILD principal cannot authorize a different principal.
+Runtime 0.2.27 is paired with `kitt-agent-cli>=0.81.0,<0.83` on Python 3.14+ and is validated against Agent CLI 0.81.0 revision `5529cbf5c3ddf9e1400408089a36bfaf73b9051d`. The daemon preserves Agent CLI as the single approval/policy authority and now forwards the executable principal identity when a workspace permission is remembered. This keeps daemon-mode `SavedPermission` semantics identical to local-mode execution: a permission bound to one USER/GOAL/CHILD principal cannot authorize a different principal.
 
 Agent CLI continues to own run coordination, execution budgets, ContextEpochs, workspace snapshots and Task Episode evidence. The Assistant runtime only transports daemon/remote operations and does not duplicate those control-plane owners.
 
@@ -20,7 +20,7 @@ Human tool/command approvals are durable interaction state. A request in `PENDIN
 
 ## Agent compatibility
 
-Runtime 0.2.26 supports `kitt-agent-cli>=0.80.0,<0.81` on Python 3.14+. Agent CLI 0.80 is the reviewed control-plane contract for durable run coordination, budgets, authority snapshots, ContextEpochs and identity-scoped saved permissions. The version range remains intentionally bounded so future Agent contract changes require review.
+Runtime 0.2.27 supports `kitt-agent-cli>=0.81.0,<0.83` on Python 3.14+. Agent CLI 0.81.0 revision `5529cbf5c3ddf9e1400408089a36bfaf73b9051d` is the validated control-plane baseline for durable run coordination, budgets, authority snapshots, ContextEpochs and identity-scoped saved permissions. The version range remains intentionally bounded so future Agent contract changes require review.
 
 
 ## Runtime 0.2.19 semantic Surface support
