@@ -1,5 +1,11 @@
 # Changelog
 
+## runtime 0.2.29 — 2026-10-02
+
+- Validate the companion runtime against Agent CLI 0.83.0 and widen its compatible range to `<0.84`.
+- Record the main-resolved Python graph for uv consumers. Native workspace/HUD versions are unchanged because their behavior did not change.
+- Preserve Agent ownership of policy, wallet, cancellation and prompt construction; Assistant reuses these corrections through its shared control plane.
+
 ## runtime 0.2.27 - 2026-10-01
 
 - Widen the reviewed Python companion range to `kitt-agent-cli>=0.81.0,<0.83` and validate the runtime against Agent CLI 0.81.0 revision `5529cbf5c3ddf9e1400408089a36bfaf73b9051d`.

@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kitt-assistant-runtime"
-version = "0.2.28"
+version = "0.2.29"
 description = "K.I.T.T. Python assistant daemon and remote runtime"
 requires-python = ">=3.14"
 license = {text = "MIT"}
-dependencies = ["kitt-agent-cli>=0.81.0,<0.83"]
+dependencies = ["kitt-agent-cli>=0.81.0,<0.84"]
 
 [tool.setuptools.packages.find]
 include = ["kitt.daemon*", "kitt.remote*"]
@@ -19,3 +19,6 @@ namespaces = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+kitt-agent-cli = { git = "https://github.com/rfdetoni/kitt-agent-cli.git", branch = "main" }
