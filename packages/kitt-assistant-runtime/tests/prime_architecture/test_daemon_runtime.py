@@ -65,6 +65,17 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ping.get("daemon_protocol_version"), DAEMON_PROTOCOL_VERSION)
         await client.close()
 
+    async def test_00a_stop_closes_an_idle_connected_client_and_releases_instance(self):
+        client = DaemonClient(workspace_root=str(self.root), token=self.server.token)
+        self.assertTrue(await client.connect())
+        try:
+            await asyncio.wait_for(self.server.stop(), timeout=2.0)
+            self.assertIsNone(self.server._instance_lock_fd)
+            self.assertIsNone(self.server._server)
+            self.assertFalse(self.server.transport.endpoint_file.exists())
+        finally:
+            await client.close()
+
     async def test_00b_surface_capability_and_semantic_action_round_trip(self):
         rt = await self.server._get_or_create_runtime()
         snapshot = rt.surface_service.publish(

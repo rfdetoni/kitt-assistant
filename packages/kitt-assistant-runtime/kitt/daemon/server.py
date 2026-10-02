@@ -9,13 +9,12 @@ import logging
 import os
 import re
 import secrets
-import stat
 import sys
 import time
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set
 
 from kitt import DAEMON_PROTOCOL_VERSION
 from kitt.core.runtime import KittRuntime
@@ -24,7 +23,6 @@ from kitt.core.turn_command import TurnCommand
 from kitt.daemon.protocol import DaemonEvent, decode_line, encode_message
 from kitt.daemon.redaction import sanitize_public_event_payload
 from kitt.daemon.transport import IPCTransport
-from kitt.history.database import HistoryDatabase
 from kitt.tools.approval import ApprovalGrant
 from kitt.security.capabilities import capabilities_for_tools
 from kitt.security.context import ExecutionSecurityContext
@@ -189,8 +187,10 @@ class DaemonServer:
             self._running = False
             if self._server is not None:
                 self._server.close()
+                self._server.abort_clients()
                 try:
-                    await self._server.wait_closed()
+                    async with asyncio.timeout(5.0):
+                        await self._server.wait_closed()
                 except Exception:
                     logger.debug(
                         "Daemon server close after startup failure failed",
@@ -228,14 +228,28 @@ class DaemonServer:
         self._running = False
         if self._server:
             self._server.close()
-            await self._server.wait_closed()
+            # Server.wait_closed() also waits for active connections in Python
+            # 3.14. Close clients first or an idle authenticated client can
+            # prevent runtime cleanup and instance-lock release forever.
+            self._server.close_clients()
+            try:
+                async with asyncio.timeout(5.0):
+                    await self._server.wait_closed()
+            except TimeoutError:
+                self._server.abort_clients()
+                try:
+                    async with asyncio.timeout(5.0):
+                        await self._server.wait_closed()
+                except TimeoutError:
+                    logger.error("Daemon clients did not close after transport abort")
             self._server = None
         for writer in list(self._client_queues):
             try:
                 writer.close()
-                await writer.wait_closed()
+                async with asyncio.timeout(2.0):
+                    await writer.wait_closed()
             except Exception:
-                pass
+                writer.transport.abort()
         for unsubscribe in list(self._runtime_event_unsubscribers.values()):
             try:
                 unsubscribe()
@@ -469,8 +483,8 @@ class DaemonServer:
         try:
             created, row_id = raw.rsplit(":", 1)
             created_at = float(created)
-        except (TypeError, ValueError):
-            raise ValueError("Invalid message cursor")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Invalid message cursor") from exc
         if not row_id or len(row_id) > 128 or not re.fullmatch(r"[A-Za-z0-9_-]+", row_id):
             raise ValueError("Invalid message cursor")
         return created_at, row_id
@@ -1649,11 +1663,13 @@ class DaemonServer:
                 self._subscribers[attached_session].discard(q)
             self._client_queues.pop(writer, None)
             writer_task.cancel()
+            await asyncio.gather(writer_task, return_exceptions=True)
             try:
                 writer.close()
-                await writer.wait_closed()
+                async with asyncio.timeout(2.0):
+                    await writer.wait_closed()
             except Exception:
-                pass
+                writer.transport.abort()
 
     async def _client_writer_loop(self, writer, q):
         try:

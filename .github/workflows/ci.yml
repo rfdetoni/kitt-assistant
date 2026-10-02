@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-agent-cli
-          ref: a684465ae4385ca9487a95e5d4db94113e158bf7
+          ref: 701bbf3b1f5237056745e1bc90bcaf78326d3cc1
           path: kitt-agent-cli
           persist-credentials: false
       - name: Checkout protocol dependency
@@ -77,7 +77,7 @@ jobs:
           print('Assistant runtime ownership: ok')
           PY
       - name: Run critical Assistant runtime suite
-        run: python -m pytest -q kitt-assistant/packages/kitt-assistant-runtime/tests
+        run: python -m pytest -q -o faulthandler_timeout=30 kitt-assistant/packages/kitt-assistant-runtime/tests
 
   hud-web:
     runs-on: ubuntu-latest

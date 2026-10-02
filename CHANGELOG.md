@@ -1,5 +1,13 @@
 # Changelog
 
+## runtime 0.2.30 — 2026-10-02
+
+- Close accepted connections before awaiting the asyncio listener; bound graceful shutdown and abort clients that do not drain. Apply the same rule to startup rollback and await writer task cancellation.
+- Validate the entire Python runtime test tree, including the new idle-client shutdown regression and semantic surface actions, against Agent CLI 0.83.3.
+- Refresh the main-resolved Python lock. Native workspace/HUD versions remain 0.1.16.
+- Review: High severity / High confidence, `kitt/daemon/server.py`: Python 3.14 listener shutdown waits for active clients; the old order could hang indefinitely and retain the instance lock/runtime. Fix: close clients before waiting, five-second grace then abort, bounded writer cleanup. Validation: live daemon/client shutdown, surface round trip and all runtime tests.
+
+
 ## runtime 0.2.29 — 2026-10-02
 
 - Validate the companion runtime against Agent CLI 0.83.0 and widen its compatible range to `<0.84`.
