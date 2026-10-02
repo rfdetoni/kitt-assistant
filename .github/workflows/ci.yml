@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-agent-cli
-          ref: 3c4b6a69dc079661665d8294037fa8ffb868cbe4
+          ref: 47a8e75573f199cea9b465745a540606ea71fbee
           path: kitt-agent-cli
           persist-credentials: false
       - name: Checkout protocol dependency

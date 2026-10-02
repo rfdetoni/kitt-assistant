@@ -8,7 +8,7 @@ The package intentionally shares the `kitt` namespace with the Agent control pla
 
 ## Runtime 0.2.31 — Agent 0.83.5 / Protocol 0.9 alignment
 
-Runtime 0.2.31 keeps the reviewed `kitt-agent-cli>=0.81.0,<0.84` range and validates the promoted Agent CLI 0.83.5 revision `3c4b6a69dc079661665d8294037fa8ffb868cbe4`. Its lock resolves KITT Protocol 0.9.0 while preserving daemon/remote ownership boundaries. Standalone `kitt-memoryd` remains the only durable Agent-memory authority.
+Runtime 0.2.31 keeps the reviewed `kitt-agent-cli>=0.81.0,<0.84` range and validates the promoted Agent CLI 0.83.5 revision `47a8e75573f199cea9b465745a540606ea71fbee`. Its lock resolves KITT Protocol 0.9.0 while preserving daemon/remote ownership boundaries. Standalone `kitt-memoryd` remains the only durable Agent-memory authority.
 
 
 ## Runtime 0.2.27 — Agent 0.81–0.82 authority compatibility
