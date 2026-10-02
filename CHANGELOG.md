@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.17 — 2026-10-02
+
+- Validate the native Rust workspace against KITT Memory 0.9.0 and KITT Protocol 0.9.0 while preserving protocol-v1 behavior.
+- Refresh the root Cargo lock to the promoted Memory/Protocol main revisions; no Python runtime or HUD contract change is required.
+- Preserve the existing memory recall/remember API surface: the Assistant consumes `MemoryRecord` values but does not construct the new internal derived fields or progressive request DTOs.
+
 ## runtime 0.2.30 — 2026-10-02
 
 - Close accepted connections before awaiting the asyncio listener; bound graceful shutdown and abort clients that do not drain. Apply the same rule to startup rollback and await writer task cancellation.
