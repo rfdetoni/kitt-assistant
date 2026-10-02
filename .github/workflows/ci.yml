@@ -122,8 +122,8 @@ jobs:
           python -m pip install --no-deps --force-reinstall ./kitt-protocol/sdk/python
           python -m pip install --no-deps ./kitt-assistant/packages/kitt-assistant-runtime
           python -m pip check
-      - name: Validate daemon launcher, paths and cleanup
-        run: python -m pytest -q kitt-assistant/packages/kitt-assistant-runtime/tests/test_daemon_process.py
+      - name: Validate daemon start/stop, launcher, paths and cleanup
+        run: python -m pytest -q kitt-assistant/packages/kitt-assistant-runtime/tests/test_daemon_process.py kitt-assistant/packages/kitt-assistant-runtime/tests/prime_architecture/test_daemon_runtime.py::TestDaemonRuntime::test_00_readiness_waits_for_required_runtime_start kitt-assistant/packages/kitt-assistant-runtime/tests/prime_architecture/test_daemon_runtime.py::TestDaemonRuntime::test_00a_stop_closes_an_idle_connected_client_and_releases_instance
 
   hud-web:
     runs-on: ubuntu-latest
