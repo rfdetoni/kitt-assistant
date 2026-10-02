@@ -2,7 +2,7 @@
 
 ## Python runtime 0.2.30
 
-Validated with Agent CLI 0.83.3 / Protocol 0.8.0. The companion accepts Agent CLI `>=0.81.0,<0.84`; uv follows Agent main and records its revision. Privacy, cancellation and wallet authority stay in Agent. Native workspace/HUD metadata is unchanged in this compatibility release.
+Python runtime 0.2.30 remains validated with Agent CLI 0.83.3 and its locked Protocol 0.8.0 graph. The native Rust workspace is **0.1.17**, validated against Memory 0.9.0 / Protocol 0.9.0; the HUD and Python runtime versions are unchanged. Privacy, cancellation and wallet authority stay in Agent.
 
 <p align="center">
   <strong>Resident local assistant, control center and voice/HUD runtime for K.I.T.T.</strong><br>
