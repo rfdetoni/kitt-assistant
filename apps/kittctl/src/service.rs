@@ -293,10 +293,7 @@ fn uninstall_service() {
     eprintln!("error: unsupported platform.");
 }
 
-fn require_service_command(
-    status: std::io::Result<std::process::ExitStatus>,
-    action: &str,
-) {
+fn require_service_command(status: std::io::Result<std::process::ExitStatus>, action: &str) {
     match status {
         Ok(status) if status.success() => {}
         Ok(status) => {
@@ -313,17 +310,36 @@ fn require_service_command(
 pub fn start_service() {
     #[cfg(target_os = "linux")]
     {
-        require_service_command(Command::new("systemctl").args(["--user", "start", "kitt-assistant.service"]).status(), "start");
+        require_service_command(
+            Command::new("systemctl")
+                .args(["--user", "start", "kitt-assistant.service"])
+                .status(),
+            "start",
+        );
         println!("K.I.T.T. background service started.");
     }
     #[cfg(target_os = "macos")]
     {
-        require_service_command(Command::new("launchctl").args(["start", "com.kitt.assistant"]).status(), "start");
+        require_service_command(
+            Command::new("launchctl")
+                .args(["start", "com.kitt.assistant"])
+                .status(),
+            "start",
+        );
         println!("K.I.T.T. background service started.");
     }
     #[cfg(target_os = "windows")]
     {
-        require_service_command(Command::new("powershell").args(["-NoProfile", "-Command", r#"Start-ScheduledTask -TaskName "KITT Assistant""#]).status(), "start");
+        require_service_command(
+            Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    r#"Start-ScheduledTask -TaskName "KITT Assistant""#,
+                ])
+                .status(),
+            "start",
+        );
         println!("K.I.T.T. scheduled task started.");
     }
 }
@@ -331,17 +347,36 @@ pub fn start_service() {
 pub fn stop_service() {
     #[cfg(target_os = "linux")]
     {
-        require_service_command(Command::new("systemctl").args(["--user", "stop", "kitt-assistant.service"]).status(), "stop");
+        require_service_command(
+            Command::new("systemctl")
+                .args(["--user", "stop", "kitt-assistant.service"])
+                .status(),
+            "stop",
+        );
         println!("K.I.T.T. background service stopped.");
     }
     #[cfg(target_os = "macos")]
     {
-        require_service_command(Command::new("launchctl").args(["stop", "com.kitt.assistant"]).status(), "stop");
+        require_service_command(
+            Command::new("launchctl")
+                .args(["stop", "com.kitt.assistant"])
+                .status(),
+            "stop",
+        );
         println!("K.I.T.T. background service stopped.");
     }
     #[cfg(target_os = "windows")]
     {
-        require_service_command(Command::new("powershell").args(["-NoProfile", "-Command", r#"Stop-ScheduledTask -TaskName "KITT Assistant""#]).status(), "stop");
+        require_service_command(
+            Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    r#"Stop-ScheduledTask -TaskName "KITT Assistant""#,
+                ])
+                .status(),
+            "stop",
+        );
         println!("K.I.T.T. scheduled task stopped.");
     }
 }
@@ -349,7 +384,12 @@ pub fn stop_service() {
 pub fn restart_service() {
     #[cfg(target_os = "linux")]
     {
-        require_service_command(Command::new("systemctl").args(["--user", "restart", "kitt-assistant.service"]).status(), "restart");
+        require_service_command(
+            Command::new("systemctl")
+                .args(["--user", "restart", "kitt-assistant.service"])
+                .status(),
+            "restart",
+        );
         println!("K.I.T.T. background service restarted.");
     }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -361,9 +401,28 @@ pub fn restart_service() {
 
 pub fn status_service() {
     #[cfg(target_os = "linux")]
-    require_service_command(Command::new("systemctl").args(["--user", "status", "kitt-assistant.service", "--no-pager"]).status(), "query");
+    require_service_command(
+        Command::new("systemctl")
+            .args(["--user", "status", "kitt-assistant.service", "--no-pager"])
+            .status(),
+        "query",
+    );
     #[cfg(target_os = "macos")]
-    require_service_command(Command::new("launchctl").args(["list", "com.kitt.assistant"]).status(), "query");
+    require_service_command(
+        Command::new("launchctl")
+            .args(["list", "com.kitt.assistant"])
+            .status(),
+        "query",
+    );
     #[cfg(target_os = "windows")]
-    require_service_command(Command::new("powershell").args(["-NoProfile", "-Command", r#"Get-ScheduledTask -TaskName "KITT Assistant""#]).status(), "query");
+    require_service_command(
+        Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                r#"Get-ScheduledTask -TaskName "KITT Assistant""#,
+            ])
+            .status(),
+        "query",
+    );
 }
