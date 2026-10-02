@@ -8,7 +8,7 @@ The package intentionally shares the `kitt` namespace with the Agent control pla
 
 ## Runtime 0.2.32 — lifecycle and readiness
 
-Runtime 0.2.32 is validated with Agent CLI 0.83.5 revision `47a8e75573f199cea9b465745a540606ea71fbee` and Protocol 0.9.0. Readiness is fail-closed: an authenticated listener may exist while startup is in progress, but the daemon is `ready` only after the required Agent runtime has started. Request, conversation and turn identifiers are preserved in relevant daemon telemetry.
+Runtime 0.2.32 is validated with Agent CLI 0.83.9 revision `38caa5518e769ab10e2213f296da99c9a88656ab` and Protocol 0.9.0. Readiness is fail-closed: an authenticated listener may exist while startup is in progress, but the daemon is `ready` only after the required Agent runtime has started. Request, conversation and turn identifiers are preserved in relevant daemon telemetry.
 
 ## Daemon lifecycle
 
@@ -29,7 +29,7 @@ Human tool/command approvals are durable interaction state. A request in `PENDIN
 
 ## Agent compatibility
 
-Runtime 0.2.32 supports `kitt-agent-cli>=0.81.0,<0.84` on Python 3.14+ and is validated against Agent CLI 0.83.5 revision `47a8e75573f199cea9b465745a540606ea71fbee`. Agent CLI owns run coordination, execution budgets, policy, approvals, ContextEpochs and workspace execution. Standalone `kitt-memoryd` remains the durable Agent semantic-memory authority.
+Runtime 0.2.32 supports `kitt-agent-cli>=0.81.0,<0.84` on Python 3.14+ and is validated against Agent CLI 0.83.9 revision `38caa5518e769ab10e2213f296da99c9a88656ab`. Agent CLI owns run coordination, execution budgets, policy, approvals, ContextEpochs and workspace execution. Standalone `kitt-memoryd` remains the durable Agent semantic-memory authority.
 
 ## Semantic Surface
 
