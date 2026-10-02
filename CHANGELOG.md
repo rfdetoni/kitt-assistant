@@ -5,7 +5,7 @@
 - Make Python daemon readiness depend on successful startup of the required Agent runtime; authenticated ping now exposes `starting|ready|degraded|stopping|stopped|failed` lifecycle semantics and a fail-closed `ready` flag.
 - Preserve existing request/conversation/turn correlation identifiers in relevant daemon telemetry and native request-error logs.
 - Make `kittctl service start|stop|restart|status` propagate native service-manager failures instead of reporting false success; add a narrow Linux/macOS/Windows lifecycle portability matrix for service compilation plus launcher/path/cleanup tests.
-- Bump the native Assistant workspace to 0.1.18 and Python runtime to 0.2.32. Only local package versions changed in locks; HUD metadata and external dependency revisions remain unchanged.
+- Bump the native Assistant workspace to 0.1.18 and Python runtime to 0.2.32. HUD package version metadata remains unchanged; final ecosystem reconciliation aligns native Memory to 0.9.1, native HUD Protocol to 0.9.0 and the Python validation baseline to Agent CLI 0.83.9.
 - Keep Agent CLI as execution/policy/approval authority and `kitt-memoryd` as durable semantic-memory authority; no Protocol or root-`kitt` contract change is included.
 
 ## 0.1.17 / runtime 0.2.31 — 2026-10-02
