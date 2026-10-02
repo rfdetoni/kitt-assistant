@@ -3,6 +3,7 @@
 ## runtime 0.2.29 — 2026-10-02
 
 - Validate the companion runtime against Agent CLI 0.83.0 and widen its compatible range to `<0.84`.
+- Discover the entire runtime test tree with pytest, including daemon integration cases in namespace subdirectories missed by unittest discovery.
 - Record the main-resolved Python graph for uv consumers. Native workspace/HUD versions are unchanged because their behavior did not change.
 - Preserve Agent ownership of policy, wallet, cancellation and prompt construction; Assistant reuses these corrections through its shared control plane.
 
