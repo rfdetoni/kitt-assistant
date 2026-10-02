@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -40,6 +41,7 @@ class DaemonProcessBootstrapTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertIs(result["bootstrap_failed"], True)
         self.assertIs(result["spawned"], False)
+        self.assertEqual(result["state"], "failed")
         self.assertEqual(result["errno"], errno.ENOENT)
         self.assertIn("before process creation", result["error"])
         transport.cleanup.assert_not_called()
@@ -76,6 +78,7 @@ class DaemonProcessBootstrapTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["pid"], 4321)
+        self.assertEqual(result["state"], "ready")
         stop.assert_awaited_once_with(temp)
         transport.cleanup.assert_called_once()
 
@@ -97,8 +100,54 @@ class DaemonProcessBootstrapTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "error")
         self.assertIs(result["spawned"], True)
+        self.assertEqual(result["state"], "failed")
         self.assertNotIn("bootstrap_failed", result)
         transport.cleanup.assert_called_once()
+
+    def test_start_daemon_detached_uses_current_interpreter_and_platform_detach(self) -> None:
+        with TemporaryDirectory() as temp:
+            transport = _transport_without_pid()
+            proc = MagicMock(pid=4321)
+            proc.poll.return_value = None
+            with (
+                patch.object(process, "IPCTransport", return_value=transport),
+                patch.object(process, "_resolve_python_executable", return_value=Path(sys.executable)),
+                patch.object(process, "_resolve_spawn_cwd", return_value=Path(temp)),
+                patch.object(process.subprocess, "Popen", return_value=proc) as popen,
+                patch.object(process, "_probe_daemon", new=AsyncMock(return_value=True)),
+            ):
+                result = process.start_daemon_detached(temp)
+
+        cmd = popen.call_args.args[0]
+        kwargs = popen.call_args.kwargs
+        self.assertEqual(cmd, [
+            sys.executable, "-m", "kitt.cli.main", "--root",
+            str(Path(temp).resolve()), "daemon", "run",
+        ])
+        self.assertEqual(kwargs["cwd"], str(Path(temp)))
+        if os.name == "nt":
+            self.assertIn("creationflags", kwargs)
+            self.assertNotIn("start_new_session", kwargs)
+        else:
+            self.assertIs(kwargs["start_new_session"], True)
+        self.assertEqual(result["state"], "ready")
+
+    def test_status_marks_live_unreachable_daemon_degraded(self) -> None:
+        with TemporaryDirectory() as temp:
+            transport = MagicMock()
+            transport.read_pid.return_value = 4321
+            transport.read_endpoint_metadata.return_value = None
+            transport.socket_path = Path(temp) / "daemon.sock"
+            with (
+                patch.object(process, "IPCTransport", return_value=transport),
+                patch.object(process, "_pid_alive", return_value=True),
+                patch.object(process, "_probe_daemon_state", new=AsyncMock(return_value=None)),
+            ):
+                status = process.get_daemon_status(temp)
+
+        self.assertEqual(status["state"], "degraded")
+        self.assertIs(status["running"], True)
+        self.assertIs(status["ready"], False)
 
 
 if __name__ == "__main__":

@@ -344,6 +344,7 @@ fn handle_client(mut stream: TcpStream, runtime: Arc<Runtime>) {
     let request = frame.envelope;
     let request_id = request.id.clone();
     if let Err((code, message)) = dispatch(&mut stream, &runtime, request) {
+        eprintln!("kittd request failed request_id={request_id:?} code={code}");
         reply_error(&mut stream, Some(&request_id), code, &message);
     }
 }

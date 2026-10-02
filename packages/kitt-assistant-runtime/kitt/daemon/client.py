@@ -65,6 +65,8 @@ class DaemonClient:
                 remote_protocol = int(ping.get("daemon_protocol_version") or 0)
                 if (
                     ping.get("status") == "ok"
+                    and ping.get("ready") is True
+                    and ping.get("lifecycle_state") == "ready"
                     and remote_version == _agent_version()
                     and remote_protocol == DAEMON_PROTOCOL_VERSION
                 ):
@@ -129,7 +131,12 @@ class DaemonClient:
         if not self._connected and not await self.connect():
             return False
         try:
-            return (await self._send_request({"action": "ping"})).get("status") == "ok"
+            ping = await self._send_request({"action": "ping"})
+            return (
+                ping.get("status") == "ok"
+                and ping.get("ready") is True
+                and ping.get("lifecycle_state") == "ready"
+            )
         except Exception:
             return False
 

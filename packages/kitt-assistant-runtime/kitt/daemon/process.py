@@ -15,6 +15,11 @@ from kitt.daemon.transport import IPCTransport
 from kitt.tools.process_runner import sanitized_subprocess_env
 
 
+_LIFECYCLE_STATES = frozenset(
+    {"starting", "ready", "degraded", "stopping", "stopped", "failed"}
+)
+
+
 async def _run_daemon_server(server: DaemonServer) -> None:
     await server.start()
     try:
@@ -78,12 +83,20 @@ def _terminate_spawned(proc: subprocess.Popen) -> None:
         pass
 
 
-async def _probe_daemon(workspace: str) -> bool:
+async def _probe_daemon_state(workspace: str) -> str | None:
     client = DaemonClient(workspace_root=workspace)
     try:
-        return await client.is_running()
+        if not await client.connect(require_compatible=False):
+            return None
+        ping = await client.send_request("ping")
+        state = str(ping.get("lifecycle_state") or "")
+        return state if state in _LIFECYCLE_STATES else None
     finally:
         await client.close()
+
+
+async def _probe_daemon(workspace: str) -> bool:
+    return await _probe_daemon_state(workspace) == "ready"
 
 
 async def _stop_daemon_via_ipc(workspace: str) -> Dict[str, Any]:
@@ -109,6 +122,7 @@ def _bootstrap_error(message: str, *, errno_value: int | None = None) -> Dict[st
         # concurrent daemon authorities for the same workspace.
         "bootstrap_failed": True,
         "spawned": False,
+        "state": "failed",
     }
     if errno_value is not None:
         result["errno"] = int(errno_value)
@@ -176,6 +190,7 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
                     "status": "ok",
                     "message": f"Daemon is already running (PID {existing_pid})",
                     "pid": existing_pid,
+                    "state": "ready",
                 }
         except Exception:
             pass
@@ -195,6 +210,7 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
                     "failed; refusing to replace or signal it"
                 ),
                 "pid": existing_pid,
+                "state": "degraded",
             }
 
         deadline = time.monotonic() + 3.0
@@ -208,6 +224,7 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
                     "authenticated stop request but did not exit"
                 ),
                 "pid": existing_pid,
+                "state": "degraded",
             }
         transport.cleanup()
     elif existing_pid:
@@ -273,6 +290,7 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
                     "status": "ok",
                     "message": f"Daemon started successfully in background (PID {pid})",
                     "pid": pid,
+                    "state": "ready",
                 }
         except Exception:
             pass
@@ -288,24 +306,39 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
         "error": f"Daemon failed to report readiness within {timeout_seconds}s",
         "pid": proc.pid,
         "spawned": True,
+        "state": "failed",
     }
 
 
 def stop_daemon(workspace: str) -> Dict[str, Any]:
     """Stop only through authenticated IPC; never signal a PID file blindly."""
     transport = IPCTransport(workspace)
+    pid = transport.read_pid()
     try:
         result = asyncio.run(_stop_daemon_via_ipc(workspace))
         if result.get("status") == "ok":
+            if pid:
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline and _pid_alive(pid):
+                    time.sleep(0.05)
+                if _pid_alive(pid):
+                    return {
+                        "status": "ok",
+                        "message": "Daemon stop requested via authenticated IPC",
+                        "pid": pid,
+                        "state": "stopping",
+                    }
+            transport.cleanup()
             return {
                 "status": "ok",
                 "message": "Daemon stopped via authenticated IPC",
                 "response": result.get("response"),
+                "state": "stopped",
             }
     except Exception:
         pass
 
-    pid = transport.read_pid()
+    pid = pid or transport.read_pid()
     if pid and _pid_alive(pid):
         return {
             "status": "error",
@@ -313,25 +346,36 @@ def stop_daemon(workspace: str) -> Dict[str, Any]:
                 f"Daemon PID {pid} is alive but authenticated IPC stop failed; "
                 "refusing to signal an unverified process"
             ),
+            "state": "degraded",
         }
     if pid:
         transport.cleanup()
-        return {"status": "ok", "message": "Removed stale daemon state"}
-    return {"status": "error", "error": "Daemon is not running"}
+        return {"status": "ok", "message": "Removed stale daemon state", "state": "stopped"}
+    return {"status": "error", "error": "Daemon is not running", "state": "stopped"}
 
 
 def get_daemon_status(workspace: str) -> Dict[str, Any]:
     transport = IPCTransport(workspace)
-    try:
-        running = asyncio.run(_probe_daemon(workspace))
-    except Exception:
-        running = False
     pid = transport.read_pid()
     endpoint = transport.read_endpoint_metadata()
+    pid_alive = bool(pid and _pid_alive(pid))
+    try:
+        state = asyncio.run(_probe_daemon_state(workspace))
+    except Exception:
+        state = None
+    if state is None:
+        if pid_alive:
+            state = "degraded"
+        elif pid or endpoint or transport.socket_path.exists():
+            state = "failed"
+        else:
+            state = "stopped"
     return {
-        "running": running,
+        "running": state not in {"stopped", "failed"},
+        "ready": state == "ready",
+        "state": state,
         "pid": pid,
-        "pid_alive": bool(pid and _pid_alive(pid)),
+        "pid_alive": pid_alive,
         "transport": endpoint.transport_type if endpoint else ("unix" if os.name != "nt" else "tcp"),
         "address": endpoint.address if endpoint else str(transport.socket_path),
         "port": endpoint.port if endpoint else None,

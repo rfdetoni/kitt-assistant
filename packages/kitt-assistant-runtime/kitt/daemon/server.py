@@ -85,6 +85,7 @@ class DaemonServer:
         self.token = ""
         self._server = None
         self._running = False
+        self._lifecycle_state = "stopped"
         self._subscribers: Dict[str, Set[asyncio.Queue]] = {}
         self._client_queues = {}
         self._session_locks = {}
@@ -162,12 +163,29 @@ class DaemonServer:
         self._runtime_event_unsubscribers[root] = rt.events.subscribe("*", on_event)
 
     async def start(self):
-        self._instance_lock_fd = self.transport.acquire_instance_lock()
+        self._lifecycle_state = "starting"
+        debug_event(
+            logger,
+            "daemon.lifecycle",
+            state=self._lifecycle_state,
+            workspace=str(self.workspace_root),
+        )
+        try:
+            self._instance_lock_fd = self.transport.acquire_instance_lock()
+        except Exception:
+            self._lifecycle_state = "failed"
+            debug_event(
+                logger,
+                "daemon.lifecycle",
+                state=self._lifecycle_state,
+                workspace=str(self.workspace_root),
+            )
+            raise
+
         try:
             self._ensure_token()
             transport_type, address, port = self.transport.get_server_endpoint()
             if transport_type == "unix":
-                # Lock ownership is established before removing stale endpoint.
                 self.socket_path.unlink(missing_ok=True)
                 self._server = await asyncio.start_unix_server(
                     self._handle_client, path=str(self.socket_path)
@@ -183,8 +201,17 @@ class DaemonServer:
             self.transport.write_pid(os.getpid())
             self._running = True
             await self._get_or_create_runtime(str(self.workspace_root))
+            self._lifecycle_state = "ready"
+            debug_event(
+                logger,
+                "daemon.lifecycle",
+                state=self._lifecycle_state,
+                workspace=str(self.workspace_root),
+            )
         except Exception:
+            self._lifecycle_state = "failed"
             self._running = False
+            logger.exception("Daemon startup failed")
             if self._server is not None:
                 self._server.close()
                 self._server.abort_clients()
@@ -192,10 +219,7 @@ class DaemonServer:
                     async with asyncio.timeout(5.0):
                         await self._server.wait_closed()
                 except Exception:
-                    logger.debug(
-                        "Daemon server close after startup failure failed",
-                        exc_info=True,
-                    )
+                    logger.debug("Daemon server close after startup failure failed", exc_info=True)
                 self._server = None
             for unsubscribe in list(self._runtime_event_unsubscribers.values()):
                 try:
@@ -207,67 +231,95 @@ class DaemonServer:
                 try:
                     await runtime.aclose()
                 except Exception:
-                    logger.debug(
-                        "Runtime rollback after daemon startup failure failed",
-                        exc_info=True,
-                    )
+                    logger.debug("Runtime rollback after daemon startup failure failed", exc_info=True)
             self._runtimes.clear()
             try:
                 self.transport.cleanup()
             except Exception:
-                logger.debug(
-                    "Daemon transport cleanup after startup failure failed",
-                    exc_info=True,
-                )
+                logger.debug("Daemon transport cleanup after startup failure failed", exc_info=True)
             self.transport.release_instance_lock(self._instance_lock_fd)
             self._instance_lock_fd = None
             self._blocking_executor.shutdown(wait=False, cancel_futures=True)
+            debug_event(
+                logger,
+                "daemon.lifecycle",
+                state=self._lifecycle_state,
+                workspace=str(self.workspace_root),
+            )
             raise
 
     async def stop(self):
+        if (
+            self._lifecycle_state == "stopped"
+            and self._server is None
+            and self._instance_lock_fd is None
+        ):
+            return
+
+        self._lifecycle_state = "stopping"
+        debug_event(
+            logger,
+            "daemon.lifecycle",
+            state=self._lifecycle_state,
+            workspace=str(self.workspace_root),
+        )
         self._running = False
-        if self._server:
-            self._server.close()
-            # Server.wait_closed() also waits for active connections in Python
-            # 3.14. Close clients first or an idle authenticated client can
-            # prevent runtime cleanup and instance-lock release forever.
-            self._server.close_clients()
-            try:
-                async with asyncio.timeout(5.0):
-                    await self._server.wait_closed()
-            except TimeoutError:
-                self._server.abort_clients()
+        shutdown_failed = False
+        try:
+            if self._server:
+                self._server.close()
+                self._server.close_clients()
                 try:
                     async with asyncio.timeout(5.0):
                         await self._server.wait_closed()
                 except TimeoutError:
-                    logger.error("Daemon clients did not close after transport abort")
-            self._server = None
-        for writer in list(self._client_queues):
-            try:
-                writer.close()
-                async with asyncio.timeout(2.0):
-                    await writer.wait_closed()
-            except Exception:
-                writer.transport.abort()
-        for unsubscribe in list(self._runtime_event_unsubscribers.values()):
-            try:
-                unsubscribe()
-            except Exception:
-                pass
-        self._runtime_event_unsubscribers.clear()
-        for rt in list(self._runtimes.values()):
-            try:
-                await rt.aclose()
-            except Exception:
-                logger.exception("Runtime shutdown failure")
-        self._runtimes.clear()
-        self._active_turns.clear()
-        self._direct_pending.clear()
-        self.transport.cleanup()
-        self.transport.release_instance_lock(self._instance_lock_fd)
-        self._instance_lock_fd = None
-        self._blocking_executor.shutdown(wait=False, cancel_futures=True)
+                    self._server.abort_clients()
+                    try:
+                        async with asyncio.timeout(5.0):
+                            await self._server.wait_closed()
+                    except TimeoutError:
+                        shutdown_failed = True
+                        logger.error("Daemon clients did not close after transport abort")
+                self._server = None
+            for writer in list(self._client_queues):
+                try:
+                    writer.close()
+                    async with asyncio.timeout(2.0):
+                        await writer.wait_closed()
+                except Exception:
+                    writer.transport.abort()
+            for unsubscribe in list(self._runtime_event_unsubscribers.values()):
+                try:
+                    unsubscribe()
+                except Exception:
+                    pass
+            self._runtime_event_unsubscribers.clear()
+            for rt in list(self._runtimes.values()):
+                try:
+                    await rt.aclose()
+                except Exception:
+                    shutdown_failed = True
+                    logger.exception("Runtime shutdown failure")
+            self._runtimes.clear()
+            self._active_turns.clear()
+            self._direct_pending.clear()
+            self.transport.cleanup()
+        except Exception:
+            self._lifecycle_state = "failed"
+            logger.exception("Daemon shutdown failed")
+            raise
+        else:
+            self._lifecycle_state = "failed" if shutdown_failed else "stopped"
+        finally:
+            self.transport.release_instance_lock(self._instance_lock_fd)
+            self._instance_lock_fd = None
+            self._blocking_executor.shutdown(wait=False, cancel_futures=True)
+            debug_event(
+                logger,
+                "daemon.lifecycle",
+                state=self._lifecycle_state,
+                workspace=str(self.workspace_root),
+            )
 
     def _workspace_lock(self, workspace_root: str) -> asyncio.Lock:
         return self._workspace_locks.setdefault(workspace_root, asyncio.Lock())
@@ -1149,6 +1201,14 @@ class DaemonServer:
                     continue
                 req_id = msg.get("request_id", "")
                 action = msg.get("action", "")
+                debug_event(
+                    logger,
+                    "daemon.request",
+                    request_id=req_id,
+                    action=action,
+                    lifecycle_state=self._lifecycle_state,
+                    workspace=str(self.workspace_root),
+                )
 
                 if not authenticated:
                     if action != "auth":
@@ -1169,6 +1229,8 @@ class DaemonServer:
                         "action": "ping",
                         "agent_version": _agent_version(),
                         "daemon_protocol_version": DAEMON_PROTOCOL_VERSION,
+                        "lifecycle_state": self._lifecycle_state,
+                        "ready": self._lifecycle_state == "ready",
                     }))
                     continue
 
@@ -1799,7 +1861,11 @@ class DaemonServer:
                 try:
                     rt.history.repo.save_message(cmd.conversation_id, cmd.turn_id, "user", cmd.prompt)
                 except Exception:
-                    logger.exception("Failed persisting daemon user message")
+                    logger.exception(
+                        "Failed persisting daemon user message conversation_id=%s turn_id=%s",
+                        cmd.conversation_id,
+                        cmd.turn_id,
+                    )
             try:
                 async for event in rt.processor.arun_turn(cmd):
                     event_name = type(event).__name__
@@ -1834,14 +1900,28 @@ class DaemonServer:
                             try:
                                 rt.history.repo.save_message(cmd.conversation_id, cmd.turn_id, "assistant", response)
                             except Exception:
-                                logger.exception("Failed persisting daemon assistant response")
+                                logger.exception(
+                                    "Failed persisting daemon assistant response conversation_id=%s turn_id=%s",
+                                    cmd.conversation_id,
+                                    cmd.turn_id,
+                                )
                 if pending_events:
                     self._record_turn_events(rt.database, cmd.conversation_id, pending_events)
             except Exception as exc:
                 self._active_turns.pop(cmd.turn_id, None)
                 if pending_events:
                     self._record_turn_events(rt.database, cmd.conversation_id, pending_events)
-                self.record_event(rt.database, cmd.conversation_id, "TurnFailed", {"error": str(exc)})
+                logger.exception(
+                    "Daemon turn failed conversation_id=%s turn_id=%s",
+                    cmd.conversation_id,
+                    cmd.turn_id,
+                )
+                self.record_event(
+                    rt.database,
+                    cmd.conversation_id,
+                    "TurnFailed",
+                    {"error": str(exc), "turn_id": cmd.turn_id},
+                )
             finally:
                 if not paused_for_approval:
                     self._active_turns.pop(cmd.turn_id, None)

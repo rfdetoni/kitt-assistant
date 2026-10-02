@@ -63,7 +63,51 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await client.connect())
         ping = await client.send_request("ping")
         self.assertEqual(ping.get("daemon_protocol_version"), DAEMON_PROTOCOL_VERSION)
+        self.assertEqual(ping.get("lifecycle_state"), "ready")
+        self.assertIs(ping.get("ready"), True)
         await client.close()
+
+    async def test_00_readiness_waits_for_required_runtime_start(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
+            root = Path(temp).resolve()
+            release_runtime = asyncio.Event()
+            server = DaemonServer(workspace_root=str(root))
+            client = None
+            start_task = None
+
+            async def delayed_runtime(*_args, **_kwargs):
+                await release_runtime.wait()
+                return object()
+
+            try:
+                with patch.object(server, "_get_or_create_runtime", side_effect=delayed_runtime):
+                    start_task = asyncio.create_task(server.start())
+                    for _ in range(100):
+                        if server.token and server.transport.endpoint_file.exists():
+                            break
+                        await asyncio.sleep(0.01)
+                    else:
+                        self.fail("daemon listener did not become reachable during startup")
+
+                    client = DaemonClient(workspace_root=str(root), token=server.token)
+                    self.assertTrue(await client.connect(require_compatible=False))
+                    ping = await client.send_request("ping")
+                    self.assertEqual(ping.get("lifecycle_state"), "starting")
+                    self.assertIs(ping.get("ready"), False)
+                    self.assertFalse(await client.is_running())
+
+                    release_runtime.set()
+                    await asyncio.wait_for(start_task, timeout=2.0)
+                    ping = await client.send_request("ping")
+                    self.assertEqual(ping.get("lifecycle_state"), "ready")
+                    self.assertIs(ping.get("ready"), True)
+            finally:
+                release_runtime.set()
+                if start_task is not None:
+                    await asyncio.gather(start_task, return_exceptions=True)
+                if client is not None:
+                    await client.close()
+                await server.stop()
 
     async def test_00a_stop_closes_an_idle_connected_client_and_releases_instance(self):
         client = DaemonClient(workspace_root=str(self.root), token=self.server.token)

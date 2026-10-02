@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.18 / runtime 0.2.32 — 2026-10-02
+
+- Make Python daemon readiness depend on successful startup of the required Agent runtime; authenticated ping now exposes `starting|ready|degraded|stopping|stopped|failed` lifecycle semantics and a fail-closed `ready` flag.
+- Preserve existing request/conversation/turn correlation identifiers in relevant daemon telemetry and native request-error logs.
+- Make `kittctl service start|stop|restart|status` propagate native service-manager failures instead of reporting false success; add a narrow Linux/macOS/Windows lifecycle portability matrix for service compilation plus launcher/path/cleanup tests.
+- Bump the native Assistant workspace to 0.1.18 and Python runtime to 0.2.32. Only local package versions changed in locks; HUD metadata and external dependency revisions remain unchanged.
+- Keep Agent CLI as execution/policy/approval authority and `kitt-memoryd` as durable semantic-memory authority; no Protocol or root-`kitt` contract change is included.
+
 ## 0.1.17 / runtime 0.2.31 — 2026-10-02
 
 - Refresh the native Rust graph to KITT Memory 0.9.0 and KITT Protocol 0.9.0 without changing protocol wire version 1.
@@ -54,6 +62,10 @@
 - Pin standalone Python-runtime CI to the promoted Agent 0.78.0 revision.
 - Align Rust workspace, HUD/Tauri metadata and lockfiles at 0.1.12.
 - Preserve daemon/remote APIs, approval durability, Protocol 0.4.0 and standalone Memory ownership.
+
+## runtime 0.2.21 - 2026-09-28
+
+- Widen the companion runtime to Agent CLI 0.76.x–0.77.x while preserving daemon/remote APIs and ownership boundaries.
 
 ## 0.1.9 / runtime 0.2.20 - 2026-09-28
 

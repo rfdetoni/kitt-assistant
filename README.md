@@ -1,8 +1,8 @@
 # K.I.T.T. Assistant
 
-## Assistant 0.1.17 / Python runtime 0.2.31
+## Assistant 0.1.18 / Python runtime 0.2.32
 
-Validated with Agent CLI **0.83.5**, Protocol **0.9.0** and native Memory **0.9.0**. The companion keeps the reviewed Agent range `>=0.81.0,<0.84`; both Python and Rust locks now resolve the promoted Memory/Protocol revisions. Privacy, cancellation, policy and wallet authority stay in Agent, while standalone `kitt-memoryd` remains the durable Agent-memory authority. HUD metadata is unchanged because its behavior did not change.
+Validated with Agent CLI **0.83.5**, Protocol **0.9.0** and native Memory **0.9.0**. Assistant 0.1.18/runtime 0.2.32 makes resident lifecycle fail-closed: daemon readiness is reported only after the required Agent runtime starts, native service commands propagate OS failures, and lifecycle/correlation state is observable without taking policy or memory authority from Agent/Memory. The companion keeps the reviewed Agent range `>=0.81.0,<0.84`; HUD metadata and external dependency revisions are unchanged.
 
 <p align="center">
   <strong>Resident local assistant, control center and voice/HUD runtime for K.I.T.T.</strong><br>
