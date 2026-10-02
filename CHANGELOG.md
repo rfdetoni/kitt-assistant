@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.17 / runtime 0.2.31 — 2026-10-02
+
+- Refresh the native Rust graph to KITT Memory 0.9.0 and KITT Protocol 0.9.0 without changing protocol wire version 1.
+- Validate the Python companion against promoted Agent CLI 0.83.5 revision `3c4b6a69dc079661665d8294037fa8ffb868cbe4` and resolve Protocol 0.9.0 in the uv lock.
+- Bump the native Assistant workspace to 0.1.17 and Python runtime to 0.2.31; HUD metadata remains 0.1.16 because its behavior and dependency surface are unchanged.
+- Preserve ownership boundaries: Agent owns policy/cancellation/wallet/runtime authority, while standalone kitt-memoryd owns durable Agent semantic memory.
+
 ## runtime 0.2.30 — 2026-10-02
 
 - Close accepted connections before awaiting the asyncio listener; bound graceful shutdown and abort clients that do not drain. Apply the same rule to startup rollback and await writer task cancellation.

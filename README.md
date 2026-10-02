@@ -1,8 +1,8 @@
 # K.I.T.T. Assistant
 
-## Python runtime 0.2.30
+## Assistant 0.1.17 / Python runtime 0.2.31
 
-Validated with Agent CLI 0.83.3 / Protocol 0.8.0. The companion accepts Agent CLI `>=0.81.0,<0.84`; uv follows Agent main and records its revision. Privacy, cancellation and wallet authority stay in Agent. Native workspace/HUD metadata is unchanged in this compatibility release.
+Validated with Agent CLI **0.83.5**, Protocol **0.9.0** and native Memory **0.9.0**. The companion keeps the reviewed Agent range `>=0.81.0,<0.84`; both Python and Rust locks now resolve the promoted Memory/Protocol revisions. Privacy, cancellation, policy and wallet authority stay in Agent, while standalone `kitt-memoryd` remains the durable Agent-memory authority. HUD metadata is unchanged because its behavior did not change.
 
 <p align="center">
   <strong>Resident local assistant, control center and voice/HUD runtime for K.I.T.T.</strong><br>
