@@ -2,7 +2,7 @@
 
 ## Assistant 0.1.18 / Python runtime 0.2.32
 
-Validated with Agent CLI **0.83.10**, Protocol **0.9.0** and native Memory **0.9.1**. Assistant 0.1.18/runtime 0.2.32 makes resident lifecycle fail-closed: daemon readiness is reported only after the required Agent runtime starts, native service commands propagate OS failures, and lifecycle/correlation state is observable without taking policy or memory authority from Agent/Memory. The companion keeps the reviewed Agent range `>=0.81.0,<0.84`; HUD package version metadata remains unchanged, while the native HUD Protocol dependency is aligned to Protocol 0.9.0.
+Validated with Agent CLI **0.83.11**, Protocol **0.9.0** and native Memory **0.9.1**. Assistant 0.1.18/runtime 0.2.32 makes resident lifecycle fail-closed: daemon readiness is reported only after the required Agent runtime starts, native service commands propagate OS failures, and lifecycle/correlation state is observable without taking policy or memory authority from Agent/Memory. The companion keeps the reviewed Agent range `>=0.81.0,<0.84`; HUD package version metadata remains unchanged, while the native HUD Protocol dependency is aligned to Protocol 0.9.0.
 
 <p align="center">
   <strong>Resident local assistant, control center and voice/HUD runtime for K.I.T.T.</strong><br>
