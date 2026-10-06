@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.20 — 2026-10-06
+
+- Align the HUD npm Protocol lock with the same 0.9.1 revision as native workspace, native HUD and Python runtime locks. The immutable release installer previously rejected the stale 0.9.0 npm pin.
+- Add a runtime CI regression comparing Protocol version and immutable revision across all four consumers. Preserve the root installer's mismatch guard.
+- Native workspace metadata is 0.1.20; Python runtime remains 0.2.33 and HUD package metadata remains unchanged.
+
 ## 0.1.19 — 2026-10-06
 
 - Publish Python runtime 0.2.33 with authoritative connection health, explicit ConnectionError on EOF (request outcome may be unknown), awaited reader cleanup and reconnect-ready resync state. Pair with Agent 0.83.16, Protocol 0.9.1 and Memory 0.9.2.

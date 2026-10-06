@@ -1,5 +1,11 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.20 — consistent Protocol consumer locks
+
+Align the HUD npm lock with Protocol 0.9.1 at the same immutable revision used by both Cargo locks and the Python runtime lock. A regression checks all four Protocol consumers together in the runtime CI suite. Native workspace version is 0.1.20; Python runtime remains 0.2.33 and HUD package metadata remains unchanged.
+
+See [release notes](docs/RELEASE_0.1.20.md).
+
 ## Release 0.1.19 — execution boundary hardening
 
 Publish Python runtime 0.2.33 with authoritative connection health, explicit ConnectionError on EOF (request outcome may be unknown), awaited reader cleanup and reconnect-ready resync state. Pair with Agent 0.83.16, Protocol 0.9.1 and Memory 0.9.2.
