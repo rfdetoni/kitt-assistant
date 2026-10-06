@@ -963,14 +963,14 @@ dependencies = [
 
 [[package]]
 name = "kitt-application"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "kitt-domain",
 ]
 
 [[package]]
 name = "kitt-domain"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "kitt-memory-core",
  "serde",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "kitt-infrastructure"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "kitt-domain",
  "kitt-memory-core",
@@ -991,8 +991,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-memory-core"
-version = "0.9.1"
-source = "git+https://github.com/rfdetoni/kitt-memory?branch=main#51afa10181498258e3b1cd90e1dae6f006223841"
+version = "0.9.2"
+source = "git+https://github.com/rfdetoni/kitt-memory?branch=main#530a028098ab0a4fdfcdeb15e831fe69278fea35"
 dependencies = [
  "hex",
  "serde",
@@ -1004,8 +1004,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-memory-sqlite"
-version = "0.9.1"
-source = "git+https://github.com/rfdetoni/kitt-memory?branch=main#51afa10181498258e3b1cd90e1dae6f006223841"
+version = "0.9.2"
+source = "git+https://github.com/rfdetoni/kitt-memory?branch=main#530a028098ab0a4fdfcdeb15e831fe69278fea35"
 dependencies = [
  "kitt-memory-core",
  "rusqlite",
@@ -1015,8 +1015,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-protocol"
-version = "0.9.0"
-source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#f1c17df15c64411c24c8b35ef41cf6299f4571b9"
+version = "0.9.1"
+source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#fb49b2b9697c2e676b968a3547ee2cac1d3be950"
 dependencies = [
  "serde",
  "serde_json",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "kittctl"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "dirs",
  "kitt-protocol",
@@ -1034,7 +1034,7 @@ dependencies = [
 
 [[package]]
 name = "kittd"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "base64",
  "cpal",
