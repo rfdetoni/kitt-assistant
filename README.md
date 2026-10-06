@@ -1,5 +1,9 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.21 — managed proxy endpoint trust in the locked Agent
+
+Python runtime 0.2.34 locks Agent CLI 0.83.18 at its validated main revision, so frozen Assistant environments include the fix for explicitly selected Reverse Proxy endpoints on newly allocated ports. Native workspace metadata is 0.1.21; Protocol and other dependencies retain their locked revisions. See [release notes](docs/RELEASE_0.1.21.md).
+
 ## Release 0.1.20 — consistent Protocol consumer locks
 
 Align the HUD npm lock with Protocol 0.9.1 at the same immutable revision used by both Cargo locks and the Python runtime lock. A regression checks all four Protocol consumers together in the runtime CI suite. Native workspace version is 0.1.20; Python runtime remains 0.2.33 and HUD package metadata remains unchanged.
