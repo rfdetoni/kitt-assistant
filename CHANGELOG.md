@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.19 — 2026-10-06
+
+- Publish Python runtime 0.2.33 with authoritative connection health, explicit ConnectionError on EOF (request outcome may be unknown), awaited reader cleanup and reconnect-ready resync state. Pair with Agent 0.83.16, Protocol 0.9.1 and Memory 0.9.2.
+
 ## 0.1.18 / runtime 0.2.32 — 2026-10-02
 
 - Make Python daemon readiness depend on successful startup of the required Agent runtime; authenticated ping now exposes `starting|ready|degraded|stopping|stopped|failed` lifecycle semantics and a fail-closed `ready` flag.

@@ -34,7 +34,12 @@ class DaemonClient:
         self._event_callback: Optional[Callable[[DaemonEvent], None]] = None
         self.resync_required = False
 
+    @property
+    def connected(self) -> bool:
+        return self._connected and self.writer is not None and not self.writer.is_closing()
+
     async def connect(self, *, require_compatible: bool = True) -> bool:
+        self.resync_required = False
         endpoint = self.transport.read_endpoint_metadata()
         if not endpoint and not self.socket_path.exists():
             return False
@@ -85,10 +90,10 @@ class DaemonClient:
                 try:
                     msg = decode_line(line)
                 except Exception:
-                    continue
+                    raise ConnectionError("Invalid daemon stream frame")
                 if msg.get("type") == "RESYNC_REQUIRED":
                     self.resync_required = True
-                    continue
+                    break
                 if msg.get("type") == "EVENT" and "event" in msg:
                     evt = DaemonEvent.from_dict(msg["event"])
                     if self._event_callback:
@@ -101,11 +106,16 @@ class DaemonClient:
                         fut.set_result(msg)
         except asyncio.CancelledError:
             pass
+        except Exception:
+            # A failed stream is replayed by the UI using its delivered cursor.
+            pass
         finally:
             self._connected = False
+            if self.writer:
+                self.writer.close()
             for fut in tuple(self._pending_requests.values()):
                 if not fut.done():
-                    fut.cancel()
+                    fut.set_exception(ConnectionError("Daemon connection closed; request outcome may be unknown"))
 
     async def _send_request(self, req: Dict[str, Any], timeout: float = 15.0) -> Dict[str, Any]:
         if not self.writer or not self._connected:
@@ -201,6 +211,7 @@ class DaemonClient:
         self._connected = False
         if self._reader_task and not self._reader_task.done():
             self._reader_task.cancel()
+            await asyncio.gather(self._reader_task, return_exceptions=True)
         if self.writer:
             try:
                 self.writer.close()
