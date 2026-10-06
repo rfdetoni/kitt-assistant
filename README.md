@@ -1,5 +1,9 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.22 — unified model selection endpoint trust
+
+Python runtime 0.2.35 locks Agent CLI 0.83.19, covering both managed Reverse Proxy role binding and the general model picker. Runtime and lifecycle CI use the same immutable Agent revision. See [release notes](docs/RELEASE_0.1.22.md).
+
 ## Release 0.1.21 — managed proxy endpoint trust in the locked Agent
 
 Python runtime 0.2.34 locks Agent CLI 0.83.18 at its validated main revision, so frozen Assistant environments include the fix for explicitly selected Reverse Proxy endpoints on newly allocated ports. Native workspace metadata is 0.1.21; Protocol and other dependencies retain their locked revisions. See [release notes](docs/RELEASE_0.1.21.md).
