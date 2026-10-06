@@ -220,10 +220,18 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         """Verify client reconnecting with last_sequence retrieves only new events."""
         client1 = DaemonClient(workspace_root=str(self.root), token=self.server.token)
         await client1.connect()
-        await client1.attach(self.session_id)
+        terminal = asyncio.Event()
+
+        def on_event(event):
+            if event.event_type in {"TurnCompleted", "TurnFailed", "TurnCancelled", "TurnBlocked"}:
+                terminal.set()
+
+        await client1.attach(self.session_id, on_event=on_event)
         await client1.send_input(self.session_id, "Turn for replay")
 
-        await asyncio.sleep(0.5)
+        # Replaying an active turn may legitimately find a newer event between
+        # attachments. Await its terminal event instead of assuming a duration.
+        await asyncio.wait_for(terminal.wait(), timeout=10.0)
         await client1.close()
 
         # Connect client 2 and verify replay
