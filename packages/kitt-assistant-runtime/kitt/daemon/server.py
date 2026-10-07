@@ -26,6 +26,13 @@ from kitt.daemon.transport import IPCTransport
 from kitt.tools.approval import ApprovalGrant
 from kitt.security.capabilities import capabilities_for_tools
 from kitt.security.context import ExecutionSecurityContext
+from kitt.goals.auto_contract import (
+    cancel_automatic_contract,
+    deny_goal_approval,
+    goal_id_for_pending_turn,
+    iter_automatic_contract,
+    resolve_goal_approval,
+)
 
 logger = logging.getLogger("kitt.daemon.server")
 
@@ -1096,6 +1103,7 @@ class DaemonServer:
             raise ValueError("Approval is unknown or no longer pending")
         item = pending[0]
         sid = str(item["conversation_id"])
+        goal_id = goal_id_for_pending_turn(rt, str(item["turn_id"]))
         if action == "approval.approve":
             grant = rt.approval.issue_grant(
                 turn_id=str(item["turn_id"]),
@@ -1106,30 +1114,54 @@ class DaemonServer:
             )
             if grant is None:
                 raise RuntimeError("Approval could not be granted; it may have changed concurrently")
-            # The grant nonce stays inside the daemon and is never exposed to
-            # the HTTP/browser boundary.
-            asyncio.create_task(self._continue_turn(rt, sid, grant))
+            # GOAL-owned approvals resume the durable contract item, not a
+            # standalone foreground turn. Keep the grant nonce daemon-local.
+            if goal_id:
+                resolution = await asyncio.to_thread(
+                    resolve_goal_approval,
+                    rt,
+                    grant,
+                )
+                if not resolution.success:
+                    raise RuntimeError(
+                        resolution.error or "Approved contract action failed"
+                    )
+            else:
+                asyncio.create_task(self._continue_turn(rt, sid, grant))
             return {
                 "approval_id": approval_id,
                 "session_id": sid,
                 "turn_id": item["turn_id"],
                 "decision": "approved",
+                **({"goal_id": goal_id} if goal_id else {}),
             }
         if action == "approval.deny":
-            if not rt.approval.deny(approval_id, "Denied via KITT remote web"):
-                raise RuntimeError("Approval could not be denied")
-            for event in rt.processor.cancel_turn(
-                str(item["turn_id"]),
-                "Denied via KITT remote web",
-                conversation_id=sid,
-            ):
-                self._record_turn_event(rt.database, sid, event)
-            self._active_turns.pop(str(item["turn_id"]), None)
+            if goal_id:
+                resolution = deny_goal_approval(
+                    rt,
+                    turn_id=str(item["turn_id"]),
+                    approval_id=approval_id,
+                    conversation_id=sid,
+                    reason="Denied via KITT remote web",
+                )
+                if not resolution.handled:
+                    raise RuntimeError("Contract approval could not be denied")
+            else:
+                if not rt.approval.deny(approval_id, "Denied via KITT remote web"):
+                    raise RuntimeError("Approval could not be denied")
+                for event in rt.processor.cancel_turn(
+                    str(item["turn_id"]),
+                    "Denied via KITT remote web",
+                    conversation_id=sid,
+                ):
+                    self._record_turn_event(rt.database, sid, event)
+                self._active_turns.pop(str(item["turn_id"]), None)
             return {
                 "approval_id": approval_id,
                 "session_id": sid,
                 "turn_id": item["turn_id"],
                 "decision": "denied",
+                **({"goal_id": goal_id} if goal_id else {}),
             }
         raise ValueError(f"Unsupported approval action '{action}'")
 
@@ -1661,10 +1693,23 @@ class DaemonServer:
                             "status": "error", "error": str(exc),
                         }))
                         continue
-                    for event in rt.processor.cancel_turn(
-                        turn_id, "Cancelled via daemon IPC", conversation_id=sid
+                    if cancel_automatic_contract(
+                        rt,
+                        sid,
+                        turn_id,
+                        "Cancelled via daemon IPC",
                     ):
-                        self._record_turn_event(rt.database, sid, event)
+                        self.record_event(
+                            rt.database,
+                            sid,
+                            "TurnCancelled",
+                            {"reason": "Cancelled via daemon IPC", "turn_id": turn_id},
+                        )
+                    else:
+                        for event in rt.processor.cancel_turn(
+                            turn_id, "Cancelled via daemon IPC", conversation_id=sid
+                        ):
+                            self._record_turn_event(rt.database, sid, event)
                     self._active_turns.pop(turn_id, None)
                     await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "ok"}))
                 elif action == "stop":
@@ -1867,7 +1912,14 @@ class DaemonServer:
                         cmd.turn_id,
                     )
             try:
-                async for event in rt.processor.arun_turn(cmd):
+                if cmd.mode == "auto" and not cmd.no_history:
+                    events = self._astream_blocking(
+                        lambda: iter_automatic_contract(rt, cmd),
+                        f"kitt-contract-{cmd.turn_id[:8]}",
+                    )
+                else:
+                    events = rt.processor.arun_turn(cmd)
+                async for event in events:
                     event_name = type(event).__name__
                     pending_events.append(event)
                     critical = event_name in {
