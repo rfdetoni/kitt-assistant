@@ -2,6 +2,13 @@
 
 ## 0.1.27 / runtime 0.2.40 — 2026-10-07
 
+- Freeze Agent CLI and Assistant runtime version identity at daemon process startup instead of reading mutable distribution metadata on every ping.
+- Require both startup identities and daemon protocol compatibility before a frontend reuses a resident daemon.
+- Add a regression proving that replacing package metadata on disk cannot make stale loaded daemon code pass the compatibility handshake.
+- Align the Python runtime lock and CI with the promoted Agent CLI durable-loop fix.
+
+## 0.1.27 / runtime 0.2.40 — 2026-10-07
+
 - Freeze Agent/runtime compatibility identity at daemon startup instead of rereading mutable distribution metadata on every ping.
 - Reject stale resident daemons that lack or mismatch the Assistant runtime startup identity, allowing the existing authenticated bootstrap to recycle them after upgrades.
 - Validate and lock Agent CLI 0.84.4, including durable automatic-contract hardening.
