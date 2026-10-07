@@ -14,7 +14,7 @@ An older daemon does not expose `assistant_runtime_version`, so the new client r
 
 ## Compatibility
 
-Python runtime is 0.2.40 and native Assistant metadata is 0.1.27. The immutable Agent lock and CI pin are Agent CLI 0.84.4 at `fc985bc6d842d3c684ad1188ff2fc8a0c427e6a8`. Protocol and Memory contracts are unchanged.
+Python runtime is 0.2.40 and native Assistant metadata is 0.1.27. The immutable Agent lock and CI pin are Agent CLI 0.84.4 at `fc4646c98b2b55af8a992798440e079f8d3da124`. Protocol and Memory contracts are unchanged.
 
 ## Regression evidence
 
