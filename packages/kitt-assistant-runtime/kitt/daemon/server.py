@@ -1669,37 +1669,14 @@ class DaemonServer:
                     except Exception as exc:
                         await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "error", "error": f"Invalid grant: {exc}"}))
                         continue
-                    goal_id = goal_id_for_pending_turn(rt, grant.turn_id)
                     try:
-                        if grant.conversation_id != sid:
-                            raise ValueError("Grant does not belong to requested session")
-                        if goal_id:
-                            goal = rt.goals.get_scoped(goal_id, sid)
-                            if goal is None or goal.state != "WAITING_APPROVAL":
-                                raise ValueError("Goal approval is no longer pending")
-                        else:
-                            self._require_active_turn(sid, grant.turn_id)
+                        goal_id = await self._continue_or_resume_goal(rt, sid, grant)
                     except Exception as exc:
                         await q.put(encode_message({
                             "type": "RESPONSE", "request_id": req_id,
                             "status": "error", "error": str(exc),
                         }))
                         continue
-                    if goal_id:
-                        resolution = await asyncio.to_thread(
-                            resolve_goal_approval,
-                            rt,
-                            grant,
-                        )
-                        if not resolution.success:
-                            await q.put(encode_message({
-                                "type": "RESPONSE", "request_id": req_id,
-                                "status": "error",
-                                "error": resolution.error or "Approved contract action failed",
-                            }))
-                            continue
-                    else:
-                        asyncio.create_task(self._continue_turn(rt, sid, grant))
                     await q.put(encode_message({
                         "type": "RESPONSE",
                         "request_id": req_id,
@@ -2002,6 +1979,29 @@ class DaemonServer:
             finally:
                 if not paused_for_approval:
                     self._active_turns.pop(cmd.turn_id, None)
+
+    async def _continue_or_resume_goal(self, rt, session_id, grant):
+        if grant.conversation_id != session_id:
+            raise ValueError("Grant does not belong to requested session")
+        goal_id = goal_id_for_pending_turn(rt, grant.turn_id)
+        if not goal_id:
+            self._require_active_turn(session_id, grant.turn_id)
+            asyncio.create_task(self._continue_turn(rt, session_id, grant))
+            return ""
+
+        goal = rt.goals.get_scoped(goal_id, session_id)
+        if goal is None or goal.state != "WAITING_APPROVAL":
+            raise ValueError("Goal approval is no longer pending")
+        resolution = await asyncio.to_thread(
+            resolve_goal_approval,
+            rt,
+            grant,
+        )
+        if not resolution.success:
+            raise RuntimeError(
+                resolution.error or "Approved contract action failed"
+            )
+        return goal_id
 
     async def _continue_turn(self, rt, session_id, grant):
         lock = self._session_locks.setdefault(session_id, asyncio.Lock())
