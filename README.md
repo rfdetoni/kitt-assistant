@@ -1,5 +1,11 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.25 — automatic contract daemon routing
+
+Python runtime **0.2.38** routes persisted daemon-owned `mode=auto` turns through Agent CLI **0.84.2**'s durable Plan → Execute → Validate → Retry contract wrapper. Explicit `ask`, `plan` and no-history turns remain direct TurnProcessor turns.
+
+Goal-owned approvals are resolved inside the daemon and resume the same contract item instead of creating a disconnected foreground continuation. Cancellation of the outer daemon turn cancels the durable contract and its active inner turn. The Agent lock is pinned to the validated 0.84.2 main revision. See [release notes](docs/RELEASE_0.1.25.md).
+
 ## Release 0.1.24 — Agent CLI 0.84.1 verification refactor alignment
 
 Python runtime **0.2.37** locks Agent CLI **0.84.1** at its validated main revision. The supported Agent range remains `>=0.81.0,<0.85`; native daemon, Protocol and Memory contracts are unchanged. See [release notes](docs/RELEASE_0.1.24.md).

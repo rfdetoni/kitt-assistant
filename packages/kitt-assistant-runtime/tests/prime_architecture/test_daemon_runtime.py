@@ -3,12 +3,15 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from kitt import DAEMON_PROTOCOL_VERSION
 from kitt.daemon.client import DaemonClient
 from kitt.daemon.protocol import DaemonEvent
 from kitt.daemon.server import DaemonServer
+from kitt.core.turn_command import TurnCommand
+from kitt.core.turn_events import TurnCompleted, TurnStarted
 from kitt.history.database import HistoryDatabase
 
 
@@ -175,7 +178,7 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attach_res.get("status"), "ok")
 
         # Send input
-        submitted = await client.send_input(self.session_id, "Hello KITT")
+        submitted = (await client.submit_turn(self.session_id, "Hello KITT", mode="ask")).get("status") == "ok"
         self.assertTrue(submitted)
 
         # Wait for events to be processed and emitted
@@ -202,7 +205,7 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         # Attach and verify isolation
         events = []
         await client.attach(new_session_id, on_event=lambda e: events.append(e))
-        await client.send_input(new_session_id, "Test Isolation")
+        await client.submit_turn(new_session_id, "Test Isolation", mode="ask")
 
         for _ in range(30):
             if any(e.event_type in ("TurnCompleted", "TurnFailed") for e in events):
@@ -227,7 +230,7 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
                 terminal.set()
 
         await client1.attach(self.session_id, on_event=on_event)
-        await client1.send_input(self.session_id, "Turn for replay")
+        await client1.submit_turn(self.session_id, "Turn for replay", mode="ask")
 
         # Replaying an active turn may legitimately find a newer event between
         # attachments. Await its terminal event instead of assuming a duration.
@@ -249,6 +252,85 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
 
         await client2.close()
 
+
+    async def test_03_auto_turn_uses_durable_contract_wrapper(self):
+        rt = await self.server._get_or_create_runtime()
+        cmd = TurnCommand(
+            conversation_id=self.session_id,
+            prompt="Implement and validate the requested change",
+            mode="auto",
+            turn_id="turn-auto-contract",
+        )
+        events = iter(
+            [
+                TurnStarted(
+                    turn_id=cmd.turn_id,
+                    conversation_id=cmd.conversation_id,
+                    prompt=cmd.prompt,
+                ),
+                TurnCompleted(response="contract complete"),
+            ]
+        )
+
+        with patch(
+            "kitt.daemon.server.iter_automatic_contract",
+            return_value=events,
+        ) as contract_loop:
+            await self.server._execute_turn(rt, cmd)
+
+        contract_loop.assert_called_once_with(rt, cmd)
+        with rt.database.get_connection() as conn:
+            stored = conn.execute(
+                """SELECT role, content FROM messages
+                   WHERE conversation_id=?
+                   ORDER BY created_at ASC""",
+                (self.session_id,),
+            ).fetchall()
+        self.assertTrue(any(row["role"] == "user" for row in stored))
+        self.assertTrue(
+            any(
+                row["role"] == "assistant"
+                and row["content"] == "contract complete"
+                for row in stored
+            )
+        )
+
+    async def test_03_goal_grant_resumes_contract_without_foreground_continue(self):
+        grant = SimpleNamespace(
+            conversation_id=self.session_id,
+            turn_id="turn-goal-approval",
+        )
+        rt = SimpleNamespace(
+            goals=SimpleNamespace(
+                get_scoped=lambda goal_id, session_id: SimpleNamespace(
+                    id=goal_id,
+                    conversation_id=session_id,
+                    state="WAITING_APPROVAL",
+                )
+            )
+        )
+        resolution = SimpleNamespace(success=True, error="")
+
+        with patch(
+            "kitt.daemon.server.goal_id_for_pending_turn",
+            return_value="goal-contract",
+        ), patch(
+            "kitt.daemon.server.resolve_goal_approval",
+            return_value=resolution,
+        ) as resolve, patch.object(
+            self.server,
+            "_continue_turn",
+            new_callable=AsyncMock,
+        ) as direct_continue:
+            goal_id = await self.server._continue_or_resume_goal(
+                rt,
+                self.session_id,
+                grant,
+            )
+
+        self.assertEqual(goal_id, "goal-contract")
+        resolve.assert_called_once_with(rt, grant)
+        direct_continue.assert_not_called()
 
     async def test_04_pending_approval_survives_arbitrary_daemon_wait(self):
         """Persisted PENDING approvals remain discoverable regardless of elapsed wall time."""
