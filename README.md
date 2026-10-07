@@ -1,5 +1,11 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.30 / runtime 0.2.43 — Agent CLI 0.84.8 progress alignment
+
+Python runtime **0.2.43** locks Agent CLI **0.84.8** at `809151b40ef4600c8364c73583bd38717b1665cf`. Daemon-owned `mode=auto` turns now forward bounded inner Goal progress to the outer user turn, so planning, context, tool activity and edits remain visible while durable contract items execute.
+
+Agent 0.84.8 also bounds interactive memory recall and makes temporary kitt-memoryd unavailability fail-soft for prompt enrichment. Assistant daemon, IPC, Protocol and native contracts are unchanged.
+
 ## Release 0.1.29 / runtime 0.2.42 — Agent CLI 0.84.7 TUI alignment
 
 Python runtime **0.2.42** locks Agent CLI **0.84.7** at `f9c07452dd211359e754c2b9a1eb54e3854c41a1`. The TUI now leaves the home screen immediately when the first prompt is submitted, before daemon attachment and automatic-contract bootstrap finish, so daemon-owned `mode=auto` execution exposes `STARTING` progress instead of appearing frozen.

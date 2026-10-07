@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.30 / runtime 0.2.43 — 2026-10-07
+
+- Lock daemon/runtime CI to Agent CLI 0.84.8.
+- Carry live durable-contract progress into daemon-owned `mode=auto` execution.
+- Preserve Assistant daemon, IPC, Protocol and native behavior unchanged.
+
 ## 0.1.29 / runtime 0.2.42 — 2026-10-07
 
 - Lock daemon/runtime CI to Agent CLI 0.84.7.
