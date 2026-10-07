@@ -1,5 +1,9 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.24 — Agent CLI 0.84.1 verification refactor alignment
+
+Python runtime **0.2.37** locks Agent CLI **0.84.1** at its validated main revision. The supported Agent range remains `>=0.81.0,<0.85`; native daemon, Protocol and Memory contracts are unchanged. See [release notes](docs/RELEASE_0.1.24.md).
+
 ## Release 0.1.23 — Agent CLI 0.84 contract compatibility
 
 Python runtime **0.2.36** expands its Agent compatibility range to `>=0.81.0,<0.85` and locks Agent CLI **0.84.0** at its validated main revision. The native daemon/control-center behavior and shared Protocol/Memory contracts are unchanged; this release is a consumer-alignment bump only. See [release notes](docs/RELEASE_0.1.23.md).
