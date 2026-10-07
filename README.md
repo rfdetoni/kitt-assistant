@@ -1,5 +1,9 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.23 — Agent CLI 0.84 contract compatibility
+
+Python runtime **0.2.36** expands its Agent compatibility range to `>=0.81.0,<0.85` and locks Agent CLI **0.84.0** at its validated main revision. The native daemon/control-center behavior and shared Protocol/Memory contracts are unchanged; this release is a consumer-alignment bump only. See [release notes](docs/RELEASE_0.1.23.md).
+
 ## Release 0.1.22 — unified model selection endpoint trust
 
 Python runtime 0.2.35 locks Agent CLI 0.83.19, covering both managed Reverse Proxy role binding and the general model picker. Runtime and lifecycle CI use the same immutable Agent revision. See [release notes](docs/RELEASE_0.1.22.md).
