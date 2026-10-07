@@ -2,7 +2,7 @@
 
 ## 0.1.28 / runtime 0.2.41 — 2026-10-07
 
-- Lock daemon/runtime CI to Agent CLI 0.84.5, including the GOAL-owned durable-contract completion fix.
+- Lock daemon/runtime CI to Agent CLI 0.84.6, including the GOAL-owned durable-contract completion fix.
 - Preserve the immutable daemon startup identity introduced in 0.1.27/runtime 0.2.40.
 - No Protocol, Memory, IPC or native daemon behavior change.
 
