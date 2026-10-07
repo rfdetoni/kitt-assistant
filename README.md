@@ -1,5 +1,11 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.27 / runtime 0.2.40 — immutable daemon startup identity
+
+The Python daemon now captures both Agent CLI and Assistant runtime versions once at process startup and returns those immutable values in `ping`. A resident daemon loaded from old Python code can no longer appear compatible after an installer replaces package metadata on disk.
+
+The client requires both startup identities plus the daemon protocol version before reusing a resident process, so an upgrade forces the existing lifecycle path to replace stale daemon code instead of silently executing an older `mode=auto` implementation. See [release notes](docs/RELEASE_0.1.27.md).
+
 ## Release 0.1.27 — stale daemon rejection and Agent CLI 0.84.4
 
 Python runtime **0.2.40** freezes both the Agent and Assistant-runtime versions when the daemon process starts. The authenticated ping exposes that immutable startup identity, and clients reject daemons that do not report the exact current runtime identity. This fixes in-place upgrades where old daemon code stayed resident while `importlib.metadata` began reporting newly installed package versions.
