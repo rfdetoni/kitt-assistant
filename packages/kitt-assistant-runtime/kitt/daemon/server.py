@@ -1669,18 +1669,43 @@ class DaemonServer:
                     except Exception as exc:
                         await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "error", "error": f"Invalid grant: {exc}"}))
                         continue
+                    goal_id = goal_id_for_pending_turn(rt, grant.turn_id)
                     try:
                         if grant.conversation_id != sid:
                             raise ValueError("Grant does not belong to requested session")
-                        self._require_active_turn(sid, grant.turn_id)
+                        if goal_id:
+                            goal = rt.goals.get_scoped(goal_id, sid)
+                            if goal is None or goal.state != "WAITING_APPROVAL":
+                                raise ValueError("Goal approval is no longer pending")
+                        else:
+                            self._require_active_turn(sid, grant.turn_id)
                     except Exception as exc:
                         await q.put(encode_message({
                             "type": "RESPONSE", "request_id": req_id,
                             "status": "error", "error": str(exc),
                         }))
                         continue
-                    asyncio.create_task(self._continue_turn(rt, sid, grant))
-                    await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "ok"}))
+                    if goal_id:
+                        resolution = await asyncio.to_thread(
+                            resolve_goal_approval,
+                            rt,
+                            grant,
+                        )
+                        if not resolution.success:
+                            await q.put(encode_message({
+                                "type": "RESPONSE", "request_id": req_id,
+                                "status": "error",
+                                "error": resolution.error or "Approved contract action failed",
+                            }))
+                            continue
+                    else:
+                        asyncio.create_task(self._continue_turn(rt, sid, grant))
+                    await q.put(encode_message({
+                        "type": "RESPONSE",
+                        "request_id": req_id,
+                        "status": "ok",
+                        **({"goal_id": goal_id} if goal_id else {}),
+                    }))
                 elif action == "cancel_turn":
                     sid = str(msg.get("session_id", ""))
                     turn_id = str(msg.get("turn_id", ""))
