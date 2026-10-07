@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.29 / runtime 0.2.42 — 2026-10-07
+
+- Lock daemon/runtime CI to Agent CLI 0.84.7.
+- Carry the immediate first-prompt TUI session transition into daemon-owned execution.
+- No Assistant daemon, IPC, Protocol or Memory behavior change.
+
 ## 0.1.28 / runtime 0.2.41 — 2026-10-07
 
 - Lock daemon/runtime CI to Agent CLI 0.84.6, including the GOAL-owned durable-contract completion fix.

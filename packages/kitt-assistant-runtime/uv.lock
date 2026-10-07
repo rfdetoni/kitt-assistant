@@ -13,8 +13,8 @@ wheels = [
 
 [[package]]
 name = "kitt-agent-cli"
-version = "0.84.6"
-source = { git = "https://github.com/rfdetoni/kitt-agent-cli.git?branch=main#0f14d68b5fbdd6848660f68707230d7d6c3db584" }
+version = "0.84.7"
+source = { git = "https://github.com/rfdetoni/kitt-agent-cli.git?branch=main#f9c07452dd211359e754c2b9a1eb54e3854c41a1" }
 dependencies = [
     { name = "defusedxml" },
     { name = "kitt-protocol" },
@@ -23,7 +23,7 @@ dependencies = [
 
 [[package]]
 name = "kitt-assistant-runtime"
-version = "0.2.41"
+version = "0.2.42"
 source = { editable = "." }
 dependencies = [
     { name = "kitt-agent-cli" },
