@@ -1,5 +1,11 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.31 / runtime 0.2.44 — Immediate lifecycle events and cancellation
+
+The daemon flushes TurnStarted and thinking lifecycle events immediately in execution and continuation paths. Cancellation owns a single terminal notification; late producer events cannot appear after the cancellation. The runtime aligns its Agent and Protocol locks with this release.
+
+See [release notes](docs/RELEASE_0.1.31.md).
+
 ## Release 0.1.30 / runtime 0.2.43 — Agent CLI 0.84.8 progress alignment
 
 Python runtime **0.2.43** locks Agent CLI **0.84.8** at `809151b40ef4600c8364c73583bd38717b1665cf`. Daemon-owned `mode=auto` turns now forward bounded inner Goal progress to the outer user turn, so planning, context, tool activity and edits remain visible while durable contract items execute.

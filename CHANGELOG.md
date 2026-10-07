@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.31 / runtime 0.2.44 — 2026-10-07
+
+The daemon flushes TurnStarted and thinking lifecycle events immediately in execution and continuation paths. Cancellation owns a single terminal notification; late producer events cannot appear after the cancellation. The runtime aligns its Agent and Protocol locks with this release.
+
 ## 0.1.30 / runtime 0.2.43 — 2026-10-07
 
 - Lock daemon/runtime CI to Agent CLI 0.84.8.

@@ -436,3 +436,74 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(self.server._direct_pending), 65)
         self.assertEqual(len(rt.approval.list_pending(rt.workspace_id)), 65)
+
+
+class TestDaemonEventDelivery(unittest.IsolatedAsyncioTestCase):
+    async def test_late_producer_events_are_suppressed_after_cancellation(self):
+        from types import SimpleNamespace
+        from kitt.core.turn_events import ThinkingStarted, ThinkingCompleted, TurnCancelled
+
+        with tempfile.TemporaryDirectory() as tmp:
+            server = DaemonServer(workspace_root=tmp)
+            command = TurnCommand(conversation_id="review", prompt="implement", mode="auto")
+            recorded = []
+            runtime = SimpleNamespace(database=None, history=SimpleNamespace(
+                repo=SimpleNamespace(save_message=lambda *args: None)))
+
+            def events(*args):
+                yield TurnStarted(turn_id=command.turn_id, conversation_id="review", prompt="implement")
+                yield ThinkingStarted()
+                yield ThinkingCompleted(duration_ms=1)
+                yield TurnCancelled(reason="cancelled")
+                yield TurnCompleted(response="late")
+
+            def record(db, conversation_id, batch):
+                recorded.extend(type(event).__name__ for event in batch)
+                if "ThinkingStarted" in recorded:
+                    server._cancelled_turns.add(command.turn_id)
+
+            try:
+                with patch("kitt.daemon.server.iter_automatic_contract", events), patch.object(
+                    server, "_record_turn_events", record):
+                    await server._execute_turn(runtime, command)
+                self.assertEqual(recorded, ["TurnStarted", "ThinkingStarted"])
+                self.assertNotIn(command.turn_id, server._cancelled_turns)
+            finally:
+                server._blocking_executor.shutdown(wait=True)
+
+    async def test_start_events_are_visible_while_planning_is_blocked(self):
+        import threading
+        from types import SimpleNamespace
+        from kitt.core.turn_events import ThinkingStarted
+        with tempfile.TemporaryDirectory() as tmp:
+            server = DaemonServer(workspace_root=tmp)
+            command = TurnCommand(conversation_id="review", prompt="implement", mode="auto")
+            received = asyncio.Event()
+            release = threading.Event()
+            recorded = []
+            runtime = SimpleNamespace(database=None, history=SimpleNamespace(
+                repo=SimpleNamespace(save_message=lambda *args: None)))
+            def events(*args):
+                yield TurnStarted(turn_id=command.turn_id, conversation_id="review", prompt="implement")
+                yield ThinkingStarted()
+                release.wait(2)
+                yield TurnCompleted(response="done")
+            def record(db, conversation_id, batch):
+                recorded.extend(type(event).__name__ for event in batch)
+                if "ThinkingStarted" in recorded:
+                    received.set()
+            task = None
+            try:
+                with patch("kitt.daemon.server.iter_automatic_contract", events), patch.object(
+                    server, "_record_turn_events", record):
+                    task = asyncio.create_task(server._execute_turn(runtime, command))
+                    await asyncio.wait_for(received.wait(), timeout=1)
+                    self.assertFalse(task.done())
+                    self.assertEqual(recorded, ["TurnStarted", "ThinkingStarted"])
+                    release.set()
+                    await task
+            finally:
+                release.set()
+                if task is not None:
+                    await task
+                server._blocking_executor.shutdown(wait=True)

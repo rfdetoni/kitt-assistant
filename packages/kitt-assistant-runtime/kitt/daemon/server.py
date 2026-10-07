@@ -104,6 +104,7 @@ class DaemonServer:
         self._runtimes = {}
         self._runtime_event_unsubscribers = {}
         self._active_turns: Dict[str, str] = {}
+        self._cancelled_turns: set[str] = set()
         self._direct_pending: Dict[str, dict[str, Any]] = {}
         self._instance_lock_fd = None
         self._blocking_executor = ThreadPoolExecutor(
@@ -1717,6 +1718,7 @@ class DaemonServer:
                             turn_id, "Cancelled via daemon IPC", conversation_id=sid
                         ):
                             self._record_turn_event(rt.database, sid, event)
+                    self._cancelled_turns.add(turn_id)
                     self._active_turns.pop(turn_id, None)
                     await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "ok"}))
                 elif action == "stop":
@@ -1927,9 +1929,15 @@ class DaemonServer:
                 else:
                     events = rt.processor.arun_turn(cmd)
                 async for event in events:
+                    if cmd.turn_id in self._cancelled_turns:
+                        pending_events.clear()
+                        continue
                     event_name = type(event).__name__
                     pending_events.append(event)
                     critical = event_name in {
+                        "TurnStarted",
+                        "ThinkingStarted",
+                        "ThinkingCompleted",
                         "ApprovalRequired",
                         "TurnCompleted",
                         "TurnFailed",
@@ -1967,6 +1975,8 @@ class DaemonServer:
                 if pending_events:
                     self._record_turn_events(rt.database, cmd.conversation_id, pending_events)
             except Exception as exc:
+                if cmd.turn_id in self._cancelled_turns:
+                    return
                 self._active_turns.pop(cmd.turn_id, None)
                 if pending_events:
                     self._record_turn_events(rt.database, cmd.conversation_id, pending_events)
@@ -1982,6 +1992,7 @@ class DaemonServer:
                     {"error": str(exc), "turn_id": cmd.turn_id},
                 )
             finally:
+                self._cancelled_turns.discard(cmd.turn_id)
                 if not paused_for_approval:
                     self._active_turns.pop(cmd.turn_id, None)
 
@@ -2020,9 +2031,15 @@ class DaemonServer:
                     lambda: rt.processor.continue_turn(grant.turn_id, grant),
                     f"kitt-continue-{grant.turn_id[:8]}",
                 ):
+                    if grant.turn_id in self._cancelled_turns:
+                        pending_events.clear()
+                        continue
                     event_name = type(event).__name__
                     pending_events.append(event)
                     critical = event_name in {
+                        "TurnStarted",
+                        "ThinkingStarted",
+                        "ThinkingCompleted",
                         "ApprovalRequired",
                         "TurnCompleted",
                         "TurnFailed",
@@ -2045,10 +2062,13 @@ class DaemonServer:
                 if pending_events:
                     self._record_turn_events(rt.database, session_id, pending_events)
             except Exception as exc:
+                if grant.turn_id in self._cancelled_turns:
+                    return
                 self._active_turns.pop(grant.turn_id, None)
                 if pending_events:
                     self._record_turn_events(rt.database, session_id, pending_events)
                 self.record_event(rt.database, session_id, "TurnFailed", {"error": str(exc)})
             finally:
+                self._cancelled_turns.discard(grant.turn_id)
                 if not paused_for_approval:
                     self._active_turns.pop(grant.turn_id, None)
