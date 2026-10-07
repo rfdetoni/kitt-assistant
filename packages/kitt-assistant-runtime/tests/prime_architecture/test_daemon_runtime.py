@@ -3,7 +3,8 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from kitt import DAEMON_PROTOCOL_VERSION
 from kitt.daemon.client import DaemonClient
@@ -293,6 +294,43 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
                 for row in stored
             )
         )
+
+    async def test_03_goal_grant_resumes_contract_without_foreground_continue(self):
+        grant = SimpleNamespace(
+            conversation_id=self.session_id,
+            turn_id="turn-goal-approval",
+        )
+        rt = SimpleNamespace(
+            goals=SimpleNamespace(
+                get_scoped=lambda goal_id, session_id: SimpleNamespace(
+                    id=goal_id,
+                    conversation_id=session_id,
+                    state="WAITING_APPROVAL",
+                )
+            )
+        )
+        resolution = SimpleNamespace(success=True, error="")
+
+        with patch(
+            "kitt.daemon.server.goal_id_for_pending_turn",
+            return_value="goal-contract",
+        ), patch(
+            "kitt.daemon.server.resolve_goal_approval",
+            return_value=resolution,
+        ) as resolve, patch.object(
+            self.server,
+            "_continue_turn",
+            new_callable=AsyncMock,
+        ) as direct_continue:
+            goal_id = await self.server._continue_or_resume_goal(
+                rt,
+                self.session_id,
+                grant,
+            )
+
+        self.assertEqual(goal_id, "goal-contract")
+        resolve.assert_called_once_with(rt, grant)
+        direct_continue.assert_not_called()
 
     async def test_04_pending_approval_survives_arbitrary_daemon_wait(self):
         """Persisted PENDING approvals remain discoverable regardless of elapsed wall time."""
