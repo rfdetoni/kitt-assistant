@@ -1,5 +1,11 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.28 / runtime 0.2.41 — Agent CLI 0.84.6 loop alignment
+
+Python runtime **0.2.41** locks Agent CLI **0.84.6** at `0f14d68b5fbdd6848660f68707230d7d6c3db584`. This brings the complete Goals/TaskPlan ownership fix into daemon-owned `mode=auto` execution: GOAL items without a nested TaskPlan no longer receive TaskPlan host-verification context or its completion gate, leaving post-turn checks to `GoalStepVerifier`.
+
+The stale-daemon startup-identity fix from 0.1.27/runtime 0.2.40 remains unchanged. Protocol, Memory and native daemon contracts are unchanged.
+
 ## Release 0.1.27 — stale daemon rejection and Agent CLI 0.84.4
 
 Python runtime **0.2.40** freezes both the Agent and Assistant-runtime versions when the daemon process starts. The authenticated ping exposes that immutable startup identity, and clients reject daemons that do not report the exact current runtime identity. This fixes in-place upgrades where old daemon code stayed resident while `importlib.metadata` began reporting newly installed package versions.
