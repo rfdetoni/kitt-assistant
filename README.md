@@ -1,5 +1,9 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.26 — Agent CLI 0.84.3 managed Proxy logging alignment
+
+Python runtime **0.2.39** locks Agent CLI **0.84.3**, including the stale Reverse Proxy control-plane refresh that makes managed Proxy logging honor the Agent log directory after upgrades. Native daemon, Protocol, Memory and IPC contracts are unchanged.
+
 ## Release 0.1.25 — automatic contract daemon routing
 
 Python runtime **0.2.38** routes persisted daemon-owned `mode=auto` turns through Agent CLI **0.84.2**'s durable Plan → Execute → Validate → Retry contract wrapper. Explicit `ask`, `plan` and no-history turns remain direct TurnProcessor turns.
