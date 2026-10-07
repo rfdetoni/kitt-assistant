@@ -1,5 +1,11 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.27 — stale daemon rejection and Agent CLI 0.84.4
+
+Python runtime **0.2.40** freezes both the Agent and Assistant-runtime versions when the daemon process starts. The authenticated ping exposes that immutable startup identity, and clients reject daemons that do not report the exact current runtime identity. This fixes in-place upgrades where old daemon code stayed resident while `importlib.metadata` began reporting newly installed package versions.
+
+An incompatible authenticated daemon is recycled by the existing daemon bootstrap path; no second lifecycle manager was added. The runtime lock and CI pin Agent CLI **0.84.4** at `fc985bc6d842d3c684ad1188ff2fc8a0c427e6a8`, including durable-loop hardening. See [release notes](docs/RELEASE_0.1.27.md).
+
 ## Release 0.1.26 — Agent CLI 0.84.3 managed Proxy logging alignment
 
 Python runtime **0.2.39** locks Agent CLI **0.84.3**, including the stale Reverse Proxy control-plane refresh that makes managed Proxy logging honor the Agent log directory after upgrades. Native daemon, Protocol, Memory and IPC contracts are unchanged.

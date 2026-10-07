@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.27 / runtime 0.2.40 — 2026-10-07
+
+- Freeze Agent/runtime compatibility identity at daemon startup instead of rereading mutable distribution metadata on every ping.
+- Reject stale resident daemons that lack or mismatch the Assistant runtime startup identity, allowing the existing authenticated bootstrap to recycle them after upgrades.
+- Validate and lock Agent CLI 0.84.4, including durable automatic-contract hardening.
+
 ## 0.1.20 — 2026-10-06
 
 - Align the HUD npm Protocol lock with the same 0.9.1 revision as native workspace, native HUD and Python runtime locks. The immutable release installer previously rejected the stale 0.9.0 npm pin.

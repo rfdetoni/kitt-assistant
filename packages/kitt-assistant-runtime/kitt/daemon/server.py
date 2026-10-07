@@ -42,11 +42,15 @@ _IPC_BATCH_MAX_MESSAGES = 32
 _IPC_BATCH_MAX_BYTES = 512 * 1024
 
 
-def _agent_version() -> str:
+def _distribution_version(name: str) -> str:
     try:
-        return package_version("kitt-agent-cli")
+        return package_version(name)
     except PackageNotFoundError:
         return "dev"
+
+
+_AGENT_STARTUP_VERSION = _distribution_version("kitt-agent-cli")
+_RUNTIME_STARTUP_VERSION = _distribution_version("kitt-assistant-runtime")
 
 
 
@@ -1259,7 +1263,8 @@ class DaemonServer:
                         "request_id": req_id,
                         "status": "ok",
                         "action": "ping",
-                        "agent_version": _agent_version(),
+                        "agent_version": _AGENT_STARTUP_VERSION,
+                        "assistant_runtime_version": _RUNTIME_STARTUP_VERSION,
                         "daemon_protocol_version": DAEMON_PROTOCOL_VERSION,
                         "lifecycle_state": self._lifecycle_state,
                         "ready": self._lifecycle_state == "ready",

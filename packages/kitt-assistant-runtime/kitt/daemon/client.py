@@ -12,11 +12,31 @@ from kitt.daemon.protocol import DaemonEvent, decode_line, encode_message
 from kitt.daemon.transport import IPCTransport
 
 
-def _agent_version() -> str:
+def _distribution_version(name: str) -> str:
     try:
-        return package_version("kitt-agent-cli")
+        return package_version(name)
     except PackageNotFoundError:
         return "dev"
+
+
+_AGENT_STARTUP_VERSION = _distribution_version("kitt-agent-cli")
+_RUNTIME_STARTUP_VERSION = _distribution_version("kitt-assistant-runtime")
+
+
+def _compatible_ping(ping: Dict[str, Any]) -> bool:
+    try:
+        remote_protocol = int(ping.get("daemon_protocol_version") or 0)
+    except (TypeError, ValueError):
+        return False
+    return (
+        ping.get("status") == "ok"
+        and ping.get("ready") is True
+        and ping.get("lifecycle_state") == "ready"
+        and str(ping.get("agent_version") or "") == _AGENT_STARTUP_VERSION
+        and str(ping.get("assistant_runtime_version") or "")
+        == _RUNTIME_STARTUP_VERSION
+        and remote_protocol == DAEMON_PROTOCOL_VERSION
+    )
 
 
 class DaemonClient:
@@ -66,15 +86,7 @@ class DaemonClient:
                 if not require_compatible:
                     return True
                 ping = await self._send_request({"action": "ping"})
-                remote_version = str(ping.get("agent_version") or "")
-                remote_protocol = int(ping.get("daemon_protocol_version") or 0)
-                if (
-                    ping.get("status") == "ok"
-                    and ping.get("ready") is True
-                    and ping.get("lifecycle_state") == "ready"
-                    and remote_version == _agent_version()
-                    and remote_protocol == DAEMON_PROTOCOL_VERSION
-                ):
+                if _compatible_ping(ping):
                     return True
         except Exception:
             pass

@@ -1,7 +1,35 @@
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import patch
+
 import pytest
-from kitt.daemon.client import DaemonClient
+from kitt import DAEMON_PROTOCOL_VERSION
+from kitt.daemon.client import DaemonClient, _compatible_ping
+
+
+def test_compatible_ping_rejects_stale_daemon_that_only_reports_new_disk_agent_version():
+    base = {
+        "status": "ok",
+        "ready": True,
+        "lifecycle_state": "ready",
+        "agent_version": "0.84.4",
+        "daemon_protocol_version": DAEMON_PROTOCOL_VERSION,
+    }
+    with (
+        patch(
+            "kitt.daemon.client._AGENT_STARTUP_VERSION", "0.84.4"
+        ),
+        __import__("unittest.mock").mock.patch(
+            "kitt.daemon.client._RUNTIME_STARTUP_VERSION", "0.2.40"
+        ),
+    ):
+        assert not _compatible_ping(base)
+        assert not _compatible_ping(
+            {**base, "assistant_runtime_version": "0.2.39"}
+        )
+        assert _compatible_ping(
+            {**base, "assistant_runtime_version": "0.2.40"}
+        )
 
 
 @pytest.mark.asyncio
