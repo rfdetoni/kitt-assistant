@@ -1,3 +1,7 @@
+## Release 0.1.33 / runtime 0.3.0 — Agent contract v3 composition
+
+Runtime requires Agent 0.85.x and locks its immutable revision with Protocol 0.10.0. Native Protocol locks and runtime CI match the structured-result composition. See [release notes](docs/RELEASE_0.1.33.md).
+
 # K.I.T.T. Assistant
 
 ## Release 0.1.32 / runtime 0.2.45 — WebChat token ownership
