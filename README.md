@@ -1,3 +1,7 @@
+## Python runtime 0.3.2 — Agent 0.86.1 parallel subagents
+
+The Assistant companion Python runtime now pins validated Agent CLI **0.86.1** in `uv.lock` and CI. The native Assistant and Protocol remain **0.1.34** and **0.11.0**, respectively. This synchronization supports KITT ecosystem 0.15.2 release-channel installation with automatic parallel Goal children, live agent monitoring and direct-argv Allow All command regression coverage. See [release notes](docs/RELEASE_RUNTIME_0.3.2.md).
+
 ## Assistant 0.1.34 / Runtime 0.3.1 — Release 0.15.1 pins
 
 Align the native Assistant, HUD and Python runtime dependency locks with KITT Protocol **0.11.0** (Agent contract v4/KAP/1) and Agent CLI **0.86.0**. The immutable release installer validates these SHAs before building; mismatched locks intentionally fail closed. The Python runtime requires Agent `>=0.86.0,<0.87`. See [release notes](docs/RELEASE_0.1.34.md).
