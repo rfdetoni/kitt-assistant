@@ -1,5 +1,11 @@
 # K.I.T.T. Assistant
 
+## Release 0.1.32 / runtime 0.2.45 — Contract review compatibility
+
+Runtime locks and CI pin Agent CLI 0.84.10, which fixes high-risk contract review failures on 8K reverse-proxy profiles and records failed prompt preparation.
+
+See [release notes](docs/RELEASE_0.1.32.md).
+
 ## Release 0.1.31 / runtime 0.2.44 — Immediate lifecycle events and cancellation
 
 The daemon flushes TurnStarted and thinking lifecycle events immediately in execution and continuation paths. Cancellation owns a single terminal notification; late producer events cannot appear after the cancellation. The runtime aligns its Agent and Protocol locks with this release.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.32 / runtime 0.2.45 — 2026-10-08
+
+Align the runtime lock and CI with Agent CLI 0.84.10 for bounded pre-mutation contract review and scoped failure diagnostics.
+
 ## 0.1.31 / runtime 0.2.44 — 2026-10-07
 
 The daemon flushes TurnStarted and thinking lifecycle events immediately in execution and continuation paths. Cancellation owns a single terminal notification; late producer events cannot appear after the cancellation. The runtime aligns its Agent and Protocol locks with this release.
