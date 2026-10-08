@@ -321,7 +321,7 @@ function hydrateHistoricalEvent(evt) {
   } else if (type === "BudgetApplied") {
     const used = Number(p.total_input_tokens || 0);
     const total = Number(p.window_size || 0);
-    els.contextValue.textContent = total ? `${used} / ${total}` : String(used || "—");
+    els.contextValue.textContent = total ? `${used} / ${total}` : `WebChat · ${used} tokens estimados`;
   } else if (type === "ToolStarted" || type === "ToolCompleted") {
     state.tools.unshift({type, ...p, timestamp: evt.created_at});
     state.tools = state.tools.slice(0, 80);
@@ -354,7 +354,7 @@ function handleEvent(evt) {
   } else if (type === "BudgetApplied") {
     const used = Number(p.total_input_tokens || 0);
     const total = Number(p.window_size || 0);
-    els.contextValue.textContent = total ? `${used} / ${total}` : String(used || "—");
+    els.contextValue.textContent = total ? `${used} / ${total}` : `WebChat · ${used} tokens estimados`;
   } else if (type === "ToolStarted") {
     state.tools.unshift({type, ...p, timestamp: evt.created_at});
     state.tools = state.tools.slice(0, 80);

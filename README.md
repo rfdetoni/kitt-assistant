@@ -1,8 +1,8 @@
 # K.I.T.T. Assistant
 
-## Release 0.1.32 / runtime 0.2.45 — Contract review compatibility
+## Release 0.1.32 / runtime 0.2.45 — WebChat token ownership
 
-Runtime locks and CI pin Agent CLI 0.84.10, which fixes high-risk contract review failures on 8K reverse-proxy profiles and records failed prompt preparation.
+Runtime locks and CI select Agent CLI 0.84.10, which delegates reverse-proxy token limits to WebChat. Remote context telemetry shows WebChat ownership without a fabricated local capacity.
 
 See [release notes](docs/RELEASE_0.1.32.md).
 
