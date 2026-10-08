@@ -1,3 +1,7 @@
+## Assistant 0.1.34 / Runtime 0.3.1 — Release 0.15.1 pins
+
+Align the native Assistant, HUD and Python runtime dependency locks with KITT Protocol **0.11.0** (Agent contract v4/KAP/1) and Agent CLI **0.86.0**. The immutable release installer validates these SHAs before building; mismatched locks intentionally fail closed. The Python runtime requires Agent `>=0.86.0,<0.87`. See [release notes](docs/RELEASE_0.1.34.md).
+
 ## Release 0.1.33 / runtime 0.3.0 — Agent contract v3 composition
 
 Runtime requires Agent 0.85.x and locks its immutable revision with Protocol 0.10.0. Native Protocol locks and runtime CI match the structured-result composition. See [release notes](docs/RELEASE_0.1.33.md).

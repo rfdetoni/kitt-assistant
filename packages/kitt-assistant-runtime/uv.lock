@@ -13,8 +13,8 @@ wheels = [
 
 [[package]]
 name = "kitt-agent-cli"
-version = "0.85.0"
-source = { git = "https://github.com/rfdetoni/kitt-agent-cli.git?branch=main#3c4c9c7cb2833a7c6bd662b833e241ae568435c2" }
+version = "0.86.0"
+source = { git = "https://github.com/rfdetoni/kitt-agent-cli.git?branch=main#25051c0f494997815951de0f84f24e04cd71bf40" }
 dependencies = [
     { name = "defusedxml" },
     { name = "kitt-protocol" },
@@ -23,7 +23,7 @@ dependencies = [
 
 [[package]]
 name = "kitt-assistant-runtime"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "." }
 dependencies = [
     { name = "kitt-agent-cli" },
@@ -34,8 +34,8 @@ requires-dist = [{ name = "kitt-agent-cli", git = "https://github.com/rfdetoni/k
 
 [[package]]
 name = "kitt-protocol"
-version = "0.10.0"
-source = { git = "https://github.com/rfdetoni/kitt-protocol.git?subdirectory=sdk%2Fpython&rev=main#c3bb542f81f8808f0d93f950ab6af5c223fddf4b" }
+version = "0.11.0"
+source = { git = "https://github.com/rfdetoni/kitt-protocol.git?subdirectory=sdk%2Fpython&rev=main#ed096ba68368c8b449c1baf715e0000871ec9fb9" }
 
 [[package]]
 name = "prompt-toolkit"
