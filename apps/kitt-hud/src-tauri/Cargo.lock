@@ -1584,7 +1584,7 @@ dependencies = [
 
 [[package]]
 name = "kitt-hud"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "kitt-protocol",
  "serde",
@@ -1595,8 +1595,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-protocol"
-version = "0.10.0"
-source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#c3bb542f81f8808f0d93f950ab6af5c223fddf4b"
+version = "0.11.0"
+source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#ed096ba68368c8b449c1baf715e0000871ec9fb9"
 dependencies = [
  "serde",
  "serde_json",
