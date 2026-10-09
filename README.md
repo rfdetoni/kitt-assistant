@@ -1,3 +1,7 @@
+## Python runtime 0.3.3 — Agent validation fixes
+
+The companion requires Agent CLI 0.86.2 and pins its tested commit in uv.lock. Native/HUD 0.1.34 is unchanged. See [release notes](docs/RELEASE_RUNTIME_0.3.3.md).
+
 ## Python runtime 0.3.2 — Agent 0.86.1 parallel subagents
 
 The Assistant companion Python runtime now pins validated Agent CLI **0.86.1** in `uv.lock` and CI. The native Assistant and Protocol remain **0.1.34** and **0.11.0**, respectively. This synchronization supports KITT ecosystem 0.15.2 release-channel installation with automatic parallel Goal children, live agent monitoring and direct-argv Allow All command regression coverage. See [release notes](docs/RELEASE_RUNTIME_0.3.2.md).
