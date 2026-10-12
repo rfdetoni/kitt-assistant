@@ -1,5 +1,11 @@
 # Changelog
 
+## runtime 0.3.4 — 2026-10-12
+
+- Align Agent CLI >=0.86.6, its immutable uv.lock SHA and the new optional Linux QEMU VM autonomy and reverse-engineering lab.
+- Assistant daemon and wire contracts remain unchanged; this is a runtime lock/compatibility update.
+
+
 ## 0.1.32 / runtime 0.2.45 — 2026-10-08
 
 Align runtime locks and CI with Agent CLI 0.84.10 for provider-managed token limits. Remote telemetry labels WebChat context ownership.
