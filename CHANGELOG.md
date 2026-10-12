@@ -1,5 +1,10 @@
 # Changelog
 
+## runtime 0.3.6 — 2026-10-12
+
+- Align immutable Agent CLI revision 0.86.8 with Docker/Podman QEMU guests and prebuilt reverse-engineering Linux images.
+- Runtime/daemon/protocol contracts remain unchanged.
+
 ## runtime 0.3.5 — 2026-10-12
 
 - Align runtime dependency and immutable Agent lock with Agent CLI 0.86.7 (interactive Windows/Linux VM creation helper).
