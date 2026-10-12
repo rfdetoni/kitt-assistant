@@ -1,5 +1,10 @@
 # Changelog
 
+## runtime 0.3.7 — 2026-10-12
+
+- Align Agent dependency and immutable checkout with Agent CLI 0.86.9, hardening QEMU Docker/Podman web authentication, image pins, guest probe channel and offline snapshots.
+- No daemon, protocol, or native runtime changes.
+
 ## runtime 0.3.6 — 2026-10-12
 
 - Align immutable Agent CLI revision 0.86.8 with Docker/Podman QEMU guests and prebuilt reverse-engineering Linux images.
