@@ -1,5 +1,10 @@
 # Changelog
 
+## runtime 0.3.9 — 2026-10-12
+
+- Align immutable Agent dependency and CI to Agent 0.86.11, which ensures a private writable HOME/XDG cache for REA/Ghidra tools running with arbitrary non-root UIDs in the full Linux toolbox.
+- Reuse prebuilt REA 6.4.0 / Ghidra / Frida image tag 0.86.10; no protocol or daemon changes.
+
 ## runtime 0.3.8 — 2026-10-12
 
 - Align Agent CLI dependency to 0.86.10, enabling REA 6.4.0 in the optional full Linux RE toolbox and evidence-backed workflow guidance.
