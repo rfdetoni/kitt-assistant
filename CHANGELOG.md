@@ -1,5 +1,10 @@
 # Changelog
 
+## runtime 0.3.5 — 2026-10-12
+
+- Align runtime dependency and immutable Agent lock with Agent CLI 0.86.7 (interactive Windows/Linux VM creation helper).
+- No daemon, protocol or native Rust changes.
+
 ## runtime 0.3.4 — 2026-10-12
 
 - Align Agent CLI >=0.86.6, its immutable uv.lock SHA and the new optional Linux QEMU VM autonomy and reverse-engineering lab.
