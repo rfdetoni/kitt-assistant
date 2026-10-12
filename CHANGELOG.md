@@ -1,5 +1,10 @@
 # Changelog
 
+## runtime 0.3.8 — 2026-10-12
+
+- Align Agent CLI dependency to 0.86.10, enabling REA 6.4.0 in the optional full Linux RE toolbox and evidence-backed workflow guidance.
+- No changes to assistant daemon, Rust runtime or protocol contracts.
+
 ## runtime 0.3.7 — 2026-10-12
 
 - Align Agent dependency and immutable checkout with Agent CLI 0.86.9, hardening QEMU Docker/Podman web authentication, image pins, guest probe channel and offline snapshots.
