@@ -1,3 +1,7 @@
+## KAP/2 0.13.1 dependency synchronization
+
+Native Assistant 0.1.37 and Runtime 0.3.17 consume Agent CLI 0.87.2 and canonical Protocol 0.13.1. The host IPC Envelope v1 and authorization boundaries remain unchanged.
+
 ## KAP/2 patch synchronization
 
 Assistant Runtime 0.3.16 and native workspace 0.1.36 consume Agent 0.87.1 and Protocol 0.12.1; the IPC Envelope remains v1.
