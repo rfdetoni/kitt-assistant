@@ -180,7 +180,7 @@ def _resolve_python_executable() -> Path | None:
     return None
 
 
-def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict[str, Any]:
+def start_daemon_detached(workspace: str, timeout_seconds: float = 45.0) -> Dict[str, Any]:
     transport = IPCTransport(workspace)
     existing_pid = transport.read_pid()
     if existing_pid and _pid_alive(existing_pid):
@@ -194,6 +194,31 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
                 }
         except Exception:
             pass
+
+        # Do not stop an authenticated daemon that is still initializing MCP
+        # plugins. Another frontend may request startup during that window.
+        try:
+            existing_state = asyncio.run(_probe_daemon_state(workspace))
+        except Exception:
+            existing_state = None
+        if existing_state == "starting":
+            deadline = time.monotonic() + max(1.0, float(timeout_seconds))
+            while time.monotonic() < deadline and _pid_alive(existing_pid):
+                try:
+                    if asyncio.run(_probe_daemon(workspace)):
+                        return {
+                            "status": "ok", "pid": existing_pid,
+                            "message": "Existing KITT daemon reached readiness",
+                            "state": "ready",
+                        }
+                except Exception:
+                    pass
+                time.sleep(0.75)
+            return {
+                "status": "error", "pid": existing_pid,
+                "error": "Existing KITT daemon is still starting; not replacing it",
+                "state": "starting", "spawned": False,
+            }
 
         # The PID is live but the compatible probe failed. This can be a daemon
         # from an older Agent release. Authenticate with the workspace token and
@@ -296,7 +321,9 @@ def start_daemon_detached(workspace: str, timeout_seconds: float = 10.0) -> Dict
             pass
         if proc.poll() is not None:
             break
-        time.sleep(0.1)
+        # Initializing optional MCP plugins can exceed a few seconds. Probe
+        # at bounded cadence instead of opening dozens of IPC clients/sec.
+        time.sleep(0.75)
 
     _terminate_spawned(proc)
     if not _pid_alive(proc.pid):

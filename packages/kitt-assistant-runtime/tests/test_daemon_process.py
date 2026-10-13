@@ -132,6 +132,29 @@ class DaemonProcessBootstrapTests(unittest.TestCase):
             self.assertIs(kwargs["start_new_session"], True)
         self.assertEqual(result["state"], "ready")
 
+    def test_existing_initializing_daemon_is_not_restarted(self) -> None:
+        with TemporaryDirectory() as temp:
+            transport = MagicMock()
+            transport.read_pid.return_value = 1234
+            with (
+                patch.object(process, "IPCTransport", return_value=transport),
+                patch.object(process, "_pid_alive", return_value=True),
+                patch.object(process, "_probe_daemon",
+                             new=AsyncMock(side_effect=[False, False, True])),
+                patch.object(process, "_probe_daemon_state",
+                             new=AsyncMock(return_value="starting")),
+                patch.object(process, "_stop_daemon_via_ipc",
+                             new=AsyncMock()) as stop,
+                patch.object(process.subprocess, "Popen") as popen,
+                patch.object(process.time, "sleep"),
+            ):
+                result = process.start_daemon_detached(temp, timeout_seconds=2)
+
+        self.assertEqual(result["state"], "ready")
+        self.assertEqual(result["pid"], 1234)
+        stop.assert_not_awaited()
+        popen.assert_not_called()
+
     def test_status_marks_live_unreachable_daemon_degraded(self) -> None:
         with TemporaryDirectory() as temp:
             transport = MagicMock()
