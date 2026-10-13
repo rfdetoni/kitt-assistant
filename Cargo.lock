@@ -963,14 +963,14 @@ dependencies = [
 
 [[package]]
 name = "kitt-application"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "kitt-domain",
 ]
 
 [[package]]
 name = "kitt-domain"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "kitt-memory-core",
  "serde",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "kitt-infrastructure"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "kitt-domain",
  "kitt-memory-core",
@@ -1015,8 +1015,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-protocol"
-version = "0.12.1"
-source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#f1ee72e248e611e03290a5f9bc1ccdffe520c715"
+version = "0.13.1"
+source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#2e38e53ab5ce0d471948bb1220b3f50f432f78d0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "kittctl"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "dirs",
  "kitt-protocol",
@@ -1034,7 +1034,7 @@ dependencies = [
 
 [[package]]
 name = "kittd"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "base64",
  "cpal",
@@ -2169,7 +2169,7 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.36"
+version = "0.1.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
