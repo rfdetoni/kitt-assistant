@@ -1,3 +1,7 @@
+## Assistant 0.1.40 / Runtime 0.3.20
+
+Dependencies pin Agent CLI 0.87.5 and Protocol 0.13.1. Goal plans, reviews, independent validation and completion use KAP/2 model-facing envelopes, while host permissions and IPC remain unchanged.
+
 ## 0.1.39 / Runtime 0.3.19 — KAP/2-only model planning
 
 Pinned to Agent CLI 0.87.4, which requests compact KAP/2 plans and reviews instead of legacy KAP/1. Scoped browser gateway and host-owned approval behavior remain unchanged.
