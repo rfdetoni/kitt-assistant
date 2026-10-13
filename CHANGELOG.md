@@ -1,5 +1,10 @@
 # Changelog
 
+## runtime 0.3.10 — 2026-10-13
+
+- Align Agent 0.86.12 immutable pin and dependency range. REA 6.4.0 workflows now recommend actual MCP tool identifiers, without changing the host approval boundary.
+- No daemon/Rust/protocol changes; full Linux RE image remains pinned to tag 0.86.10 because the image contents are unchanged.
+
 ## runtime 0.3.9 — 2026-10-12
 
 - Align immutable Agent dependency and CI to Agent 0.86.11, which ensures a private writable HOME/XDG cache for REA/Ghidra tools running with arbitrary non-root UIDs in the full Linux toolbox.
