@@ -1,3 +1,7 @@
+## KAP/2 patch synchronization
+
+Assistant Runtime 0.3.16 and native workspace 0.1.36 consume Agent 0.87.1 and Protocol 0.12.1; the IPC Envelope remains v1.
+
 ## KAP/2 dependency synchronization
 
 Assistant Runtime 0.3.15 and native workspace 0.1.35 consume Agent CLI 0.87.0 and Protocol 0.12.0. Model-facing KAP is decoded upstream; the assistant IPC Envelope v1 remains unchanged.
