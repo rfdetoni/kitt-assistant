@@ -1,3 +1,7 @@
+## 0.1.39 / Runtime 0.3.19 — KAP/2-only model planning
+
+Pinned to Agent CLI 0.87.4, which requests compact KAP/2 plans and reviews instead of legacy KAP/1. Scoped browser gateway and host-owned approval behavior remain unchanged.
+
 ## KAP/2 browser delegation — native 0.1.38, runtime 0.3.18
 
 The Assistant is locked to Agent CLI 0.87.3, which forwards scoped browser gateway discovery through its failover wrapper. The root Cargo lock keeps the resolvable tracing-core 0.1.36 pin.
