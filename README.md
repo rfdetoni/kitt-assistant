@@ -1,3 +1,7 @@
+## KAP/2 browser delegation — native 0.1.38, runtime 0.3.18
+
+The Assistant is locked to Agent CLI 0.87.3, which forwards scoped browser gateway discovery through its failover wrapper. The root Cargo lock keeps the resolvable tracing-core 0.1.36 pin.
+
 ## KAP/2 0.13.1 dependency synchronization
 
 Native Assistant 0.1.37 and Runtime 0.3.17 consume Agent CLI 0.87.2 and canonical Protocol 0.13.1. The host IPC Envelope v1 and authorization boundaries remain unchanged.
