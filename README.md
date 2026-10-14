@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.24 — Goals KAP/2 host-action contract
+
+The Python consumer pins Agent CLI **0.87.12** at immutable SHA `69a30305daed5faa589a19bd6a337a25ec1b0f33`, which requires authorized host-tool execution before a durable Goals K2 F completion report. The update does not change Protocol 0.13.3, the assistant native runtime or any host permissions.
+
 ## Assistant 0.1.42 / Runtime 0.3.23 — KAP/2 compact final pin alignment
 
 Protocol **0.13.3** supports an explicit indentation-free tagged KAP/2
