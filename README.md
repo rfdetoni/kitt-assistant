@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.25 — KAP/2 host-tool bridge
+
+Pins Agent CLI **0.87.13** at commit `d50e3fe6aa4258fa24e2c69645968f6c845c18a0` to deliver canonical KAP/2 `K2 T` host-tool requests in durable Goals. All other Protocol and native dependencies retain their existing versions.
+
 ## Assistant Runtime 0.3.24 — Goals KAP/2 host-action contract
 
 The Python consumer pins Agent CLI **0.87.12** at immutable SHA `4b955a82633fccc4ba6ffef3c97703b1dfda0916`, which requires authorized host-tool execution before a durable Goals K2 F completion report. The update does not change Protocol 0.13.3, the assistant native runtime or any host permissions.
