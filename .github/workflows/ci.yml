@@ -44,14 +44,14 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-agent-cli
-          ref: 5693fb3304fb5e0cfba5f1bd90841f43f12e24f3
+          ref: 6a76c27f4e71962a644d174e9187f4d386f794f7
           path: kitt-agent-cli
           persist-credentials: false
       - name: Checkout protocol dependency
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-protocol
-          ref: 2e38e53ab5ce0d471948bb1220b3f50f432f78d0
+          ref: 0b9300e418557b00e371eeb2c70ef91fbf50855d
           path: kitt-protocol
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -97,14 +97,14 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-agent-cli
-          ref: 5693fb3304fb5e0cfba5f1bd90841f43f12e24f3
+          ref: 6a76c27f4e71962a644d174e9187f4d386f794f7
           path: kitt-agent-cli
           persist-credentials: false
       - name: Checkout protocol dependency
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-protocol
-          ref: 2e38e53ab5ce0d471948bb1220b3f50f432f78d0
+          ref: 0b9300e418557b00e371eeb2c70ef91fbf50855d
           path: kitt-protocol
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065

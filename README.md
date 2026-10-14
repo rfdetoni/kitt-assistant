@@ -1,3 +1,11 @@
+## Assistant Runtime 0.3.22 — KAP/2 sandbox Python dependency alignment
+
+Python runtime lock now resolves Agent CLI 0.87.10, which adds the
+`sandbox.python` host operation for restricted `code<<PY` KAP/2 literals,
+and Protocol 0.13.2. CI's fixed compatibility checkouts use the same
+Agent/Protocol SHAs. Native Assistant remains 0.1.41; no native code changed.
+See [runtime 0.3.22 notes](docs/RUNTIME_0.3.22.md).
+
 ## Assistant 0.1.41 / Runtime 0.3.21 — Protocol lock alignment
 
 Align both Rust `Cargo.lock` files with Protocol 0.13.2, Agent CLI 0.87.9 in the Python runtime `uv.lock`, and HUD's package metadata. This repairs the root installer release-pin mismatch without changing runtime behavior. See [release 0.1.41](docs/RELEASE_0.1.41.md).
