@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.26 — Agent CLI index performance alignment
+
+The Python runtime lock and compatible-agent CI checkouts now pin Agent CLI **0.87.18** at `7d8e821352964addb9ab25acef8aa9f96f3461f6`. The native Assistant, Protocol and host IPC wire contracts are unchanged. See [runtime release notes](docs/RUNTIME_0.3.26.md).
+
 ## Assistant Runtime 0.3.25 — KAP/2 host-tool bridge
 
 Pins Agent CLI **0.87.13** at commit `d50e3fe6aa4258fa24e2c69645968f6c845c18a0` to deliver canonical KAP/2 `K2 T` host-tool requests in durable Goals. All other Protocol and native dependencies retain their existing versions.
