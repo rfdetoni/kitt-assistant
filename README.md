@@ -1,3 +1,7 @@
+## Assistant 0.1.41 / Runtime 0.3.21 — Protocol lock alignment
+
+Align both Rust `Cargo.lock` files with Protocol 0.13.2, Agent CLI 0.87.9 in the Python runtime `uv.lock`, and HUD's package metadata. This repairs the root installer release-pin mismatch without changing runtime behavior. See [release 0.1.41](docs/RELEASE_0.1.41.md).
+
 ## Assistant 0.1.40 / Runtime 0.3.20
 
 Dependencies pin Agent CLI 0.87.5 and Protocol 0.13.1. Goal plans, reviews, independent validation and completion use KAP/2 model-facing envelopes, while host permissions and IPC remain unchanged.
