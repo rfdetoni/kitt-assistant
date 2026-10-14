@@ -1,3 +1,10 @@
+## Assistant 0.1.43 / runtime 0.3.24 — persisted session recovery
+
+Assistant's runtime now pins Agent CLI 0.87.12, restoring per-workspace
+interactive conversation history and supporting historical /resume,
+Conversations, /fork, and CLI sessions menus. No native runtime protocol
+change. See [release notes](docs/RELEASE_0.1.43.md).
+
 ## Assistant 0.1.42 / Runtime 0.3.23 — KAP/2 compact final pin alignment
 
 Protocol **0.13.3** supports an explicit indentation-free tagged KAP/2
