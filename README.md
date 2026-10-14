@@ -1,6 +1,6 @@
 ## Assistant Runtime 0.3.27 — optional hybrid memory Agent alignment
 
-Python runtime package, uv.lock and CI compatible-Agent checkout now pin Agent CLI **0.87.19** at `fed07a745c58ad8c286cba1230ebce9afe413170`. This exposes optional local Ollama vector-memory queries through the Agent without changing native Rust Assistant and Protocol APIs. See [runtime release notes](docs/RUNTIME_0.3.27.md).
+Python runtime package, uv.lock and CI compatible-Agent checkout now pin Agent CLI **0.87.19** at `5d6f6b2ac4a10826ab7b551694146928e06f2023`. This exposes optional local Ollama vector-memory queries through the Agent without changing native Rust Assistant and Protocol APIs. See [runtime release notes](docs/RUNTIME_0.3.27.md).
 
 ## Assistant Runtime 0.3.26 — Agent CLI index performance alignment
 
