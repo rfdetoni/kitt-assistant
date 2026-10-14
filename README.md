@@ -1,3 +1,11 @@
+## Assistant 0.1.42 / Runtime 0.3.23 — KAP/2 compact final pin alignment
+
+Protocol **0.13.3** supports an explicit indentation-free tagged KAP/2
+final and diagnoses irrecoverable flattened layouts. Agent CLI **0.87.11**
+uses it for durable task plans. Both Rust Cargo locks and the Python
+runtime uv.lock pin validated upstream commits. No native runtime API
+or authorization change. See [release 0.1.42](docs/RELEASE_0.1.42.md).
+
 ## Assistant Runtime 0.3.22 — KAP/2 sandbox Python dependency alignment
 
 Python runtime lock now resolves Agent CLI 0.87.10, which adds the
