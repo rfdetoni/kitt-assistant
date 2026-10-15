@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.33 — planner contract convergence
+
+Python runtime CI and lock pin Agent CLI **0.87.26** at `cea70a4227b3ba66455ef968cddcbc3468f65e61`. This prevents pre-mutation contract review from receiving an implicitly expanded FINAL step; individual task verification and host policy remain unchanged. See [release note](docs/RUNTIME_0.3.33.md).
+
 ## Assistant Runtime 0.3.32 — independent specialist LLM profiles
 
 Python runtime lock and CI now pin Agent CLI **0.87.25** at `4138895c84b673c8dfef54ddb8f7276ee4ca1eb4`. Specialist workers can independently use registered direct or reverse-proxy model profiles, including bounded fallback and privacy restrictions. Native Assistant/Protocol APIs are unchanged. See [runtime release notes](docs/RUNTIME_0.3.32.md).

@@ -1,3 +1,7 @@
+## Runtime 0.3.33
+
+Agent CLI 0.87.26 is pinned in the lock and CI. No native API or wire protocol changes.
+
 ## Runtime 0.3.32
 
 Pinned Agent CLI 0.87.25 provides per-specialist TaskRouter model binding and privacy-aware fallbacks, with no change to the native Rust Assistant API or Python daemon protocol.
