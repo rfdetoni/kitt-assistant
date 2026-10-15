@@ -1,3 +1,7 @@
+## Assistant Runtime v0.3.36 — Agent semantic release integration
+
+The Assistant runtime now validates Agent CLI `0.87.29` from immutable main commit `cb530c2ecddaafa1241e957c3d379ea853f43863`, including the opt-in multilingual semantic stage. The runtime lock was refreshed without changing Rust packages or the protocol contract. Ollama remains optional and user-managed. [Release notes](docs/RELEASE_RUNTIME_0.3.36.md).
+
 ## Assistant Runtime 0.3.35 — explicit resume after ambiguous WebChat capture
 
 Pins Agent CLI **0.87.28** at `f5eaff224b80c02ceaaf390bc3b84e0943d95abf`. If the browser submitted a request but no fresh authenticated KAP response can be captured, the durable goal is **BLOCKED / ENVIRONMENT** until explicit operator inspection/resume, not automatically replayed. No native API or protocol change. [Release notes](docs/RUNTIME_0.3.35.md).
