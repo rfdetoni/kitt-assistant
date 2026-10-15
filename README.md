@@ -539,3 +539,7 @@ Assistant runtime 0.2.24 remains API-compatible with Agent CLI 0.78.6. CI now va
 ## Assistant 0.1.15 / runtime 0.2.25 — main-first ecosystem dependencies
 
 Native Assistant dependencies now follow `kitt-memory` and `kitt-protocol` `main` instead of embedding cross-repository SHAs. The HUD follows `kitt-protocol#main`, and the root ecosystem installer refreshes those K.I.T.T. dependencies inside its temporary build checkout before compiling. Component lockfiles remain local build artifacts, not ecosystem revision authorities.
+
+### Release 0.3.37: local multilingual lexical resources
+
+Assistant Runtime 0.3.37 locks Agent CLI 0.87.30 at immutable main SHA 383ffa5bb5c82f8c43f3db82127c41e2e8c6678f. Adds offline lexical compiler support through Agent without changing runtime protocol, Rust crates or execution permissions. Optional UniMorph/WordNet sources remain separately acquired; refer to the Agent SEMANTIC_LEXICON.md for license terms. [Release notes](docs/RELEASE_RUNTIME_0.3.37.md).
