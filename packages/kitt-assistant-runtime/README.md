@@ -1,3 +1,7 @@
+## Runtime 0.3.35
+
+Pins Agent CLI 0.87.28; durable contract executor stops repeat submission after ambiguous browser capture. No Rust or wire changes.
+
 ## Runtime 0.3.34
 
 Pins Agent CLI 0.87.27 for the new truthful live planning TUI. Runtime behavior outside the agent UI is unchanged.

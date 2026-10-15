@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.35 — explicit resume after ambiguous WebChat capture
+
+Pins Agent CLI **0.87.28** at `f5eaff224b80c02ceaaf390bc3b84e0943d95abf`. If the browser submitted a request but no fresh authenticated KAP response can be captured, the durable goal is **BLOCKED / ENVIRONMENT** until explicit operator inspection/resume, not automatically replayed. No native API or protocol change. [Release notes](docs/RUNTIME_0.3.35.md).
+
 ## Assistant Runtime 0.3.34 — stage-aware Agent planning UX
 
 Pins Agent CLI **0.87.27** at `33c83bbb6b05d06ea4dc91020ac9d7e2f78dfed3`, with explicit planning/review/revision attempt status, elapsed provider wait and no fabricated planning percentage. No change to the Rust assistant API or wire protocol. [Release note](docs/RUNTIME_0.3.34.md).
