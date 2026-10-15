@@ -1,3 +1,7 @@
+## Assistant 0.1.43 — Rust Memory 0.10.0 release-pin correction
+
+The native `Cargo.lock` now resolves `kitt-memory-core` and `kitt-memory-sqlite` at version 0.10.0 and immutable SHA `eee55669ef7400b2c1f31b6e658a28f018b77723`, matching KITT 0.15.42. This unblocks release-channel installation using `--locked`; no host API or memory policy changes. [Release notes](docs/RELEASE_0.1.43.md).
+
 ## Assistant Runtime 0.3.27 — optional hybrid memory Agent alignment
 
 Python runtime package, uv.lock and CI compatible-Agent checkout now pin Agent CLI **0.87.19** at `5d6f6b2ac4a10826ab7b551694146928e06f2023`. This exposes optional local Ollama vector-memory queries through the Agent without changing native Rust Assistant and Protocol APIs. See [runtime release notes](docs/RUNTIME_0.3.27.md).
