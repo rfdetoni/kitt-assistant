@@ -1,3 +1,7 @@
+## Runtime 0.3.32
+
+Pinned Agent CLI 0.87.25 provides per-specialist TaskRouter model binding and privacy-aware fallbacks, with no change to the native Rust Assistant API or Python daemon protocol.
+
 ## Runtime 0.3.31
 
 Compatible with Agent CLI 0.87.23. Pins specialist agent plugin support and durable scoped messaging through the same Python runtime/CI dependency chain, without new native APIs.

@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.32 — independent specialist LLM profiles
+
+Python runtime lock and CI now pin Agent CLI **0.87.25** at `51c00288f4a63eee66a977ca67a9fd58961828c7`. Specialist workers can independently use registered direct or reverse-proxy model profiles, including bounded fallback and privacy restrictions. Native Assistant/Protocol APIs are unchanged. See [runtime release notes](docs/RUNTIME_0.3.32.md).
+
 ## Assistant Runtime 0.3.31 — specialist Agent integration
 
 Python runtime lock and CI checkouts pin Agent CLI **0.87.23** at `4e643b11f00902d7afc7ee2e6315b4724cfec4f4`, providing specialized plugins, team collaboration and the new Agent Manager. Native runtime and Protocol remain unchanged. See [runtime release](docs/RUNTIME_0.3.31.md).
