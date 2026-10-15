@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-agent-cli
-          ref: f5eaff224b80c02ceaaf390bc3b84e0943d95abf
+          ref: cb530c2ecddaafa1241e957c3d379ea853f43863
           path: kitt-agent-cli
           persist-credentials: false
       - name: Checkout protocol dependency
@@ -65,6 +65,11 @@ jobs:
           python -m pip install --no-deps --force-reinstall ./kitt-protocol/sdk/python
           python -m pip install --no-deps ./kitt-assistant/packages/kitt-assistant-runtime
           python -m pip check
+      - name: Check Python dependency lock
+        working-directory: kitt-assistant/packages/kitt-assistant-runtime
+        run: |
+          python -m pip install 'uv==0.10.0'
+          uv lock --check
       - name: Compile runtime
         run: python -m compileall -q kitt-assistant/packages/kitt-assistant-runtime/kitt
       - name: Prove runtime ownership
@@ -97,7 +102,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-agent-cli
-          ref: f5eaff224b80c02ceaaf390bc3b84e0943d95abf
+          ref: cb530c2ecddaafa1241e957c3d379ea853f43863
           path: kitt-agent-cli
           persist-credentials: false
       - name: Checkout protocol dependency
