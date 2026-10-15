@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.34 — stage-aware Agent planning UX
+
+Pins Agent CLI **0.87.27** at `33c83bbb6b05d06ea4dc91020ac9d7e2f78dfed3`, with explicit planning/review/revision attempt status, elapsed provider wait and no fabricated planning percentage. No change to the Rust assistant API or wire protocol. [Release note](docs/RUNTIME_0.3.34.md).
+
 ## Assistant Runtime 0.3.33 — planner contract convergence
 
 Python runtime CI and lock pin Agent CLI **0.87.26** at `cea70a4227b3ba66455ef968cddcbc3468f65e61`. This prevents pre-mutation contract review from receiving an implicitly expanded FINAL step; individual task verification and host policy remain unchanged. See [release note](docs/RUNTIME_0.3.33.md).

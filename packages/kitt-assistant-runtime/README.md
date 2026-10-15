@@ -1,3 +1,7 @@
+## Runtime 0.3.34
+
+Pins Agent CLI 0.87.27 for the new truthful live planning TUI. Runtime behavior outside the agent UI is unchanged.
+
 ## Runtime 0.3.33
 
 Agent CLI 0.87.26 is pinned in the lock and CI. No native API or wire protocol changes.
