@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.31 — specialist Agent integration
+
+Python runtime lock and CI checkouts pin Agent CLI **0.87.23** at `4e643b11f00902d7afc7ee2e6315b4724cfec4f4`, providing specialized plugins, team collaboration and the new Agent Manager. Native runtime and Protocol remain unchanged. See [runtime release](docs/RUNTIME_0.3.31.md).
+
 ## Assistant Runtime 0.3.30 — indexed lexical routing and graph edits
 
 Python uv.lock/CI now pin Agent CLI 0.87.22 (`7a010b2dfba3e3356b7b49aeb32186b69605df7f`). Native Assistant 0.1.44 and Memory 0.10.2 remain unchanged. [Release notes](docs/RUNTIME_0.3.30.md).

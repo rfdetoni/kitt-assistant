@@ -1,3 +1,7 @@
+## Runtime 0.3.31
+
+Compatible with Agent CLI 0.87.23. Pins specialist agent plugin support and durable scoped messaging through the same Python runtime/CI dependency chain, without new native APIs.
+
 ## Runtime 0.3.27 dependency alignment
 
 Compatible Agent CLI 0.87.19 includes opt-in local vector-memory retrieval with kitt-memory 0.10.0. The Assistant's Python lock and CI checkouts pin the same immutable Agent revision. No additional runtime dependency is introduced.
