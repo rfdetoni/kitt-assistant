@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.30 — indexed lexical routing and graph edits
+
+Python uv.lock/CI now pin Agent CLI 0.87.22 (`7a010b2dfba3e3356b7b49aeb32186b69605df7f`). Native Assistant 0.1.44 and Memory 0.10.2 remain unchanged. [Release notes](docs/RUNTIME_0.3.30.md).
+
 ## Assistant Runtime 0.3.29 — nonblocking Agent repository index
 
 The Python runtime lock and CI compatible Agent pin now consume Agent CLI 0.87.21 (`872c7f89d6a9dcce8e014b9141ee507fb9d234e3`) with shorter SQLite index transactions. Native Assistant remains 0.1.44, pinned to Memory 0.10.2. [Notes](docs/RUNTIME_0.3.29.md).
