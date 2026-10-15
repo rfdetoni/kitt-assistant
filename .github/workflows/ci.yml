@@ -51,7 +51,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-protocol
-          ref: cc3b51dd0e868adaab4ed7a0069c4dbf9aa08c42
+          ref: e88d949f6a95df4d17b342961330e76efde5e2de
           path: kitt-protocol
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -109,7 +109,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rfdetoni/kitt-protocol
-          ref: cc3b51dd0e868adaab4ed7a0069c4dbf9aa08c42
+          ref: e88d949f6a95df4d17b342961330e76efde5e2de
           path: kitt-protocol
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065

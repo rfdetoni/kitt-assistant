@@ -1,10 +1,13 @@
+# Assistant 0.1.45 / Runtime 0.4.0 — JSON ecosystem
+
+Align the Protocol and Agent dependency locks with Agent contract v5 and the JSON model wire migration. Runtime requires Agent CLI >=0.88.0,<0.89. Native domain contracts remain typed JSON; the application does not load the archived KAP parsers. Update the full KITT composition together.
+
+
+[Release details](docs/RELEASE_0.1.45.md).
+
 ## Assistant Runtime v0.3.36 — Agent semantic release integration
 
 The Assistant runtime now validates Agent CLI `0.87.29` from immutable main commit `cb530c2ecddaafa1241e957c3d379ea853f43863`, including the opt-in multilingual semantic stage. The runtime lock was refreshed without changing Rust packages or the protocol contract. Ollama remains optional and user-managed. [Release notes](docs/RELEASE_RUNTIME_0.3.36.md).
-
-## Assistant Runtime 0.3.35 — explicit resume after ambiguous WebChat capture
-
-Pins Agent CLI **0.87.28** at `f5eaff224b80c02ceaaf390bc3b84e0943d95abf`. If the browser submitted a request but no fresh authenticated KAP response can be captured, the durable goal is **BLOCKED / ENVIRONMENT** until explicit operator inspection/resume, not automatically replayed. No native API or protocol change. [Release notes](docs/RUNTIME_0.3.35.md).
 
 ## Assistant Runtime 0.3.34 — stage-aware Agent planning UX
 
@@ -46,57 +49,9 @@ Python runtime package, uv.lock and CI compatible-Agent checkout now pin Agent C
 
 The Python runtime lock and compatible-agent CI checkouts now pin Agent CLI **0.87.18** at `7d8e821352964addb9ab25acef8aa9f96f3461f6`. The native Assistant, Protocol and host IPC wire contracts are unchanged. See [runtime release notes](docs/RUNTIME_0.3.26.md).
 
-## Assistant Runtime 0.3.25 — KAP/2 host-tool bridge
-
-Pins Agent CLI **0.87.13** at commit `d50e3fe6aa4258fa24e2c69645968f6c845c18a0` to deliver canonical KAP/2 `K2 T` host-tool requests in durable Goals. All other Protocol and native dependencies retain their existing versions.
-
-## Assistant Runtime 0.3.24 — Goals KAP/2 host-action contract
-
-The Python consumer pins Agent CLI **0.87.12** at immutable SHA `4b955a82633fccc4ba6ffef3c97703b1dfda0916`, which requires authorized host-tool execution before a durable Goals K2 F completion report. The update does not change Protocol 0.13.3, the assistant native runtime or any host permissions.
-
-## Assistant 0.1.42 / Runtime 0.3.23 — KAP/2 compact final pin alignment
-
-Protocol **0.13.3** supports an explicit indentation-free tagged KAP/2
-final and diagnoses irrecoverable flattened layouts. Agent CLI **0.87.11**
-uses it for durable task plans. Both Rust Cargo locks and the Python
-runtime uv.lock pin validated upstream commits. No native runtime API
-or authorization change. See [release 0.1.42](docs/RELEASE_0.1.42.md).
-
-## Assistant Runtime 0.3.22 — KAP/2 sandbox Python dependency alignment
-
-Python runtime lock now resolves Agent CLI 0.87.10, which adds the
-`sandbox.python` host operation for restricted `code<<PY` KAP/2 literals,
-and Protocol 0.13.2. CI's fixed compatibility checkouts use the same
-Agent/Protocol SHAs. Native Assistant remains 0.1.41; no native code changed.
-See [runtime 0.3.22 notes](docs/RUNTIME_0.3.22.md).
-
 ## Assistant 0.1.41 / Runtime 0.3.21 — Protocol lock alignment
 
 Align both Rust `Cargo.lock` files with Protocol 0.13.2, Agent CLI 0.87.9 in the Python runtime `uv.lock`, and HUD's package metadata. This repairs the root installer release-pin mismatch without changing runtime behavior. See [release 0.1.41](docs/RELEASE_0.1.41.md).
-
-## Assistant 0.1.40 / Runtime 0.3.20
-
-Dependencies pin Agent CLI 0.87.5 and Protocol 0.13.1. Goal plans, reviews, independent validation and completion use KAP/2 model-facing envelopes, while host permissions and IPC remain unchanged.
-
-## 0.1.39 / Runtime 0.3.19 — KAP/2-only model planning
-
-Pinned to Agent CLI 0.87.4, which requests compact KAP/2 plans and reviews instead of legacy KAP/1. Scoped browser gateway and host-owned approval behavior remain unchanged.
-
-## KAP/2 browser delegation — native 0.1.38, runtime 0.3.18
-
-The Assistant is locked to Agent CLI 0.87.3, which forwards scoped browser gateway discovery through its failover wrapper. The root Cargo lock keeps the resolvable tracing-core 0.1.36 pin.
-
-## KAP/2 0.13.1 dependency synchronization
-
-Native Assistant 0.1.37 and Runtime 0.3.17 consume Agent CLI 0.87.2 and canonical Protocol 0.13.1. The host IPC Envelope v1 and authorization boundaries remain unchanged.
-
-## KAP/2 patch synchronization
-
-Assistant Runtime 0.3.16 and native workspace 0.1.36 consume Agent 0.87.1 and Protocol 0.12.1; the IPC Envelope remains v1.
-
-## KAP/2 dependency synchronization
-
-Assistant Runtime 0.3.15 and native workspace 0.1.35 consume Agent CLI 0.87.0 and Protocol 0.12.0. Model-facing KAP is decoded upstream; the assistant IPC Envelope v1 remains unchanged.
 
 ## Python runtime 0.3.3 — Agent validation fixes
 
@@ -105,10 +60,6 @@ The companion requires Agent CLI 0.86.2 and pins its tested commit in uv.lock. N
 ## Python runtime 0.3.2 — Agent 0.86.1 parallel subagents
 
 The Assistant companion Python runtime now pins validated Agent CLI **0.86.1** in `uv.lock` and CI. The native Assistant and Protocol remain **0.1.34** and **0.11.0**, respectively. This synchronization supports KITT ecosystem 0.15.2 release-channel installation with automatic parallel Goal children, live agent monitoring and direct-argv Allow All command regression coverage. See [release notes](docs/RELEASE_RUNTIME_0.3.2.md).
-
-## Assistant 0.1.34 / Runtime 0.3.1 — Release 0.15.1 pins
-
-Align the native Assistant, HUD and Python runtime dependency locks with KITT Protocol **0.11.0** (Agent contract v4/KAP/1) and Agent CLI **0.86.0**. The immutable release installer validates these SHAs before building; mismatched locks intentionally fail closed. The Python runtime requires Agent `>=0.86.0,<0.87`. See [release notes](docs/RELEASE_0.1.34.md).
 
 ## Release 0.1.33 / runtime 0.3.0 — Agent contract v3 composition
 
