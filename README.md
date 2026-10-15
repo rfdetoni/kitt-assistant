@@ -1,3 +1,7 @@
+## Assistant Runtime 0.3.29 — nonblocking Agent repository index
+
+The Python runtime lock and CI compatible Agent pin now consume Agent CLI 0.87.21 (`872c7f89d6a9dcce8e014b9141ee507fb9d234e3`) with shorter SQLite index transactions. Native Assistant remains 0.1.44, pinned to Memory 0.10.2. [Notes](docs/RUNTIME_0.3.29.md).
+
 ## Assistant 0.1.44 / Runtime 0.3.28 — guarded vector memory
 
 Native Cargo.lock now pins Memory 0.10.2 at `e236c18323f2e8cdb839d02710eaf7514a060c8e`; Python runtime lock and compatibility CI pin Agent CLI 0.87.20 at `bae99751b082523bc3d44bc26f249f085a25fc3a`. Release-channel Assistant lock validation and revision-safe vector backfill are aligned. No change to host IPC or trust. [Notes](docs/RELEASE_0.1.44.md).
