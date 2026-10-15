@@ -1,6 +1,6 @@
 ## Assistant 0.1.44 / Runtime 0.3.28 — guarded vector memory
 
-Native Cargo.lock now pins Memory 0.10.2 at `5a0dd44de0a7db79ff55671c74bda6a4afc4ecd7`; Python runtime lock and compatibility CI pin Agent CLI 0.87.20 at `bae99751b082523bc3d44bc26f249f085a25fc3a`. Release-channel Assistant lock validation and revision-safe vector backfill are aligned. No change to host IPC or trust. [Notes](docs/RELEASE_0.1.44.md).
+Native Cargo.lock now pins Memory 0.10.2 at `e236c18323f2e8cdb839d02710eaf7514a060c8e`; Python runtime lock and compatibility CI pin Agent CLI 0.87.20 at `bae99751b082523bc3d44bc26f249f085a25fc3a`. Release-channel Assistant lock validation and revision-safe vector backfill are aligned. No change to host IPC or trust. [Notes](docs/RELEASE_0.1.44.md).
 
 ## Assistant 0.1.43 — Rust Memory 0.10.0 release-pin correction
 
