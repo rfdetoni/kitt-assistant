@@ -1,3 +1,9 @@
+# Assistant 0.1.49 / Runtime 0.4.4 — Agent CLI 0.88.4 integration
+
+Pins Agent CLI 0.88.4 at an immutable commit, updates the Python runtime constraint and uv lock, and aligns standalone Assistant CI with the same release. Durable approval registration, cancellation cleanup and bounded Goal parallelism are provided by Agent CLI; Rust, daemon APIs, Protocol, Memory and HUD dependencies are unchanged.
+
+[Release details](docs/RELEASE_0.1.49.md).
+
 # Assistant 0.1.48 / Runtime 0.4.3 — pin complete Agent approval flow
 
 Requires Agent CLI 0.88.3. Its autonomous process policy now honors inline interpreter commands, pending actions retain the concrete host tool, and contract Goal approvals resume exactly once after evidence persistence. This closes the follow-up modal/lease errors that were missed by tests using a versioned interpreter path and manually constructed pending actions.
