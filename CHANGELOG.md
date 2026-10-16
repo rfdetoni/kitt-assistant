@@ -1,3 +1,9 @@
+# Assistant 0.1.52 / Runtime 0.4.7 — Agent RE Lab autosetup
+
+Pins Agent 0.88.7 for the isolated Wine pilot, canonical Docker/OEM lab lifecycle and HMAC scoped reset. No cross-language daemon protocol changes. Windows Oracle remains unverified without authorized host E2E.
+
+[Release details](docs/RELEASE_0.1.52.md).
+
 # Assistant 0.1.49 / Runtime 0.4.4 — Agent CLI 0.88.4 integration
 
 Pins Agent CLI 0.88.4 at an immutable commit, updates the Python runtime constraint and uv lock, and aligns standalone Assistant CI with the same release. Durable approval registration, cancellation cleanup and bounded Goal parallelism are provided by Agent CLI; Rust, daemon APIs, Protocol, Memory and HUD dependencies are unchanged.
