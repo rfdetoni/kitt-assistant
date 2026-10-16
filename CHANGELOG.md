@@ -1,3 +1,9 @@
+# Assistant 0.1.53 / Runtime 0.4.8 — private RE probe staging
+
+Updates to Agent 0.88.8 private Win32 build/Wine input staging and pins the merged immutable Agent commit. No daemon/IPC protocol changes.
+
+[Release details](docs/RELEASE_0.1.53.md).
+
 # Assistant 0.1.52 / Runtime 0.4.7 — Agent RE Lab autosetup
 
 Pins Agent 0.88.7 for the isolated Wine pilot, canonical Docker/OEM lab lifecycle and HMAC scoped reset. No cross-language daemon protocol changes. Windows Oracle remains unverified without authorized host E2E.
