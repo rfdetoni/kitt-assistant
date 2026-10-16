@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import tempfile
 import time
 import unittest
@@ -13,6 +14,10 @@ from kitt.daemon.server import DaemonServer
 from kitt.core.turn_command import TurnCommand
 from kitt.core.turn_events import TurnCompleted, TurnStarted
 from kitt.history.database import HistoryDatabase
+from kitt.core.pending_action import PendingAction
+from kitt.security.authority_snapshot import capture_authority_snapshot
+from kitt.security.capabilities import CAP_PROCESS_RUN
+from kitt.security.context import ExecutionSecurityContext
 
 
 class FakeClient:
@@ -401,6 +406,7 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(approvals[0]["approval_id"], approval_id)
         self.assertEqual(approvals[0]["expires_at"], 0.0)
 
+
     async def test_05_direct_pending_is_never_age_or_capacity_evicted(self):
         """Existing direct approvals stay active; capacity only blocks creating new ones."""
         rt = await self.server._get_or_create_runtime()
@@ -507,3 +513,166 @@ class TestDaemonEventDelivery(unittest.IsolatedAsyncioTestCase):
                 if task is not None:
                     await task
                 server._blocking_executor.shutdown(wait=True)
+
+
+class TestGoalApprovalDecisions(unittest.IsolatedAsyncioTestCase):
+    """Real daemon handler, durable Goal, snapshot, grant and process execution."""
+
+    async def asyncSetUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.root = Path(self.temp_dir.name).resolve()
+        self.server = DaemonServer(workspace_root=str(self.root))
+        rt = await self.server._get_or_create_runtime()
+        self.session_id = rt.history.new_conversation("Approval decisions")["id"]
+
+    async def asyncTearDown(self):
+        await self.server.stop()
+        self.temp_dir.cleanup()
+
+    async def _goal_approval_round_trip(self, scope, *, stale=False):
+        rt = await self.server._get_or_create_runtime()
+        items = [
+            dict(
+                local_id=local_id,
+                kind=kind,
+                title=local_id,
+                prompt="inspect",
+                validation_prompt="verify",
+                success_criteria=["verified"],
+                check_ids=[],
+                paths=[],
+                depends_on=dependencies,
+            )
+            for local_id, kind, dependencies in [
+                ("T01", "task", []),
+                ("FINAL", "final", ["T01"]),
+            ]
+        ]
+        goal = rt.goals.create_contract(
+            self.session_id,
+            "approval round trip",
+            items,
+            [CAP_PROCESS_RUN],
+            None,
+            1800,
+            5,
+        )
+        turn_id = f"approval-{scope}"
+        approval_id = f"request-{scope}"
+        security = ExecutionSecurityContext(
+            workspace_id=rt.workspace_id,
+            conversation_id=self.session_id,
+            turn_id=turn_id,
+            origin="MODEL",
+            principal_type="GOAL",
+            principal_id=goal.id,
+            capabilities=frozenset({CAP_PROCESS_RUN}),
+            trace_id=turn_id,
+        )
+        marker = f"executed-{scope}.txt"
+        args = {
+            "argv": [
+                sys.executable,
+                "-c",
+                f"from pathlib import Path; Path({marker!r}).write_text('once')",
+            ],
+            "cwd": ".",
+            "network": False,
+        }
+        action_hash = rt.registry.policy.generate_action_hash("run_command", args)
+        with rt.database.get_connection() as connection:
+            ordinal = connection.execute(
+                "SELECT COALESCE(MAX(ordinal),0)+1 FROM turns WHERE conversation_id=?",
+                (self.session_id,),
+            ).fetchone()[0]
+            connection.execute(
+                "INSERT INTO turns(id,conversation_id,ordinal,state,mode,started_at) "
+                "VALUES(?,?,?,'WAITING_APPROVAL','auto',?)",
+                (turn_id, self.session_id, ordinal, time.time()),
+            )
+            connection.execute(
+                "UPDATE goals SET state='WAITING_APPROVAL' WHERE id=?", (goal.id,)
+            )
+        rt.approval.register_request(
+            turn_id,
+            self.session_id,
+            rt.workspace_id,
+            action_hash,
+            approval_id,
+            tool_name="run_command",
+        )
+        snapshot = capture_authority_snapshot(
+            security,
+            policy=rt.registry.policy,
+            autonomy=rt.registry.policy.autonomy,
+            approval_manager=rt.approval,
+            sandbox_profile=rt.registry.process_runner.sandbox.default_profile,
+        )
+        action = PendingAction(
+            f"pa_{turn_id}",
+            approval_id,
+            turn_id,
+            self.session_id,
+            rt.workspace_id,
+            "run_command",
+            args,
+            action_hash,
+            rt.processor._args_digest(args),
+            [],
+            {},
+            time.time(),
+            0.0,
+            "pending",
+            security_context={**security.to_dict(), "authority_snapshot": snapshot},
+        )
+        rt.history.repo.save_pending_action(action)
+        rt.approval.remember(
+            "run_command",
+            "**",
+            "allow",
+            scope,
+            conversation_id=self.session_id if scope == "session" else None,
+            workspace_id=rt.workspace_id,
+            executable_identity=f"GOAL:{goal.id}",
+        )
+        if stale:
+            rt.approval.remember(
+                "run_command",
+                "**",
+                "deny",
+                "workspace",
+                workspace_id=rt.workspace_id,
+                executable_identity=f"GOAL:{goal.id}",
+            )
+        response = await self.server._approval_action(
+            rt, "approval.approve", approval_id, self.session_id
+        )
+        self.assertEqual(response["decision"], "approved")
+        self.assertEqual(rt.goals.get(goal.id).state, "FAILED" if stale else "ACTIVE")
+        if stale:
+            self.assertEqual(response["execution_status"], "failed")
+            self.assertIn("approval_revision is stale", response["execution_error"])
+            self.assertFalse((self.root / marker).exists())
+        else:
+            self.assertEqual((self.root / marker).read_text(), "once")
+            self.assertEqual(rt.goals.current_item(goal.id).attempts, 0)
+        self.assertEqual(
+            self.server._approval_payloads(rt, session_id=self.session_id), []
+        )
+        self.assertIsNone(
+            rt.history.repo.get_valid_pending_action(action.id, rt.workspace_id)
+        )
+        with self.assertRaisesRegex(ValueError, "no longer pending"):
+            await self.server._approval_action(
+                rt, "approval.approve", approval_id, self.session_id
+            )
+
+    async def test_remember_and_approve_resumes_real_goal_through_daemon_handler(self):
+        for scope in ("session", "workspace"):
+            with self.subTest(scope=scope):
+                await self._goal_approval_round_trip(scope)
+
+    async def test_failed_goal_resume_acknowledges_decision_without_reopening_request(
+        self,
+    ):
+        await self._goal_approval_round_trip("workspace", stale=True)

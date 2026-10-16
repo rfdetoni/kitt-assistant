@@ -1127,10 +1127,6 @@ class DaemonServer:
                     rt,
                     grant,
                 )
-                if not resolution.success:
-                    raise RuntimeError(
-                        resolution.error or "Approved contract action failed"
-                    )
             else:
                 asyncio.create_task(self._continue_turn(rt, sid, grant))
             return {
@@ -1139,6 +1135,13 @@ class DaemonServer:
                 "turn_id": item["turn_id"],
                 "decision": "approved",
                 **({"goal_id": goal_id} if goal_id else {}),
+                # A consumed human decision stays acknowledged even when its
+                # execution fails. Returning an RPC error reopens a request
+                # that can no longer be granted, trapping the TUI in a loop.
+                **({
+                    "execution_status": "failed",
+                    "execution_error": resolution.error or "Approved contract action failed",
+                } if goal_id and not resolution.success else {}),
             }
         if action == "approval.deny":
             if goal_id:
