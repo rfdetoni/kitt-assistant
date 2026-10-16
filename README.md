@@ -1,3 +1,9 @@
+# Assistant 0.1.51 / Python Runtime 0.4.6 — Windows Oracle Docker bootstrap
+
+Consumes Agent CLI 0.88.6 including operator-authorized ephemeral Windows/Dockur OEM bootstrap, Windows OpenSSH forced-command probe runner and fixed benign Win32/Wine comparison. Rust workspace crates and Cargo lock updated to 0.1.51; runtime metadata and uv lock updated to 0.4.6. No Rust wire-contract, Protocol or daemon code is changed.
+
+[Release notes](docs/RELEASE_0.1.51.md).
+
 # Assistant 0.1.50 / Runtime 0.4.5 — Docker RE lab lifecycle in Agent CLI 0.88.5
 
 Consumes Agent CLI 0.88.5 for automatic Docker/Podman engine choice, safe discovery and operator-controlled reuse of installer-owned Linux and Dockur Windows RE containers. Runtime version, workspace Cargo version, Cargo and Python locks, CI Agent commit pins and release notes are aligned. The daemon/Rust APIs, HUD and shared Protocol wire remain unchanged; an authenticated Windows probe channel is still required.
