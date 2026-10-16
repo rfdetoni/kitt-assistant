@@ -1,3 +1,9 @@
+# Assistant 0.1.48 / Runtime 0.4.3 — pin complete Agent approval flow
+
+Requires Agent CLI 0.88.3. Its autonomous process policy now honors inline interpreter commands, pending actions retain the concrete host tool, and contract Goal approvals resume exactly once after evidence persistence. This closes the follow-up modal/lease errors that were missed by tests using a versioned interpreter path and manually constructed pending actions.
+
+[Release details](docs/RELEASE_0.1.48.md).
+
 # Assistant 0.1.47 / Runtime 0.4.2 — acknowledge approved decisions after execution failure
 
 The daemon now acknowledges a valid Goal approval decision even when execution fails. It reports `execution_status=failed` and `execution_error` separately, so the TUI can display the failure and close the decided request. Rejected/unknown approvals remain RPC errors. Successful Goal approvals resume the same durable contract item.
