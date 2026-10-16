@@ -1,3 +1,9 @@
+# Assistant 0.1.50 / Runtime 0.4.5 — Docker RE lab lifecycle in Agent CLI 0.88.5
+
+Consumes Agent CLI 0.88.5 for automatic Docker/Podman engine choice, safe discovery and operator-controlled reuse of installer-owned Linux and Dockur Windows RE containers. Runtime version, workspace Cargo version, Cargo and Python locks, CI Agent commit pins and release notes are aligned. The daemon/Rust APIs, HUD and shared Protocol wire remain unchanged; an authenticated Windows probe channel is still required.
+
+[Release details](docs/RELEASE_0.1.50.md).
+
 # Assistant 0.1.49 / Runtime 0.4.4 — Agent CLI 0.88.4 integration
 
 Pins Agent CLI 0.88.4 at an immutable commit, updates the Python runtime constraint and uv lock, and aligns standalone Assistant CI with the same release. Durable approval registration, cancellation cleanup and bounded Goal parallelism are provided by Agent CLI; Rust, daemon APIs, Protocol, Memory and HUD dependencies are unchanged.
