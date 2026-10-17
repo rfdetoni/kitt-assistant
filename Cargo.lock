@@ -963,14 +963,14 @@ dependencies = [
 
 [[package]]
 name = "kitt-application"
-version = "0.1.55"
+version = "0.1.56"
 dependencies = [
  "kitt-domain",
 ]
 
 [[package]]
 name = "kitt-domain"
-version = "0.1.55"
+version = "0.1.56"
 dependencies = [
  "kitt-memory-core",
  "serde",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "kitt-infrastructure"
-version = "0.1.55"
+version = "0.1.56"
 dependencies = [
  "kitt-domain",
  "kitt-memory-core",
@@ -1015,8 +1015,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-protocol"
-version = "0.14.1"
-source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#4df5fedcbfdfd86e12a187a2549354d36e966d8e"
+version = "0.14.2"
+source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#ac9baf8b4b8f03e839471c7bbb7d5e52e970a9ec"
 dependencies = [
  "serde",
  "serde_json",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "kittctl"
-version = "0.1.55"
+version = "0.1.56"
 dependencies = [
  "dirs",
  "kitt-protocol",
@@ -1034,7 +1034,7 @@ dependencies = [
 
 [[package]]
 name = "kittd"
-version = "0.1.55"
+version = "0.1.56"
 dependencies = [
  "base64",
  "cpal",
