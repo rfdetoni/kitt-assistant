@@ -1,3 +1,7 @@
+# Assistant 0.1.54 / Runtime 0.4.9 — bounded Clean-Room RE support
+
+Pins Agent 0.88.9 and Protocol 0.14.1 for reviewed black-box contract sealing and optional networkless OCI implementer execution. Operational certification is not implied. [Release notes](docs/RELEASE_0.1.54.md).
+
 # Assistant 0.1.51 / Python Runtime 0.4.6 — Windows Oracle Docker bootstrap
 
 Consumes Agent CLI 0.88.6 including operator-authorized ephemeral Windows/Dockur OEM bootstrap, Windows OpenSSH forced-command probe runner and fixed benign Win32/Wine comparison. Rust workspace crates and Cargo lock updated to 0.1.51; runtime metadata and uv lock updated to 0.4.6. No Rust wire-contract, Protocol or daemon code is changed.
