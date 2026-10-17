@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## 0.1.56 / Runtime 0.4.11 — Agent/Protocol pin reconciliation
+
+Aligned Agent 0.88.11, Protocol 0.14.2, Rust/HUD npm and Python locks; no daemon contract change. [Notas completas](docs/RELEASE_0.1.56.md).
+
 ## Notas de versão migradas do README
 
 ## Assistant 0.1.55 / Runtime 0.4.10 — Agent 0.88.10 Clean-Room RE
