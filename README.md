@@ -1,3 +1,7 @@
+# Assistant 0.1.55 / Runtime 0.4.10 — Agent 0.88.10 Clean-Room RE
+
+Pins offline Clean-Room orchestration without expanding Assistant authority. [Release notes](docs/RELEASE_0.1.55.md).
+
 # Assistant 0.1.54 / Runtime 0.4.9 — bounded Clean-Room RE support
 
 Pins Agent 0.88.9 and Protocol 0.14.1 for reviewed black-box contract sealing and optional networkless OCI implementer execution. Operational certification is not implied. [Release notes](docs/RELEASE_0.1.54.md).
