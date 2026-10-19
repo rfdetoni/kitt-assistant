@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## 0.1.57 / Runtime 0.4.12 — Pin Agent 0.88.12 for RE guest MCP
+
+Updates immutable Agent revision and all affected Python/Rust metadata. RE guest MCP is opt-in/read-only and does not expand Assistant authority. [Notas](docs/RELEASE_0.1.57.md).
+
 ## 0.1.56 / Runtime 0.4.11 — Agent/Protocol pin reconciliation
 
 Aligned Agent 0.88.11, Protocol 0.14.2, Rust/HUD npm and Python locks; no daemon contract change. [Notas completas](docs/RELEASE_0.1.56.md).
