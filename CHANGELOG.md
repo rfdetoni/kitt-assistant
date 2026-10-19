@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## 0.1.58 / Runtime 0.4.13 — Wine Staging toolbox pin
+
+Pins Agent 0.88.13 with Wine/Wine64/Wine-Staging image 0.86.11 and safe Linux lab upgrade. Cargo/Python locks aligned, no new guest authority. [Notas](docs/RELEASE_0.1.58.md).
+
 ## 0.1.57 / Runtime 0.4.12 — Pin Agent 0.88.12 for RE guest MCP
 
 Updates immutable Agent revision and all affected Python/Rust metadata. RE guest MCP is opt-in/read-only and does not expand Assistant authority. [Notas](docs/RELEASE_0.1.57.md).
