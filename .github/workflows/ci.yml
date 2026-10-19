@@ -25,10 +25,6 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --all --check
-      - name: Diagnostic only - show Cargo's expected lock patch
-        run: |
-          cargo update -p kitt-memory-core -p kitt-memory-sqlite
-          git diff -- Cargo.lock
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Verify voice-disabled feature set
         run: cargo check --workspace --no-default-features --locked
