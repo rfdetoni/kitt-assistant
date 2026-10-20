@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.23 — Agent CLI 0.88.32 no-progress and blocker classification
+
+Pins Agent CLI 0.88.32 (`f399bf6`) with read-only batch stall detection and precise POLICY/ENVIRONMENT categorization of unrecoverable host denials. Synchronizes Python package, uv.lock and both immutable CI checkouts. Rust 0.1.61, its Cargo.lock and daemon wire contracts remain unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.23.md).
+
+
 ## Runtime 0.4.22 — Agent CLI 0.88.31 sandbox preflight
 
 Pins Agent CLI 0.88.31 (`fbb6029`) to expose required host strong-sandbox availability in the model's tool catalog and runtime capabilities before subprocess attempts. Aligns Python runtime metadata, uv.lock and immutable CI Agent source checkouts. Rust daemon remains 0.1.61 with unchanged Cargo.lock; no new privileges or implicit sandbox bypass. [Notes](docs/RELEASE_RUNTIME_0.4.22.md).
