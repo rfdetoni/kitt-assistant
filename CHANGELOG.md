@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## 0.1.61 / Runtime 0.4.16 — default autonomous workspace / guest policy
+
+Pins Agent CLI 0.88.22 at `53a8a22` (PR #128). New workspaces start with autonomous coding preferences, while saved ASK/DENY choices remain authoritative. Host subprocesses automatically launched by the agent must have a strong OS sandbox; authenticated guest/VM channels retain their own constraints. Updates Rust/Python version locks, workflow pins and integration tests. [Notes](docs/RELEASE_0.1.61.md).
+
+
 ## 0.1.60 / Runtime 0.4.15 — Agent CLI 0.88.21 release source alignment
 
 Updates the immutable Agent CLI checkout/uv pin to `0484f2e` (PR #127), including the corrected source-tree fallback version. Bumps Rust workspace/package versions to 0.1.60 and Assistant runtime to 0.4.15; CI now checks against the exact release-candidate source. No authority or daemon behavior changes from 0.1.59. [Notes](docs/RELEASE_0.1.60.md).
