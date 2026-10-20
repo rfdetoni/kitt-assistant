@@ -92,6 +92,34 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.close()
 
+    async def test_new_workspace_autonomous_default_and_saved_user_restriction(self):
+        client = DaemonClient(workspace_root=str(self.root), token=self.server.token)
+        self.assertTrue(await client.connect())
+        try:
+            current = await client.send_request("runtime.get_autonomy")
+            self.assertEqual(current.get("status"), "ok")
+            self.assertEqual(current.get("preset"), "autonomous")
+            restricted = await client.send_request(
+                "runtime.set_autonomy", {"preset": "read_only"}
+            )
+            self.assertEqual(restricted.get("preset"), "read_only")
+            self.assertEqual(
+                (await client.send_request("runtime.get_autonomy")).get("preset"),
+                "read_only",
+            )
+        finally:
+            await client.close()
+        # Re-attaching a daemon client must not grant back autonomous access.
+        second = DaemonClient(workspace_root=str(self.root), token=self.server.token)
+        self.assertTrue(await second.connect())
+        try:
+            self.assertEqual(
+                (await second.send_request("runtime.get_autonomy")).get("preset"),
+                "read_only",
+            )
+        finally:
+            await second.close()
+
     async def test_00_readiness_waits_for_required_runtime_start(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
             root = Path(temp).resolve()
