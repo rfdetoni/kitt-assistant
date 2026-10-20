@@ -959,14 +959,14 @@ dependencies = [
 
 [[package]]
 name = "kitt-application"
-version = "0.1.59"
+version = "0.1.60"
 dependencies = [
  "kitt-domain",
 ]
 
 [[package]]
 name = "kitt-domain"
-version = "0.1.59"
+version = "0.1.60"
 dependencies = [
  "kitt-memory-core",
  "serde",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "kitt-infrastructure"
-version = "0.1.59"
+version = "0.1.60"
 dependencies = [
  "kitt-domain",
  "kitt-memory-core",
@@ -1021,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "kittctl"
-version = "0.1.59"
+version = "0.1.60"
 dependencies = [
  "dirs",
  "kitt-protocol",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "kittd"
-version = "0.1.59"
+version = "0.1.60"
 dependencies = [
  "base64",
  "cpal",
