@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.17 — Agent CLI 0.88.23 approval integration
+
+The standalone Python daemon consumes the audited Agent CLI 0.88.23 source (`fa1ab23`, PR #129), with workspace-wide allow-all, scoped tool-only approvals, and strict separation of user approval from host sandbox/capability enforcement. Updates the Python lock and CI source pins; the Rust workspace remains at 0.1.61 with its unchanged Cargo.lock. [Notes](docs/RELEASE_RUNTIME_0.4.17.md).
+
 ## 0.1.61 / Runtime 0.4.16 — default autonomous workspace / guest policy
 
 Pins Agent CLI 0.88.22 at `53a8a22` (PR #128). New workspaces start with autonomous coding preferences, while saved ASK/DENY choices remain authoritative. Host subprocesses automatically launched by the agent must have a strong OS sandbox; authenticated guest/VM channels retain their own constraints. Updates Rust/Python version locks, workflow pins and integration tests. [Notes](docs/RELEASE_0.1.61.md).
