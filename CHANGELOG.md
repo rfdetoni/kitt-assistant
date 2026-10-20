@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.19 — Agent CLI 0.88.27 host progress and transport safety
+
+Pins Agent CLI 0.88.27 (`3a33756`) for non-repeated missing-sandbox actions, mixed failure/observation cycle detection and non-replayable ambiguous WebChat timeouts. Updates Python dependency, uv.lock and both immutable CI checkouts. The Rust workspace remains at 0.1.61 with unchanged Cargo.lock; no daemon protocol or policy grants are altered. [Notes](docs/RELEASE_RUNTIME_0.4.19.md).
+
+
 ## Runtime 0.4.18 — Agent CLI 0.88.24 plan-contract diagnostics
 
 Pins Agent CLI 0.88.24 (`58ffe92`, PR #130) for explicit plan.submit proposal guidance, missing-plan diagnostics and actionable host sandbox errors. Updates Python runtime metadata and uv.lock, plus immutable CI checkout refs. The Rust workspace and Cargo.lock are unchanged at 0.1.61; existing approval authority and strong host sandbox requirements remain intact. [Notes](docs/RELEASE_RUNTIME_0.4.18.md).

@@ -1,6 +1,6 @@
 # K.I.T.T. Assistant
 
-Versão **0.1.58 / Runtime 0.4.13**. Documentação de instalação, arquitetura e operação. [Changelog](CHANGELOG.md) · [Notas atuais](docs/RELEASE_0.1.58.md).
+Versão **0.1.61 / Runtime 0.4.19**. Documentação de instalação, arquitetura e operação. [Changelog](CHANGELOG.md) · [Notas atuais](docs/RELEASE_RUNTIME_0.4.19.md).
 
 ## What’s included
 
@@ -88,7 +88,7 @@ For normal users, the root [`rfdetoni/kitt`](https://github.com/rfdetoni/kitt) i
 
 ### Python runtime compatibility
 
-`kitt-assistant-runtime 0.2.25` supports Agent CLI 0.76.x, 0.77.x and 0.78.x on Python 3.14+. K.I.T.T. sibling dependencies now follow their `main` branches; the root ecosystem CI resolves those moving refs once per run and validates the composed result.
+`kitt-assistant-runtime 0.4.19` requires Agent CLI >=0.88.27,<0.89 on Python 3.14+. The Python uv.lock and Assistant CI pin the exact compatible Agent commit; the root ecosystem release manifest pins compatible sibling revisions.
 
 ---
 
