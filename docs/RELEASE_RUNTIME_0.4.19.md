@@ -1,6 +1,6 @@
 # K.I.T.T. Assistant Runtime 0.4.19
 
-- Agent CLI 0.88.27: 3a33756c0ba03be5ee640747ceb63f830e8b4f41.
+- Agent CLI 0.88.27: 401bf42d41660b54d6e3cd7d37a5027def0d55c3.
 - Align Python runtime dependency, uv.lock source revision and both Assistant CI Agent checkouts.
 - Agent's host loop now rejects a second identical process operation after a Bubblewrap availability failure, detects alternating failure/unchanged-observation cycles, and does not automatically retry ambiguous WebChat submission timeouts.
 - No Rust, protocol, memory or approval-authority changes. The Rust workspace remains 0.1.61; only the Python runtime version changes.

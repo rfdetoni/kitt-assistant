@@ -2,7 +2,7 @@
 
 ## Runtime 0.4.19 — Agent CLI 0.88.27 host progress and transport safety
 
-Pins Agent CLI 0.88.27 (`3a33756`) for non-repeated missing-sandbox actions, mixed failure/observation cycle detection and non-replayable ambiguous WebChat timeouts. Updates Python dependency, uv.lock and both immutable CI checkouts. The Rust workspace remains at 0.1.61 with unchanged Cargo.lock; no daemon protocol or policy grants are altered. [Notes](docs/RELEASE_RUNTIME_0.4.19.md).
+Pins Agent CLI 0.88.27 (`401bf42`) for non-repeated missing-sandbox actions, mixed failure/observation cycle detection and non-replayable ambiguous WebChat timeouts. Updates Python dependency, uv.lock and both immutable CI checkouts. The Rust workspace remains at 0.1.61 with unchanged Cargo.lock; no daemon protocol or policy grants are altered. [Notes](docs/RELEASE_RUNTIME_0.4.19.md).
 
 
 ## Runtime 0.4.18 — Agent CLI 0.88.24 plan-contract diagnostics
