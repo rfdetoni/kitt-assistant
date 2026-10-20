@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## 0.1.60 / Runtime 0.4.15 — Agent CLI 0.88.21 release source alignment
+
+Updates the immutable Agent CLI checkout/uv pin to `0484f2e` (PR #127), including the corrected source-tree fallback version. Bumps Rust workspace/package versions to 0.1.60 and Assistant runtime to 0.4.15; CI now checks against the exact release-candidate source. No authority or daemon behavior changes from 0.1.59. [Notes](docs/RELEASE_0.1.60.md).
+
+
 ## 0.1.59 / Runtime 0.4.14 — daemon autonomy readback and approval identity
 
 Expose a read-only `runtime.get_autonomy` to prevent the TUI from clobbering the persisted daemon policy on attach; include trusted executor identity in persisted approval queue results, allowing scoped remembered approvals to match across refreshes. [Notes](docs/RELEASE_RUNTIME_0.4.14.md).
