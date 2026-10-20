@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.22 — Agent CLI 0.88.31 sandbox preflight
+
+Pins Agent CLI 0.88.31 (`fbb6029`) to expose required host strong-sandbox availability in the model's tool catalog and runtime capabilities before subprocess attempts. Aligns Python runtime metadata, uv.lock and immutable CI Agent source checkouts. Rust daemon remains 0.1.61 with unchanged Cargo.lock; no new privileges or implicit sandbox bypass. [Notes](docs/RELEASE_RUNTIME_0.4.22.md).
+
+
 ## Runtime 0.4.21 — Agent CLI 0.88.30 reliability backlog
 
 Pins Agent CLI 0.88.30 (`dd63d72`) with corrected autonomous policy defaults, retained specialist egress validation, bounded context rules, precise host retry categories, batched read/search operations and a shadow-only local decision benchmark. Updates runtime metadata, Python uv.lock, both immutable CI Agent checkouts and release notes. Rust remains 0.1.61 and Cargo.lock is unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.21.md).
