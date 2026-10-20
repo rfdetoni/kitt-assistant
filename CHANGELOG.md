@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.25 — verified host-write review paths
+
+Pins Agent CLI 0.88.34 (`66e8b49`) to include canonical `repo.write_file` mutations in Goal review snapshots, with Markdown reports eligible for verification. All bounded durable host-evidence reuse from 0.88.33 remains present. Updates Python dependency, uv.lock and the two immutable CI source pins; Rust 0.1.61 and Cargo.lock are unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.25.md).
+
+
 ## Runtime 0.4.24 — reuse previous Goal host evidence
 
 Pins Agent CLI 0.88.33 (`dc1333b`) with bounded durable host-read evidence across Goal retries, selective mutation invalidation and partial batch recovery. The Python runtime version, dependency floor, uv.lock and both CI immutable Agent checkouts are synchronized. Rust 0.1.61 and Cargo.lock remain unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.24.md).
