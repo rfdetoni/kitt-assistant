@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.26 — pin Agent CLI 0.88.35 automatic Bubblewrap selection
+
+Updates the Python runtime package and lock to Agent CLI 0.88.35 (`89d30ef`), aligning both immutable Agent source checkouts in CI. Functional Bubblewrap discovery now checks /usr/local/bin, /usr/bin, /bin and PATH instead of stopping at the first binary, and surfaces host AppArmor namespace denials. Existing host sandbox and approval policies remain unchanged; Rust 0.1.61 and Cargo.lock do not require modification. [Notes](docs/RELEASE_RUNTIME_0.4.26.md).
+
+
 ## Runtime 0.4.25 — verified host-write review paths
 
 Pins Agent CLI 0.88.34 (`66e8b49`) to include canonical `repo.write_file` mutations in Goal review snapshots, with Markdown reports eligible for verification. All bounded durable host-evidence reuse from 0.88.33 remains present. Updates Python dependency, uv.lock and the two immutable CI source pins; Rust 0.1.61 and Cargo.lock are unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.25.md).
