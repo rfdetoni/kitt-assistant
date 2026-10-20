@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.21 — Agent CLI 0.88.30 reliability backlog
+
+Pins Agent CLI 0.88.30 (`dd63d72`) with corrected autonomous policy defaults, retained specialist egress validation, bounded context rules, precise host retry categories, batched read/search operations and a shadow-only local decision benchmark. Updates runtime metadata, Python uv.lock, both immutable CI Agent checkouts and release notes. Rust remains 0.1.61 and Cargo.lock is unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.21.md).
+
+
 ## Runtime 0.4.20 — resumable Agent budget checkpoints (0.88.28)
 
 Pins Agent CLI 0.88.28 (`ca28fbf`) with budget checkpoint recovery for durable Goal contracts, bounded batch ID parsing and more realistic large-task planning. Aligns Python package metadata, `uv.lock` and immutable Agent source checkouts in CI. Rust components remain 0.1.61 with unchanged Cargo.lock and no new authority grants. [Notes](docs/RELEASE_RUNTIME_0.4.20.md).
