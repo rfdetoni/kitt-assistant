@@ -75,6 +75,23 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertIs(ping.get("ready"), True)
         await client.close()
 
+    async def test_daemon_readback_preserves_existing_autonomous_policy(self):
+        rt = await self.server._get_or_create_runtime()
+        rt.autonomy_store.set_preset("autonomous")
+        rt.processor.registry.policy.autonomy = rt.autonomy_store.get()
+        client = DaemonClient(workspace_root=str(self.root), token=self.server.token)
+        self.assertTrue(await client.connect())
+        try:
+            status = await client.send_request("runtime.get_autonomy")
+            self.assertEqual(status.get("status"), "ok")
+            self.assertEqual(status.get("preset"), "autonomous")
+            self.assertEqual(rt.autonomy_store.get().level, "autonomous")
+            explicit = await client.send_request("runtime.set_autonomy", {"preset": "supervised"})
+            self.assertEqual(explicit.get("status"), "ok")
+            self.assertEqual((await client.send_request("runtime.get_autonomy")).get("preset"), "supervised")
+        finally:
+            await client.close()
+
     async def test_00_readiness_waits_for_required_runtime_start(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
             root = Path(temp).resolve()
@@ -390,7 +407,7 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
                     "{}",
                     now,
                     0.0,
-                    "{}",
+                    '{"principal_type":"user","principal_id":"user_root"}',
                 ),
             )
 
@@ -405,6 +422,7 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(approvals), 1)
         self.assertEqual(approvals[0]["approval_id"], approval_id)
         self.assertEqual(approvals[0]["expires_at"], 0.0)
+        self.assertEqual(approvals[0]["executable_identity"], "user:user_root")
 
 
     async def test_05_direct_pending_is_never_age_or_capacity_evicted(self):

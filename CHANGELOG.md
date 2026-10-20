@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## 0.1.59 / Runtime 0.4.14 — daemon autonomy readback and approval identity
+
+Expose a read-only `runtime.get_autonomy` to prevent the TUI from clobbering the persisted daemon policy on attach; include trusted executor identity in persisted approval queue results, allowing scoped remembered approvals to match across refreshes. [Notes](docs/RELEASE_RUNTIME_0.4.14.md).
+
+
 ## 0.1.58 / Runtime 0.4.13 — Wine Staging toolbox pin
 
 Pins Agent 0.88.13 with Wine/Wine64/Wine-Staging image 0.86.11 and safe Linux lab upgrade. Cargo/Python locks aligned, no new guest authority. [Notas](docs/RELEASE_0.1.58.md).
