@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.24 — reuse previous Goal host evidence
+
+Pins Agent CLI 0.88.33 (`dc1333b`) with bounded durable host-read evidence across Goal retries, selective mutation invalidation and partial batch recovery. The Python runtime version, dependency floor, uv.lock and both CI immutable Agent checkouts are synchronized. Rust 0.1.61 and Cargo.lock remain unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.24.md).
+
+
 ## Runtime 0.4.23 — Agent CLI 0.88.32 no-progress and blocker classification
 
 Pins Agent CLI 0.88.32 (`f399bf6`) with read-only batch stall detection and precise POLICY/ENVIRONMENT categorization of unrecoverable host denials. Synchronizes Python package, uv.lock and both immutable CI checkouts. Rust 0.1.61, its Cargo.lock and daemon wire contracts remain unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.23.md).
