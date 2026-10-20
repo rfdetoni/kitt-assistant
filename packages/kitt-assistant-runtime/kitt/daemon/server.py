@@ -813,7 +813,8 @@ class DaemonServer:
             SELECT
                 a.approval_id,a.conversation_id,a.turn_id,a.workspace_id,
                 a.tool_name,a.arguments_hash,a.risk_level,a.requested_at,a.expires_at,
-                p.normalized_args_json,p.affected_paths_json,p.action_hash
+                p.normalized_args_json,p.affected_paths_json,p.action_hash,
+                p.security_context_json
             FROM approval_requests a
             LEFT JOIN pending_actions p
               ON p.approval_request_id=a.approval_id AND p.state='pending'
@@ -833,8 +834,17 @@ class DaemonServer:
                 affected_paths = json.loads(row["affected_paths_json"] or "[]")
             except Exception:
                 affected_paths = []
+            try:
+                principal = json.loads(row["security_context_json"] or "{}")
+            except (ValueError, TypeError):
+                principal = {}
+            principal_type = str(principal.get("principal_type") or "").strip()
+            principal_id = str(principal.get("principal_id") or "").strip()
+            # Trusted pending-action snapshot, not model-supplied metadata.
+            identity = f"{principal_type}:{principal_id}" if principal_type and principal_id else None
             result.append(
                 {
+                    "executable_identity": identity,
                     "approval_id": row["approval_id"],
                     "conversation_id": row["conversation_id"],
                     "turn_id": row["turn_id"],
@@ -1532,6 +1542,12 @@ class DaemonServer:
                     rt.processor.reasoning_effort = value
                     await q.put(encode_message({
                         "type": "RESPONSE", "request_id": req_id, "status": "ok", "value": value,
+                    }))
+                elif action == "runtime.get_autonomy":
+                    policy = rt.autonomy_store.get()
+                    await q.put(encode_message({
+                        "type": "RESPONSE", "request_id": req_id, "status": "ok",
+                        "preset": policy.level,
                     }))
                 elif action == "runtime.set_autonomy":
                     try:

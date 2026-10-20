@@ -390,7 +390,7 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
                     "{}",
                     now,
                     0.0,
-                    "{}",
+                    '{"principal_type":"user","principal_id":"user_root"}',
                 ),
             )
 
@@ -405,6 +405,7 @@ class TestDaemonRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(approvals), 1)
         self.assertEqual(approvals[0]["approval_id"], approval_id)
         self.assertEqual(approvals[0]["expires_at"], 0.0)
+        self.assertEqual(approvals[0]["executable_identity"], "user:user_root")
 
 
     async def test_05_direct_pending_is_never_age_or_capacity_evicted(self):
