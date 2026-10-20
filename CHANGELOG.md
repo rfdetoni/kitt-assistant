@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.27 — Agent CLI 0.88.36 Bubblewrap resolver fix
+
+Pins Agent CLI 0.88.36 (`d76ef6a`), fixing sandbox startup on hosts where `/etc/resolv.conf` is a symlink into `/run` after private runtime socket masking. Python package metadata, uv.lock and two immutable Agent checkouts in CI now agree. The Rust workspace stays on 0.1.61 with Cargo.lock unchanged; no tool authorization or host policy changes. [Notes](docs/RELEASE_RUNTIME_0.4.27.md).
+
+
 ## Runtime 0.4.26 — pin Agent CLI 0.88.35 automatic Bubblewrap selection
 
 Updates the Python runtime package and lock to Agent CLI 0.88.35 (`89d30ef`), aligning both immutable Agent source checkouts in CI. Functional Bubblewrap discovery now checks /usr/local/bin, /usr/bin, /bin and PATH instead of stopping at the first binary, and surfaces host AppArmor namespace denials. Existing host sandbox and approval policies remain unchanged; Rust 0.1.61 and Cargo.lock do not require modification. [Notes](docs/RELEASE_RUNTIME_0.4.26.md).
