@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.18 — Agent CLI 0.88.24 plan-contract diagnostics
+
+Pins Agent CLI 0.88.24 (`58ffe92`, PR #130) for explicit plan.submit proposal guidance, missing-plan diagnostics and actionable host sandbox errors. Updates Python runtime metadata and uv.lock, plus immutable CI checkout refs. The Rust workspace and Cargo.lock are unchanged at 0.1.61; existing approval authority and strong host sandbox requirements remain intact. [Notes](docs/RELEASE_RUNTIME_0.4.18.md).
+
 ## Runtime 0.4.17 — Agent CLI 0.88.23 approval integration
 
 The standalone Python daemon consumes the audited Agent CLI 0.88.23 source (`fa1ab23`, PR #129), with workspace-wide allow-all, scoped tool-only approvals, and strict separation of user approval from host sandbox/capability enforcement. Updates the Python lock and CI source pins; the Rust workspace remains at 0.1.61 with its unchanged Cargo.lock. [Notes](docs/RELEASE_RUNTIME_0.4.17.md).
