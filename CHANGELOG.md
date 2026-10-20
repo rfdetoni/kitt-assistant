@@ -1,6 +1,6 @@
 # Changelog — K.I.T.T. Assistant
 
-## Runtime 0.4.14 — daemon autonomy readback and approval identity
+## 0.1.59 / Runtime 0.4.14 — daemon autonomy readback and approval identity
 
 Expose a read-only `runtime.get_autonomy` to prevent the TUI from clobbering the persisted daemon policy on attach; include trusted executor identity in persisted approval queue results, allowing scoped remembered approvals to match across refreshes. [Notes](docs/RELEASE_RUNTIME_0.4.14.md).
 
