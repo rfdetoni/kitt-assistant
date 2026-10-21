@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.36 — autonomous Git network delegation in Agent CLI 0.88.47
+
+Pins the immutable Agent CLI 0.88.47 main commit `e2065939b5b798073130854c88b5ba281f672ffd` in Python dependency, uv.lock and both CI checkouts. The Agent's default workspace autonomous mode can fetch source repositories from GitHub/GitLab via restricted HTTPS Git commands in a strong sandbox without opening a recurring approval modal. All other network operations, unsafe paths, child principals and weaker sandboxes retain capability/approval requirements. Does not change native daemon, Rust locks, CDP transport or reverse-proxy memory policy. [Notes](docs/RELEASE_RUNTIME_0.4.36.md).
+
 ## Runtime 0.4.35 — Agent CLI 0.88.46 SQLite index startup recovery
 
 Pins Agent CLI 0.88.46 at immutable merged main SHA `737ad5cefaaa4a04e8db22b910f3513194505f56` in Python dependencies, `uv.lock` and both CI checkout references. The Agent now recovers from persistent repository index SQLite writer contention by opening a non-persistent in-memory index for the contending KITT process. Original disk index and WAL are untouched, and permanent database errors still propagate. Rust runtime 0.1.61, Cargo.lock and other component pins remain unchanged. [Release notes](docs/RELEASE_RUNTIME_0.4.35.md).
