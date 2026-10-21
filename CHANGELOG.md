@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.30 — Agent CLI 0.88.39 verification diagnostics
+
+Pins Agent CLI 0.88.39 (`f915302`) to ensure unavailable Wine/C builds are surfaced with actionable host diagnostics rather than generic `verification failed`, while retaining safe typed WebChat continuation and read-only flow support. Updates Python runtime dependency, uv.lock and both immutable CI Agent checkouts. Rust 0.1.61/Cargo.lock remain unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.30.md).
+
+
 ## Runtime 0.4.29 — typed WebChat continuation and Agent 0.88.38
 
 Pins Agent CLI 0.88.38 (`0d28f07`), including safe GoalScheduler handling of `ui_capture_unverified` from Reverse Proxy 5.4.17. Keeps 0.88.37 host flow and C/Wine verification improvements, updates Python package, uv.lock and both immutable Agent CI checkouts. Rust components remain 0.1.61 and Cargo.lock unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.29.md).
