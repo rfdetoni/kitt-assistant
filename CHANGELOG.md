@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.33 — Agent CLI 0.88.43 Begin Patch compatibility
+
+Pins Agent CLI 0.88.43 (`21706d0`) in Python dependency range, `uv.lock` and both immutable CI checkouts. The Agent now accepts bounded content-anchored `*** Begin Patch` Update File hunks through its existing secure patch engine, avoiding the parse failure observed in the Wine-MBS win32u run. The separate ChatGPT Web `ui_capture_unverified` safety rule remains unchanged. Rust runtime 0.1.61 and Cargo.lock are unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.33.md).
+
 ## Runtime 0.4.32 — pin Agent CLI 0.88.42 Goal checkpoints
 
 Synchronizes the Assistant Python dependency, uv lock and both immutable CI checkouts with Agent CLI 0.88.42 (`de7c0ad`). This includes automatic Goal budget-checkpoint continuation without consuming a failed item attempt, plus earlier Agent CLI 0.88.41 patch parsing and batch diagnostic fixes. A new regression asserts consistency of the dependency range, immutable lock SHA, CI Agent revisions and Assistant package version. The Rust runtime remains at 0.1.61 and Cargo.lock is unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.32.md).
