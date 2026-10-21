@@ -33,3 +33,25 @@ def test_protocol_lock_revision_and_version_agree_across_consumers():
         versions[relative] = version
     assert len(set(revisions.values())) == 1, revisions
     assert len(set(versions.values())) == 1, versions
+
+
+
+def test_agent_cli_lock_checkout_and_python_dependency_agree():
+    root = Path(__file__).resolve().parents[3]
+    package_dir = root / "packages" / "kitt-assistant-runtime"
+    lock = tomllib.loads((package_dir / "uv.lock").read_text(encoding="utf-8"))
+    agent = next(item for item in lock["package"] if item["name"] == "kitt-agent-cli")
+    match = re.fullmatch(
+        r"https://github\.com/rfdetoni/kitt-agent-cli\.git\?branch=main#([0-9a-f]{40})",
+        agent["source"]["git"],
+    )
+    assert match, "Agent CLI lock must use a pinned main SHA"
+    sha = match.group(1)
+
+    project = tomllib.loads((package_dir / "pyproject.toml").read_text(encoding="utf-8"))
+    assert f"kitt-agent-cli>={agent['version']},<0.89" in project["project"]["dependencies"]
+    assistant = next(item for item in lock["package"] if item["name"] == "kitt-assistant-runtime")
+    assert assistant["version"] == project["project"]["version"]
+
+    ci = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert ci.count(f"ref: {sha}") == 2, "Both CI agent checkouts must use the lock revision"
