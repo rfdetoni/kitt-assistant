@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.37 — Agent CLI 0.88.48 nested Git inspection fix
+
+Pins merged Agent CLI 0.88.48 at SHA `9f612193689006d79b2106a88b98e3f1633ac1a4` in Python package dependency, `uv.lock`, and both CI checkouts. Fixes read-only `git -C mbs-wine status` being denied by PolicyEngine in autonomous contract runs. No changes to Rust runtime, Cargo.lock or Reverse Proxy. The independent Reverse Proxy child-session capacity rejection at 1.10 GB versus 768 MB is still a resource constraint, not resolved by this release. [Release notes](docs/RELEASE_RUNTIME_0.4.37.md).
+
 ## Runtime 0.4.36 — autonomous Git network delegation in Agent CLI 0.88.47
 
 Pins the immutable Agent CLI 0.88.47 main commit `e2065939b5b798073130854c88b5ba281f672ffd` in Python dependency, uv.lock and both CI checkouts. The Agent's default workspace autonomous mode can fetch source repositories from GitHub/GitLab via restricted HTTPS Git commands in a strong sandbox without opening a recurring approval modal. All other network operations, unsafe paths, child principals and weaker sandboxes retain capability/approval requirements. Does not change native daemon, Rust locks, CDP transport or reverse-proxy memory policy. [Notes](docs/RELEASE_RUNTIME_0.4.36.md).
