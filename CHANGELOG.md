@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.35 — Agent CLI 0.88.46 SQLite index startup recovery
+
+Pins Agent CLI 0.88.46 at immutable merged main SHA `737ad5cefaaa4a04e8db22b910f3513194505f56` in Python dependencies, `uv.lock` and both CI checkout references. The Agent now recovers from persistent repository index SQLite writer contention by opening a non-persistent in-memory index for the contending KITT process. Original disk index and WAL are untouched, and permanent database errors still propagate. Rust runtime 0.1.61, Cargo.lock and other component pins remain unchanged. [Release notes](docs/RELEASE_RUNTIME_0.4.35.md).
+
 ## Runtime 0.4.34 — Agent CLI 0.88.45 Begin Patch navigation
 
 Pins the immutable Agent CLI 0.88.45 main commit (`eb11a323`) across the Python dependency range, uv.lock and both CI checkouts, retaining other component locks and Rust runtime 0.1.61. This includes safe handling of context-only `@@` navigation sections in model-generated `*** Begin Patch` updates, following the Wine-MBS incident of 21 October 2026. The parser still rejects no-op-only patches, unanchored insertions and out-of-workspace targets. Network process permissions and unattributed WebChat capture are unaffected. [Release notes](docs/RELEASE_RUNTIME_0.4.34.md).
