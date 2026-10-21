@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.28 — Agent CLI 0.88.37 verification and flow guidance
+
+Pins Agent CLI 0.88.37 (`2a8aaad`) with model-visible read-only flow/program tooling, bounded Goal evidence reuse, empty memory diagnostics, independence-aware planning, and strict Makefile-backed C/C++ verification. Updates Python package metadata, uv.lock and both immutable CI Agent checkouts. Rust remains 0.1.61 and Cargo.lock unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.28.md).
+
+
 ## Runtime 0.4.27 — Agent CLI 0.88.36 Bubblewrap resolver fix
 
 Pins Agent CLI 0.88.36 (`d76ef6a`), fixing sandbox startup on hosts where `/etc/resolv.conf` is a symlink into `/run` after private runtime socket masking. Python package metadata, uv.lock and two immutable Agent checkouts in CI now agree. The Rust workspace stays on 0.1.61 with Cargo.lock unchanged; no tool authorization or host policy changes. [Notes](docs/RELEASE_RUNTIME_0.4.27.md).
