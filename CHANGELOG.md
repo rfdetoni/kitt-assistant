@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.31 — durable Goal read-graph evidence and scoped memory
+
+Pins Agent CLI 0.88.40 (`78d7eaa`), with Goal evidence surviving bounded flow/program reads and semantic recall focused on the original task rather than Goal scaffolding. Python dependency, uv.lock and immutable CI Agent checkouts are synchronized. The existing Rust runtime stays at 0.1.61 with Cargo.lock unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.31.md).
+
+
 ## Runtime 0.4.30 — Agent CLI 0.88.39 verification diagnostics
 
 Pins Agent CLI 0.88.39 (`f915302`) to ensure unavailable Wine/C builds are surfaced with actionable host diagnostics rather than generic `verification failed`, while retaining safe typed WebChat continuation and read-only flow support. Updates Python runtime dependency, uv.lock and both immutable CI Agent checkouts. Rust 0.1.61/Cargo.lock remain unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.30.md).

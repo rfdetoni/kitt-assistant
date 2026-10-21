@@ -1,6 +1,6 @@
 # K.I.T.T. Assistant
 
-Versão **0.1.61 / Runtime 0.4.30**. Documentação de instalação, arquitetura e operação. [Changelog](CHANGELOG.md) · [Notas atuais](docs/RELEASE_RUNTIME_0.4.30.md).
+Versão **0.1.61 / Runtime 0.4.31**. Documentação de instalação, arquitetura e operação. [Changelog](CHANGELOG.md) · [Notas atuais](docs/RELEASE_RUNTIME_0.4.31.md).
 
 ## What’s included
 
