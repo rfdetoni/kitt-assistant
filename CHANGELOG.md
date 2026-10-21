@@ -1,5 +1,10 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.29 — typed WebChat continuation and Agent 0.88.38
+
+Pins Agent CLI 0.88.38 (`0d28f07`), including safe GoalScheduler handling of `ui_capture_unverified` from Reverse Proxy 5.4.17. Keeps 0.88.37 host flow and C/Wine verification improvements, updates Python package, uv.lock and both immutable Agent CI checkouts. Rust components remain 0.1.61 and Cargo.lock unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.29.md).
+
+
 ## Runtime 0.4.28 — Agent CLI 0.88.37 verification and flow guidance
 
 Pins Agent CLI 0.88.37 (`2a8aaad`) with model-visible read-only flow/program tooling, bounded Goal evidence reuse, empty memory diagnostics, independence-aware planning, and strict Makefile-backed C/C++ verification. Updates Python package metadata, uv.lock and both immutable CI Agent checkouts. Rust remains 0.1.61 and Cargo.lock unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.28.md).
