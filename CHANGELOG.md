@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.34 — Agent CLI 0.88.45 Begin Patch navigation
+
+Pins the immutable Agent CLI 0.88.45 main commit (`eb11a323`) across the Python dependency range, uv.lock and both CI checkouts, retaining other component locks and Rust runtime 0.1.61. This includes safe handling of context-only `@@` navigation sections in model-generated `*** Begin Patch` updates, following the Wine-MBS incident of 21 October 2026. The parser still rejects no-op-only patches, unanchored insertions and out-of-workspace targets. Network process permissions and unattributed WebChat capture are unaffected. [Release notes](docs/RELEASE_RUNTIME_0.4.34.md).
+
 ## Runtime 0.4.33 — Agent CLI 0.88.43 Begin Patch compatibility
 
 Pins Agent CLI 0.88.43 (`21706d0`) in Python dependency range, `uv.lock` and both immutable CI checkouts. The Agent now accepts bounded content-anchored `*** Begin Patch` Update File hunks through its existing secure patch engine, avoiding the parse failure observed in the Wine-MBS win32u run. The separate ChatGPT Web `ui_capture_unverified` safety rule remains unchanged. Rust runtime 0.1.61 and Cargo.lock are unchanged. [Notes](docs/RELEASE_RUNTIME_0.4.33.md).
