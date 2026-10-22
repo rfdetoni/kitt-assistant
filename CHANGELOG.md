@@ -2,7 +2,7 @@
 
 ## Runtime 0.4.41 — FreeLLMAPI planning and native tools
 
-Pins Agent CLI 0.88.52 at immutable main commit `776f7f23354739c8e5e8e23a10b88f19902c5819` in the minimum dependency, uv lock and both CI checkouts. Read-only plan responses no longer become inferred file writes. OpenAI-compatible native tools, usage and stream errors now reach the existing host execution pipeline, with bounded correction of multiple calls and bounded outer gateway retries. Rust runtime and Cargo dependencies are unchanged. See [release notes](docs/RELEASE_RUNTIME_0.4.41.md).
+Pins Agent CLI 0.88.52 at immutable main commit `bc4694586ee826f057d034701c2e2589960788f6` in the minimum dependency, uv lock and both CI checkouts. Read-only plan responses no longer become inferred file writes. OpenAI-compatible native tools, usage and stream errors now reach the existing host execution pipeline, with bounded correction of multiple calls and bounded outer gateway retries. Rust runtime and Cargo dependencies are unchanged. See [release notes](docs/RELEASE_RUNTIME_0.4.41.md).
 
 ## Runtime 0.4.40 — prevent repeat Gemini empty-action submissions
 
