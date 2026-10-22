@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.41 — FreeLLMAPI planning and native tools
+
+Pins Agent CLI 0.88.52 at immutable main commit `776f7f23354739c8e5e8e23a10b88f19902c5819` in the minimum dependency, uv lock and both CI checkouts. Read-only plan responses no longer become inferred file writes. OpenAI-compatible native tools, usage and stream errors now reach the existing host execution pipeline, with bounded correction of multiple calls and bounded outer gateway retries. Rust runtime and Cargo dependencies are unchanged. See [release notes](docs/RELEASE_RUNTIME_0.4.41.md).
+
 ## Runtime 0.4.40 — prevent repeat Gemini empty-action submissions
 
 Pins merged Agent CLI 0.88.51 at SHA `04c57fd2e4efff892d0373e71f2eb2805827ca42` in Python dependency range, `uv.lock`, and both CI checkouts. The Agent now tries only configured, trusted fallback profiles after the proxy confirms an empty action without host execution; with no working fallback, it marks the contract item BLOCKED_ENV instead of retrying the same Gemini Web request rapidly. Root-relative repository file guidance is clarified. The Reverse Proxy remains 5.4.22 with its existing safe no-action detection. Rust/Cargo and sandbox permissions are unchanged. [Release notes](docs/RELEASE_RUNTIME_0.4.40.md).
