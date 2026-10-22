@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.39 — recover shell-wrapped Git checkout without approval loops
+
+Pins merged Agent CLI 0.88.50 at SHA `168e21b396e72163b45ed6cd0e83e8115c446d46` with a synchronized Python minimum dependency, uv lock and both CI Agent checkouts. The runtime prevents the model from triggering generic network approvals for public Git clones bundled in `bash -c`, instead returning actionable guidance to invoke separate workspace directory, Git init and narrow direct HTTPS clone tools. General network shell commands still require explicit approval. Rust daemon, Cargo locks and existing sandbox restrictions remain unchanged. [Release notes](docs/RELEASE_RUNTIME_0.4.39.md).
+
 ## Runtime 0.4.38 — recover protected Git planning scopes
 
 Pins merged Agent CLI 0.88.49 at immutable SHA `7c1fe6dc56664fc291077b9ec99d599ba84e3755` in the Python runtime dependency, uv lock and both CI checkouts. Invalid model-generated `.git` validation scopes now trigger a bounded contract revision instead of terminating the autonomous goal; direct workspace metadata access remains forbidden. Reverse Proxy 5.4.22 independently rejects empty Gemini actions without speculative browser repairs. Rust daemon and Cargo locks remain unchanged. [Release notes](docs/RELEASE_RUNTIME_0.4.38.md).
