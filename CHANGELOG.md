@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.42 — FreeLLMAPI model discovery
+
+Pins Agent CLI 0.88.53 at immutable main commit `2ce5c7bb4d4a6dfbfe7a4831dfcdc81c28db665f` in the minimum dependency, uv lock and both CI checkouts. FreeLLMAPI now appears in the provider catalog and model picker, authenticates model discovery, and respects the workspace endpoint in the models CLI. See [release notes](docs/RELEASE_RUNTIME_0.4.42.md).
+
 ## Runtime 0.4.41 — FreeLLMAPI planning and native tools
 
 Pins Agent CLI 0.88.52 at immutable main commit `bc4694586ee826f057d034701c2e2589960788f6` in the minimum dependency, uv lock and both CI checkouts. Read-only plan responses no longer become inferred file writes. OpenAI-compatible native tools, usage and stream errors now reach the existing host execution pipeline, with bounded correction of multiple calls and bounded outer gateway retries. Rust runtime and Cargo dependencies are unchanged. See [release notes](docs/RELEASE_RUNTIME_0.4.41.md).
