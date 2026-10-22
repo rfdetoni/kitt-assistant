@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.40 — prevent repeat Gemini empty-action submissions
+
+Pins merged Agent CLI 0.88.51 at SHA `04c57fd2e4efff892d0373e71f2eb2805827ca42` in Python dependency range, `uv.lock`, and both CI checkouts. The Agent now tries only configured, trusted fallback profiles after the proxy confirms an empty action without host execution; with no working fallback, it marks the contract item BLOCKED_ENV instead of retrying the same Gemini Web request rapidly. Root-relative repository file guidance is clarified. The Reverse Proxy remains 5.4.22 with its existing safe no-action detection. Rust/Cargo and sandbox permissions are unchanged. [Release notes](docs/RELEASE_RUNTIME_0.4.40.md).
+
 ## Runtime 0.4.39 — recover shell-wrapped Git checkout without approval loops
 
 Pins merged Agent CLI 0.88.50 at SHA `168e21b396e72163b45ed6cd0e83e8115c446d46` with a synchronized Python minimum dependency, uv lock and both CI Agent checkouts. The runtime prevents the model from triggering generic network approvals for public Git clones bundled in `bash -c`, instead returning actionable guidance to invoke separate workspace directory, Git init and narrow direct HTTPS clone tools. General network shell commands still require explicit approval. Rust daemon, Cargo locks and existing sandbox restrictions remain unchanged. [Release notes](docs/RELEASE_RUNTIME_0.4.39.md).
