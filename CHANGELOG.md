@@ -1,5 +1,9 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.38 — recover protected Git planning scopes
+
+Pins merged Agent CLI 0.88.49 at immutable SHA `7c1fe6dc56664fc291077b9ec99d599ba84e3755` in the Python runtime dependency, uv lock and both CI checkouts. Invalid model-generated `.git` validation scopes now trigger a bounded contract revision instead of terminating the autonomous goal; direct workspace metadata access remains forbidden. Reverse Proxy 5.4.22 independently rejects empty Gemini actions without speculative browser repairs. Rust daemon and Cargo locks remain unchanged. [Release notes](docs/RELEASE_RUNTIME_0.4.38.md).
+
 ## Runtime 0.4.37 — Agent CLI 0.88.48 nested Git inspection fix
 
 Pins merged Agent CLI 0.88.48 at SHA `9f612193689006d79b2106a88b98e3f1633ac1a4` in Python package dependency, `uv.lock`, and both CI checkouts. Fixes read-only `git -C mbs-wine status` being denied by PolicyEngine in autonomous contract runs. No changes to Rust runtime, Cargo.lock or Reverse Proxy. The independent Reverse Proxy child-session capacity rejection at 1.10 GB versus 768 MB is still a resource constraint, not resolved by this release. [Release notes](docs/RELEASE_RUNTIME_0.4.37.md).
