@@ -1,5 +1,12 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.44 — GitHub Autopilot publisher compatibility
+
+- Pin Agent CLI 0.89.2 at immutable `105ebd7eaf7477ab6cc6ec6cf789d2c707afc614` in dependency constraint, uv.lock and two CI source checkouts.
+- GitHub `autopilot.publish` is disabled by default and requires operator authorization, test evidence and non-force ref updates.
+- Other Rust/Protocol/HUD dependency locks unchanged.
+
+
 ## Runtime 0.4.43 — Agent Autopilot 0.89.1 compatibility
 
 - Raise Python runtime dependency to `kitt-agent-cli>=0.89.1,<0.90`, matching the shipped Autopilot broker/checkpoint/network capabilities.
