@@ -1,5 +1,12 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.43 — Agent Autopilot 0.89.1 compatibility
+
+- Raise Python runtime dependency to `kitt-agent-cli>=0.89.1,<0.90`, matching the shipped Autopilot broker/checkpoint/network capabilities.
+- Pin the Agent CLI immutable main SHA `0ddae4475cdd05d1c0c14059759ac0fd8d3ade88` in uv.lock and both CI checkouts.
+- Keep Protocol SHA and all Rust/Cargo/Node dependency locks unchanged; require passing Assistant runtime tests and installation `pip check`.
+
+
 ## Runtime 0.4.42 — FreeLLMAPI model discovery
 
 Pins Agent CLI 0.88.53 at immutable main commit `2ce5c7bb4d4a6dfbfe7a4831dfcdc81c28db665f` in the minimum dependency, uv lock and both CI checkouts. FreeLLMAPI now appears in the provider catalog and model picker, authenticates model discovery, and respects the workspace endpoint in the models CLI. See [release notes](docs/RELEASE_RUNTIME_0.4.42.md).

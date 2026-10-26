@@ -49,7 +49,7 @@ def test_agent_cli_lock_checkout_and_python_dependency_agree():
     sha = match.group(1)
 
     project = tomllib.loads((package_dir / "pyproject.toml").read_text(encoding="utf-8"))
-    assert f"kitt-agent-cli>={agent['version']},<0.89" in project["project"]["dependencies"]
+    assert f"kitt-agent-cli>={agent['version']},<0.90" in project["project"]["dependencies"]
     assistant = next(item for item in lock["package"] if item["name"] == "kitt-assistant-runtime")
     assert assistant["version"] == project["project"]["version"]
 
