@@ -1,5 +1,12 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.46 — Agent isolated worktree compatibility
+
+- Pin Agent CLI 0.89.4 at `eaa4f198a14c24356c4d0578e9d41f54466c533b`, aligning runtime dependency, Python uv lock, and both immutable CI checkouts.
+- The Agent's isolated task worktree execution requires Docker or an explicitly trusted Compose broker and preserves the original checkout.
+- No changes to sibling Protocol, Rust or HUD component locks.
+
+
 ## Runtime 0.4.45 — validated persistent Autopilot broker
 
 - Synchronize Agent CLI 0.89.3 at immutable SHA `1b17a65f04723b2135d876d9eb4b96432412c430` across Python dependency, uv lock, and two CI source checkouts.
