@@ -1,5 +1,12 @@
 # Changelog — K.I.T.T. Assistant
 
+## Runtime 0.4.45 — validated persistent Autopilot broker
+
+- Synchronize Agent CLI 0.89.3 at immutable SHA `1b17a65f04723b2135d876d9eb4b96432412c430` across Python dependency, uv lock, and two CI source checkouts.
+- Real Docker integration now checks persistent toolchain cache, verified worker state, control-plane isolation, readonly profiles and automatic worker reprovisioning.
+- No changes to Rust/Protocol/Node locks or separate publication authority.
+
+
 ## Runtime 0.4.44 — GitHub Autopilot publisher compatibility
 
 - Pin Agent CLI 0.89.2 at immutable `105ebd7eaf7477ab6cc6ec6cf789d2c707afc614` in dependency constraint, uv.lock and two CI source checkouts.
