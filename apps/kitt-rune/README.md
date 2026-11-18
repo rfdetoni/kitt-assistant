@@ -37,6 +37,18 @@ The native shell reads `127.0.0.1:41828` on a 15-second interval, via GET
 requests only. No credentials are accepted in an environment-controlled URL.
 Run the existing KITT Control Center first.
 
+## HUD nativo opcional
+
+O `kitt-rune-hud` assina eventos pelo IPC autenticado já utilizado pelo HUD atual.
+Ele renderiza estados e mensagens em Rune, sem executar ferramentas. Para testar
+sem substituir o Tauri permanentemente, configure `KITT_HUD_BIN` com o caminho
+absoluto do binário compilado e reinicie o daemon. Eventos de imagem são mostrados
+por seu texto alternativo nesta etapa; mantenha o HUD antigo para paridade total.
+
+```sh
+cargo run --manifest-path apps/kitt-rune/Cargo.toml --bin kitt-rune-hud
+```
+
 ## WebGPU
 
 Rune's WebGPU target is experimental. Build using its pinned repository
