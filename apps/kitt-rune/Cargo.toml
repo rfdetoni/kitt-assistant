@@ -15,6 +15,10 @@ crate-type = ["rlib", "cdylib"]
 name = "kitt-rune"
 path = "src/main.rs"
 
+[[bin]]
+name = "kitt-rune-hud"
+path = "src/hud_main.rs"
+
 [dependencies]
 rune = { git = "https://github.com/anomalyco/rune", rev = "4a2e437954f01eaacc13c0515a1d39474dd6512c", default-features = false, features = ["embedded-fonts", "tooling"] }
 serde_json = "1"
