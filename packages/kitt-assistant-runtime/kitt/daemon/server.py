@@ -23,6 +23,7 @@ from kitt.core.turn_command import TurnCommand
 from kitt.daemon.protocol import DaemonEvent, decode_line, encode_message
 from kitt.daemon.redaction import sanitize_public_event_payload
 from kitt.daemon.transport import IPCTransport
+from kitt.cortex import CortexStore, preflight_action, advise_route
 from kitt.tools.approval import ApprovalGrant
 from kitt.security.capabilities import capabilities_for_tools
 from kitt.security.context import ExecutionSecurityContext
@@ -107,10 +108,65 @@ class DaemonServer:
         self._cancelled_turns: set[str] = set()
         self._direct_pending: Dict[str, dict[str, Any]] = {}
         self._instance_lock_fd = None
+        self._cortex = None  # Open only on the first authenticated Cortex request.
         self._blocking_executor = ThreadPoolExecutor(
             max_workers=4,
             thread_name_prefix="kitt-daemon-blocking",
         )
+
+    def _cortex_store(self) -> CortexStore:
+        if self._cortex is None:
+            self._cortex = CortexStore(self.workspace_root)
+        return self._cortex
+
+    async def _cortex_action(self, action: str, msg: dict[str, Any]) -> dict[str, Any]:
+        """Authenticated control API. Never invokes the model or executes tools."""
+        store = self._cortex_store()
+        if action == "cortex.status":
+            return {"cortex": await asyncio.to_thread(store.status)}
+        if action == "cortex.publish":
+            # A daemon token is not evidence that webhook/message content is trusted.
+            raw_source = str(msg.get("source") or "ipc")
+            result = await asyncio.to_thread(
+                store.publish,
+                topic=msg.get("topic"), source="external." + raw_source,
+                payload=msg.get("payload"), severity=msg.get("severity", 1),
+                sensitivity=msg.get("sensitivity", "private"),
+                event_id=msg.get("event_id"), ttl_seconds=msg.get("ttl_seconds", 3600),
+                untrusted=True,
+            )
+            return {"event": result}
+        if action == "cortex.claim":
+            deliveries = await asyncio.to_thread(
+                store.claim, msg.get("consumer"), msg.get("limit", 10),
+                msg.get("lease_seconds", 60))
+            return {"deliveries": deliveries}
+        if action == "cortex.settle":
+            settled = await asyncio.to_thread(
+                store.settle, msg.get("consumer"), msg.get("event_id"),
+                msg.get("lease_token"), success=msg.get("success") is True)
+            return {"settled": settled}
+        if action == "cortex.context.update":
+            result = await asyncio.to_thread(
+                store.update_context, msg.get("field"), msg.get("value"),
+                source="user", sensitivity=msg.get("sensitivity", "private"),
+                ttl_seconds=msg.get("ttl_seconds", 3600))
+            return {"context_update": result}
+        if action == "cortex.context.get":
+            return {"context": await asyncio.to_thread(store.context)}
+        if action in {"cortex.preflight", "cortex.route"}:
+            event = await asyncio.to_thread(store.get_event, msg.get("event_id"))
+            if event is None:
+                raise ValueError("unknown event")
+            if action == "cortex.preflight":
+                return {"preflight": preflight_action(
+                    event, effect=msg.get("effect"), tool_domain=msg.get("tool_domain"))}
+            if event["expires"] <= time.time():
+                raise ValueError("event expired")
+            return {"routing": await asyncio.to_thread(advise_route, event)}
+        if action == "cortex.prune":
+            return {"deleted": await asyncio.to_thread(store.prune)}
+        raise ValueError("unknown Cortex action")
 
     def _ensure_token(self) -> str:
         try:
@@ -1328,6 +1384,20 @@ class DaemonServer:
                         "level": level,
                         "path": str(configured) if configured is not None else None,
                     }))
+                    continue
+
+                if action.startswith("cortex."):
+                    try:
+                        result = await self._cortex_action(action, msg)
+                        await q.put(encode_message({
+                            "type": "RESPONSE", "request_id": req_id,
+                            "status": "ok", "action": action, **result,
+                        }))
+                    except (ValueError, RuntimeError, TypeError, OSError) as exc:
+                        await q.put(encode_message({
+                            "type": "RESPONSE", "request_id": req_id,
+                            "status": "error", "error": str(exc),
+                        }))
                     continue
 
                 rt = await self._get_or_create_runtime(

@@ -10,8 +10,11 @@ requires-python = ">=3.14"
 license = {text = "MIT"}
 dependencies = ["kitt-agent-cli>=0.89.4,<0.90"]
 
+[project.scripts]
+kitt-cortex = "kitt.cortex.cli:main"
+
 [tool.setuptools.packages.find]
-include = ["kitt.daemon*", "kitt.remote*"]
+include = ["kitt.daemon*", "kitt.remote*", "kitt.cortex*"]
 namespaces = true
 
 [tool.setuptools.package-data]
