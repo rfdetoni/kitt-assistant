@@ -21,6 +21,36 @@ struct Hud {
 enum HudUpdate {
     Status(String), Text(String), ImageAlt(String), Hide,
 }
+fn read_bounded_line<R: BufRead>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>> {
+    let mut line = Vec::with_capacity(256);
+    loop {
+        let (used, found_newline) = {
+            let buffer = reader.fill_buf()?;
+            if buffer.is_empty() {
+                return if line.is_empty() { Ok(None) } else {
+                    Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "partial IPC frame"))
+                };
+            }
+            let position = buffer.iter().position(|b| *b == b'\n');
+            let used = position.map_or(buffer.len(), |p| p + 1);
+            line.extend_from_slice(&buffer[..used]);
+            (used, position.is_some())
+        };
+        reader.consume(used);
+        if line.len() > LIMIT {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "IPC frame exceeds limit"));
+        }
+        if found_newline { return Ok(Some(line)); }
+    }
+}
+
+fn is_subscribed(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line).ok().is_some_and(|value| {
+        value.get("kind").and_then(Value::as_str) == Some("hud.subscribe.response")
+            && value.pointer("/payload/status").and_then(Value::as_str) == Some("subscribed")
+    })
+}
+
 fn update_from_frame(line: &[u8]) -> Option<HudUpdate> {
     if line.len() > LIMIT { return None; }
     let data: Value = serde_json::from_slice(line).ok()?;
@@ -75,14 +105,18 @@ fn stream_updates(handle: rune::AppHandle<Hud>, alive: Arc<AtomicBool>) {
                 "envelope": {"version":1, "id":"hud-rune", "kind":"hud.subscribe.request", "payload":{}}
             }).to_string() + "\n";
             if stream.write_all(hello.as_bytes()).is_ok() {
-                handle.update(|s,tx| { s.connected=true; tx.instant(); });
                 let mut reader = BufReader::new(stream);
+                let mut subscribed = false;
                 loop {
                     if !alive.load(Ordering::Relaxed) { break; }
-                    let mut line = Vec::new();
-                    match reader.read_until(b'\n', &mut line) {
-                        Ok(0) => break,
-                        Ok(n) if n <= LIMIT && line.ends_with(b"\n") => {
+                    match read_bounded_line(&mut reader) {
+                        Ok(Some(line)) => {
+                            if !subscribed {
+                                if !is_subscribed(&line) { break; }
+                                subscribed = true;
+                                handle.update(|s,tx| { s.connected=true; tx.instant(); });
+                                continue;
+                            }
                             if let Some(item) = update_from_frame(&line) {
                                 handle.update(move |s,tx| {
                                     match item {
@@ -95,6 +129,7 @@ fn stream_updates(handle: rune::AppHandle<Hud>, alive: Arc<AtomicBool>) {
                                 });
                             }
                         }
+                        Ok(None) => break,
                         Err(err) if err.kind() == std::io::ErrorKind::WouldBlock
                              || err.kind() == std::io::ErrorKind::TimedOut => continue,
                         _ => break,
@@ -125,6 +160,10 @@ mod tests {
 
     #[test]
     fn only_bounded_hud_events_are_rendered() {
+        let mut oversized = std::io::Cursor::new(vec![b'a'; LIMIT + 10]);
+        assert!(read_bounded_line(&mut oversized).is_err());
+        assert!(is_subscribed(br#"{"kind":"hud.subscribe.response","payload":{"status":"subscribed"}}"#));
+        assert!(!is_subscribed(br#"{"kind":"system.error","payload":{"status":"subscribed"}}"#));
         let line = br#"{"version":1,"kind":"hud.event","payload":{"type":"text","content":"ok","ttl_ms":5000}}"#;
         assert!(matches!(update_from_frame(line), Some(HudUpdate::Text(s)) if s=="ok"));
         assert!(update_from_frame(br#"{"kind":"system.error","payload":{"type":"text"}}"#).is_none());
