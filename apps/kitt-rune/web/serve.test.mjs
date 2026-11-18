@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import { mkdtemp, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -41,8 +41,15 @@ test("Rune WebGPU bridge is read only and strips server secrets", async () => {
     const mut = await fetch(base + "/api/v1/config", {method:"POST"});
     assert.equal(mut.status, 405);
     assert.equal((await fetch(base + "/api/v1/config")).status, 404);
-    const host = await fetch(base, {headers: {Host:"evil.example"}});
-    assert.equal(host.status, 400);
+    const invalidHostCode = await new Promise((resolve, reject) => {
+      const req = request(base, {headers: {Host:"evil.example"}}, res => {
+        res.resume();
+        resolve(res.statusCode);
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    assert.equal(invalidHostCode, 400);
     await symlink(path.join(folder, "..", "escaped.js"), path.join(folder, "leak.js"));
     assert.notEqual((await fetch(base + "/leak.js")).status, 200);
   } finally {
