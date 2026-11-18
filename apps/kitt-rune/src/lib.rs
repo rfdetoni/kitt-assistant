@@ -1,11 +1,11 @@
-#[cfg(not(target_arch = "wasm32"))]
-pub mod hud;
-
 //! K.I.T.T. unified Rune presentation shell.
 //!
 //! Deliberately read-only in its first migration stage: no ability to bypass
 //! Agent grants, modify service settings, or access browser credentials.
 //! Both native and wasm use the same view and state projections.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod hud;
+
 use rune::tok::{self, type_};
 use rune::{App, AppSpec, Color, Cx, El, ScrollSpec, col, el, row, text};
 use serde_json::Value;
