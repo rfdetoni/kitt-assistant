@@ -53,11 +53,19 @@ class CortexStore:
     def __init__(self, workspace: str | Path, data_dir: str | Path | None = None):
         self.workspace = str(Path(workspace).resolve())
         root = Path(data_dir) if data_dir is not None else Path.home() / ".kitt" / "cortex"
+        if root.is_symlink():
+            raise PermissionError("Cortex data directory cannot be a symlink")
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if root.is_symlink() or not root.is_dir():
+            raise PermissionError("Cortex data directory must be a real directory")
         if os.name == "posix":
+            if root.stat().st_uid != os.getuid():
+                raise PermissionError("Cortex data directory owner mismatch")
             os.chmod(root, 0o700)
         suffix = hashlib.sha256(self.workspace.encode()).hexdigest()[:24]
         self.path = root / f"{suffix}.sqlite3"
+        if self.path.is_symlink():
+            raise PermissionError("Cortex database cannot be a symlink")
         # SQLite WAL permits concurrent readers while writers use short IMMEDIATE transactions.
         with self._db() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
@@ -143,7 +151,10 @@ class CortexStore:
             outstanding = db.execute(
                 "SELECT COUNT(*) FROM deliveries WHERE status IN ('READY','INFLIGHT')"
             ).fetchone()[0]
-            if outstanding + len(consumers) > MAX_BACKLOG:
+            unexpired = db.execute(
+                "SELECT COUNT(*) FROM events WHERE expires>?", (now,)
+            ).fetchone()[0]
+            if unexpired >= MAX_BACKLOG or outstanding + len(consumers) > MAX_BACKLOG:
                 raise RuntimeError("cortex backlog full")
             db.execute("""INSERT INTO events
                 (id,workspace,topic,source,severity,untrusted,sensitivity,payload_json,
