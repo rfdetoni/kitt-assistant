@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "kitt-rune-ui"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "KITT unified native and WebGPU operations UI built on Rune"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "kitt-rune"
+path = "src/main.rs"
+
+[[bin]]
+name = "kitt-rune-hud"
+path = "src/hud_main.rs"
+
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "4a2e437954f01eaacc13c0515a1d39474dd6512c", default-features = false, features = ["embedded-fonts", "tooling"] }
+serde_json = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.129"
+
+# The Rune renderer depends on these upstream vendor fixes. Pin *the same*
+# immutable source as the Rune crate, never floating dev.
+[patch.crates-io]
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "4a2e437954f01eaacc13c0515a1d39474dd6512c" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "4a2e437954f01eaacc13c0515a1d39474dd6512c" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "4a2e437954f01eaacc13c0515a1d39474dd6512c" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "4a2e437954f01eaacc13c0515a1d39474dd6512c" }
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "4a2e437954f01eaacc13c0515a1d39474dd6512c" }
