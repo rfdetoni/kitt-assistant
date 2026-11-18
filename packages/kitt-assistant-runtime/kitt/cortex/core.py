@@ -58,6 +58,9 @@ class CortexStore:
             os.chmod(root, 0o700)
         suffix = hashlib.sha256(self.workspace.encode()).hexdigest()[:24]
         self.path = root / f"{suffix}.sqlite3"
+        # SQLite WAL permits concurrent readers while writers use short IMMEDIATE transactions.
+        with self._db() as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
         with self._db(write=True) as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS events (
@@ -130,6 +133,8 @@ class CortexStore:
         consumers = [name for name, prefixes in TOPICS.items()
                      if any(topic.startswith(p) for p in prefixes)]
         with self._db(write=True) as db:
+            db.execute("DELETE FROM events WHERE expires<=?", (now,))
+            db.execute("DELETE FROM context WHERE expires<=?", (now,))
             previous = db.execute("SELECT digest FROM events WHERE id=?", (ident,)).fetchone()
             if previous:
                 if previous["digest"] != digest:
