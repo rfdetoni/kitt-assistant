@@ -50,7 +50,7 @@ class CortexContractTests(unittest.TestCase):
         self.publish()
         first = self.store.claim("plugin-saas-sre")[0]
         self.assertFalse(self.store.settle(
-            "plugin-saas-sre", first["id"], "invalid", success=True))
+            "plugin-saas-sre", first["id"], "x" * 32, success=True))
         self.assertTrue(self.store.settle(
             "plugin-saas-sre", first["id"], first["lease_token"], success=False))
         self.assertEqual([], self.store.claim("plugin-saas-sre"))
