@@ -1,3 +1,6 @@
+#[cfg(not(target_arch = "wasm32"))]
+pub mod hud;
+
 //! K.I.T.T. unified Rune presentation shell.
 //!
 //! Deliberately read-only in its first migration stage: no ability to bypass
