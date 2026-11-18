@@ -100,6 +100,29 @@ class CortexContractTests(unittest.TestCase):
         self.assertNotIn("activity_state", self.store.context())
         self.assertEqual(0, self.store.prune())
 
+    def test_unmatched_events_still_have_bounded_retention(self):
+        self.store.publish(topic="unknown.newtopic", source="external.test",
+                           payload={"a": 1}, event_id="unmatched")
+        self.assertEqual(1, self.store.status()["unexpired_events"])
+        self.assertEqual(0, self.store.status()["deliveries"].__len__())
+
+    def test_reject_symlink_database_and_data_dir(self):
+        import os
+        if os.name != "posix":
+            self.skipTest("symlink ownership hardening is POSIX-specific")
+        root = Path(self.tmp.name)
+        real = root / "real"
+        real.mkdir()
+        symlink = root / "linked"
+        symlink.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(PermissionError):
+            CortexStore(root / "repo", data_dir=symlink)
+        other_store = CortexStore(root / "different-repo", data_dir=real)
+        other_store.path.unlink()
+        other_store.path.symlink_to(root / "target")
+        with self.assertRaises(PermissionError):
+            CortexStore(root / "different-repo", data_dir=real)
+
     def test_workspaces_do_not_share_state(self):
         self.publish()
         other = CortexStore(Path(self.tmp.name) / "repo-b",
