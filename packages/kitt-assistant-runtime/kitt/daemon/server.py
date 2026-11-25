@@ -42,6 +42,14 @@ _EVENT_BATCH_INTERVAL_SECONDS = 0.05
 _IPC_BATCH_MAX_MESSAGES = 32
 _IPC_BATCH_MAX_BYTES = 512 * 1024
 
+# The local authenticated operator channel may control a bound environment,
+# but never exposes arbitrary argv execution or model tool delegation.
+_COMPUTER_ACTIONS = frozenset({
+    "status", "health", "provision", "attach", "pause", "resume",
+    "snapshot", "terminate", "operation_status", "acknowledge_interrupted",
+    "hibernate_idle",
+})
+
 
 def _distribution_version(name: str) -> str:
     try:
@@ -1095,6 +1103,29 @@ class DaemonServer:
         )
         return {"artifact": self._artifact_metadata(artifact), **page}
 
+    async def _computer_action(self, rt, action: str, msg: dict) -> dict:
+        operation = action.removeprefix("computer.")
+        if operation not in _COMPUTER_ACTIONS:
+            raise ValueError("Unsupported computer operation")
+        session_id = str(msg.get("session_id", "")).strip()
+        self._require_session(rt, session_id)
+        params = msg.get("params", {})
+        if not isinstance(params, dict):
+            raise ValueError("Computer params must be an object")
+        rpc = getattr(rt, "rpc", None)
+        if rpc is None:
+            raise RuntimeError("Installed Agent does not support computer control")
+        # Never let nested params override the verified session.
+        scoped = {**params, "conversation_id": session_id}
+        lock = self._session_locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            if session_id in self._active_turns and operation not in {"status", "health", "operation_status"}:
+                raise RuntimeError("Cannot change an environment during an active turn")
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                self._blocking_executor, rpc.dispatch, f"runtime.{operation}", scoped,
+            )
+
     def _workspace_diff(self) -> dict[str, Any]:
         """Return a bounded, read-only Git diff using a fixed argv."""
         import subprocess
@@ -1404,7 +1435,20 @@ class DaemonServer:
                     str(self.workspace_root)
                 )
 
-                if action == "surface.capabilities":
+                if action.startswith("computer."):
+                    try:
+                        payload = await self._computer_action(rt, action, msg)
+                    except Exception as exc:
+                        await q.put(encode_message({
+                            "type": "RESPONSE", "request_id": req_id,
+                            "status": "error", "error": str(exc),
+                        }))
+                        continue
+                    await q.put(encode_message({
+                        "type": "RESPONSE", "request_id": req_id,
+                        "status": "ok", "action": action, "computer": payload,
+                    }))
+                elif action == "surface.capabilities":
                     try:
                         capabilities = self._surface_capabilities(rt)
                     except Exception as exc:

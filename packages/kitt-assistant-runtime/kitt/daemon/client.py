@@ -162,6 +162,16 @@ class DaemonClient:
         except Exception:
             return False
 
+    async def computer(self, session_id: str, operation: str, params=None, *, timeout=150.0):
+        """Control an existing conversation environment via authenticated local IPC."""
+        if not session_id:
+            raise ValueError("session_id is required")
+        return await self.send_request(
+            f"computer.{operation}",
+            {"session_id": session_id, "params": dict(params or {})},
+            timeout=timeout,
+        )
+
     async def list_sessions(self, workspace=None):
         return await self._send_request({"action": "list_sessions", "workspace": workspace})
 
