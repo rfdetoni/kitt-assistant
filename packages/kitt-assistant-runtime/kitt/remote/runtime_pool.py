@@ -39,6 +39,9 @@ def provision_best_worker(rpc, params):
     allow_agent_execution = params.get("agent_execute", False)
     if type(allow_agent_execution) is not bool:
         raise ValueError("agent_execute must be boolean")
+    transport_zstd = params.get("transport_zstd", False)
+    if type(transport_zstd) is not bool:
+        raise ValueError("transport_zstd must be boolean")
     image = params.get("image")
     if not isinstance(image, str) or not re.fullmatch(r"[^\s,]+@sha256:[0-9a-f]{64}", image):
         raise ValueError("image must be pinned by digest")
@@ -88,6 +91,7 @@ def provision_best_worker(rpc, params):
         **selected, **dict(zip(_RESOURCE_KEYS, capacity, strict=True)),
         "image": image, "network_disabled": True, "timeout_seconds": 120,
         "gpu_min_free_bytes": minimum_vram, "agent_execute": allow_agent_execution,
+        "transport_zstd": transport_zstd,
     }
     result = rpc.dispatch("runtime.provision", {
         "conversation_id": conversation, "backend": "REMOTE", "config": config,
