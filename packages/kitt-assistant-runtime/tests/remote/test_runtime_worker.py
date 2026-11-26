@@ -64,6 +64,15 @@ def test_remote_worker_policy_and_content_addressed_cache(tmp_path):
             call("blobs/" + digest, "PUT", b"wrong")
         assert rejected.value.code == 400
         assert worker.blob(digest).read_bytes() == data
+        # Exercise the real Agent client against the real worker HTTP handler.
+        from kitt.artifacts.remote_cache import RemoteArtifactCache
+        cache = RemoteArtifactCache({"endpoint": f"http://127.0.0.1:{server.server_port}"}, "lab", token)
+        assert not cache.push(BytesIO(data), digest, len(data))
+        another = b"agent-client" * 1024
+        another_hash = sha256(another).hexdigest()
+        assert cache.push(BytesIO(another), another_hash, len(another))
+        with cache.open_blob(another_hash) as stream:
+            assert stream.read() == another
         with pytest.raises(ValueError):
             worker.put_blob("0" * 64, BytesIO(b"x"), 2)
     finally:

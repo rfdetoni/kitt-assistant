@@ -62,3 +62,9 @@ reservation and Docker engine request, not a VRAM measurement or automatic
 GPU discovery. Podman GPU is not enabled. Validate NVIDIA/container support
 and actual capacity in the lab. Artifact push/pull IPC actions require the
 Agent version containing the matching operator RPC methods.
+
+The authenticated remote web workspace now has a COMPUTER inspector for
+read-only session runtime status. It returns only backend, state, runtime ID
+and update time. Provisioning, recovery, artifact transfer and execution
+remain operator IPC operations, never remote web actions. Rune's independent
+control-center bridge is not granted access to session data.

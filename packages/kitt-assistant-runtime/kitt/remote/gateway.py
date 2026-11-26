@@ -92,6 +92,20 @@ class DaemonGateway:
     def extensions(self) -> dict:
         return self.request("extensions.status")
 
+    def computer_status(self, session_id: str) -> dict:
+        response = self.request("computer.status", {"session_id": session_id})
+        binding = response.get("computer", {}).get("binding")
+        if not isinstance(binding, dict):
+            return {"bound": False}
+        # No workspace path, config, endpoints, tokens or command output.
+        return {
+            "bound": True,
+            "backend": str(binding.get("backend") or "")[:32],
+            "state": str(binding.get("state") or "")[:32],
+            "runtime_id": str(binding.get("runtime_id") or "")[:128],
+            "updated_at": binding.get("updated_at"),
+        }
+
     def artifacts(self, session_id: str) -> dict:
         return self.request("artifact.list", {"session_id": session_id})
 
