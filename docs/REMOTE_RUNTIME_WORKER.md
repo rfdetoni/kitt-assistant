@@ -97,3 +97,15 @@ cleanup daemon. Counters reset on worker restart.
 
 The resource pool can set agent_execute=true explicitly for the new
 approval-bound Agent computer.run capability; it remains disabled by default.
+
+## Optional JSON transport compression
+
+Set `transport_zstd: true` in the operator's remote runtime or pool
+configuration after upgrading both Agent and worker. The client requests
+Zstd and compresses JSON of at least 1 KiB only if smaller, at level 1.
+The worker accepts one bounded Zstd frame for authenticated JSON POST
+requests and compresses successful JSON responses only upon explicit
+negotiation. Request wire/decoded limits remain 64 KiB at the worker;
+response limits remain 1 MiB. Unknown-size, truncated, concatenated and
+oversized frames are rejected. There is no retry after a failed request.
+Content-addressed blobs continue to use identity streaming.
