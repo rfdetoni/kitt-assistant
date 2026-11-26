@@ -276,9 +276,12 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
         ("GET", "/api/v1/service/status") => {
             write_json(&mut stream, 200, get_service_status(state), None)
         }
-        ("GET", "/api/v1/runtime-worker/status") => {
-            write_json(&mut stream, 200, runtime_worker_status(&state.http_client), None)
-        }
+        ("GET", "/api/v1/runtime-worker/status") => write_json(
+            &mut stream,
+            200,
+            runtime_worker_status(&state.http_client),
+            None,
+        ),
         ("GET", "/api/v1/runtime/workers") => {
             write_json(&mut stream, 200, list_runtime_workers(state), None)
         }
@@ -382,8 +385,10 @@ fn read_request(stream: &TcpStream) -> Result<Request, String> {
         if key == "transfer-encoding" {
             return Err("Transfer-Encoding not supported".into());
         }
-        if matches!(key.as_str(), "host" | "content-length" | "origin" | "x-kitt-csrf")
-            && headers.contains_key(&key)
+        if matches!(
+            key.as_str(),
+            "host" | "content-length" | "origin" | "x-kitt-csrf"
+        ) && headers.contains_key(&key)
         {
             return Err(format!("duplicate {key} header"));
         }
@@ -1174,9 +1179,15 @@ fn configured_worker_targets() -> Vec<WorkerTargetSpec> {
         && let Ok(Value::Array(items)) = serde_json::from_str::<Value>(&raw)
     {
         for item in items.into_iter().take(16) {
-            let Some(obj) = item.as_object() else { continue };
-            let Some(id) = obj.get("id").and_then(Value::as_str) else { continue };
-            let Some(ep) = obj.get("endpoint").and_then(Value::as_str) else { continue };
+            let Some(obj) = item.as_object() else {
+                continue;
+            };
+            let Some(id) = obj.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(ep) = obj.get("endpoint").and_then(Value::as_str) else {
+                continue;
+            };
             let token_env = obj
                 .get("token_env")
                 .and_then(Value::as_str)
@@ -1184,7 +1195,9 @@ fn configured_worker_targets() -> Vec<WorkerTargetSpec> {
             if !valid_worker_id(id) || !valid_token_env_name(token_env) {
                 continue;
             }
-            let Some(endpoint) = valid_worker_endpoint(ep) else { continue };
+            let Some(endpoint) = valid_worker_endpoint(ep) else {
+                continue;
+            };
             let label = obj
                 .get("label")
                 .and_then(Value::as_str)
@@ -1224,7 +1237,8 @@ fn worker_post_json(
     action: &str,
     payload: Value,
 ) -> Result<Value, String> {
-    let token = std::env::var(&spec.token_env).map_err(|_| "worker token unavailable".to_string())?;
+    let token =
+        std::env::var(&spec.token_env).map_err(|_| "worker token unavailable".to_string())?;
     if token.len() < 32 {
         return Err("worker token invalid".into());
     }
@@ -1247,7 +1261,8 @@ fn worker_post_json(
     if body.len() > 65536 {
         return Err("worker response exceeds 64 KiB limit".into());
     }
-    let parsed: Value = serde_json::from_slice(&body).map_err(|_| "invalid worker JSON".to_string())?;
+    let parsed: Value =
+        serde_json::from_slice(&body).map_err(|_| "invalid worker JSON".to_string())?;
     if !status.is_success() {
         let msg = parsed
             .get("error")
@@ -1268,7 +1283,11 @@ fn probe_worker_summary(client: &reqwest::blocking::Client, spec: &WorkerTargetS
         .and_then(Value::as_str)
         .filter(|s| matches!(*s, "UNBOUND" | "RUNNING" | "PAUSED" | "FAILED" | "BUSY"))
         .unwrap_or("UNAVAILABLE");
-    let available = cap.as_ref().and_then(|c| c.get("available")).and_then(Value::as_bool).unwrap_or(false);
+    let available = cap
+        .as_ref()
+        .and_then(|c| c.get("available"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let lease_count = leases
         .as_ref()
         .and_then(|l| l.get("leases"))
@@ -1432,18 +1451,42 @@ fn dispatch_runtime_worker_action(state: &State, payload: &Value) -> Result<Valu
         .ok_or_else(|| format!("worker {worker_id} is not configured"))?;
 
     let (worker_action, forward_payload) = match action {
-        "provision" => ("provision", payload.get("params").cloned().unwrap_or_else(|| json!({}))),
+        "provision" => (
+            "provision",
+            payload.get("params").cloned().unwrap_or_else(|| json!({})),
+        ),
         "pause" => ("pause", json!({})),
         "hibernate" => ("pause", json!({"hibernate": true})),
         "resume" => ("resume", json!({})),
         "terminate" => ("terminate", json!({})),
         "health" => ("health", json!({})),
         "reconnect" => ("attach", json!({})),
-        "leases_reconcile" => ("leases_reconcile", payload.get("params").cloned().unwrap_or_else(|| json!({"release_orphans": false}))),
-        "leases_force_release" => ("leases_force_release", payload.get("params").cloned().unwrap_or_else(|| json!({}))),
-        "migrate" => ("migrate", payload.get("params").cloned().unwrap_or_else(|| json!({"mode": "cold"}))),
-        "snapshot_export" => ("snapshot_export", payload.get("params").cloned().unwrap_or_else(|| json!({}))),
-        "snapshot_import" => ("snapshot_import", payload.get("params").cloned().unwrap_or_else(|| json!({}))),
+        "leases_reconcile" => (
+            "leases_reconcile",
+            payload
+                .get("params")
+                .cloned()
+                .unwrap_or_else(|| json!({"release_orphans": false})),
+        ),
+        "leases_force_release" => (
+            "leases_force_release",
+            payload.get("params").cloned().unwrap_or_else(|| json!({})),
+        ),
+        "migrate" => (
+            "migrate",
+            payload
+                .get("params")
+                .cloned()
+                .unwrap_or_else(|| json!({"mode": "cold"})),
+        ),
+        "snapshot_export" => (
+            "snapshot_export",
+            payload.get("params").cloned().unwrap_or_else(|| json!({})),
+        ),
+        "snapshot_import" => (
+            "snapshot_import",
+            payload.get("params").cloned().unwrap_or_else(|| json!({})),
+        ),
         "cas_gc" => ("cas_gc", json!({})),
         _ => return Err(format!("unsupported runtime action: {action}")),
     };
@@ -1653,7 +1696,13 @@ mod tests {
         };
         let workers = list_runtime_workers(&state);
         assert_eq!(workers.get("status").and_then(Value::as_str), Some("ok"));
-        assert!(dispatch_runtime_worker_action(&state, &json!({"worker_id":"unknown","action":"pause"})).is_err());
+        assert!(
+            dispatch_runtime_worker_action(
+                &state,
+                &json!({"worker_id":"unknown","action":"pause"})
+            )
+            .is_err()
+        );
     }
 
     #[test]
