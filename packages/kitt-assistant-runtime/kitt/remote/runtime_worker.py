@@ -13,6 +13,7 @@ import ssl
 import tempfile
 import threading
 import time
+from compression import zstd
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -400,7 +401,17 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
         if len(body) > 1024 * 1024:
             status, body = 500, b'{"error":"response exceeds limit"}'
+        encoding = None
+        # Only explicit opt-in; small or incompressible bodies stay identity.
+        if (status == 200 and self.command == "POST" and len(body) >= 1024
+                and self.headers.get_all("Accept-Encoding") == ["zstd"]):
+            packed = zstd.compress(body, level=1)
+            if len(packed) < len(body):
+                body, encoding = packed, "zstd"
         self.send_response(status)
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
@@ -424,11 +435,12 @@ class Handler(BaseHTTPRequestHandler):
             raise KeyError("unknown runtime")
         return self.path[len(prefix):]
 
-    def _length(self, maximum):
+    def _length(self, maximum, *, allow_zstd=False):
         lengths = self.headers.get_all("Content-Length") or []
         if len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdigit():
             raise ValueError("valid Content-Length required")
-        if self.headers.get("Transfer-Encoding") or self.headers.get("Content-Encoding"):
+        encodings = self.headers.get_all("Content-Encoding") or []
+        if self.headers.get("Transfer-Encoding") or (encodings and not (allow_zstd and encodings == ["zstd"])):
             raise ValueError("unsupported body encoding")
         size = int(lengths[0])
         if size > maximum:
@@ -442,10 +454,21 @@ class Handler(BaseHTTPRequestHandler):
             route = self._route()
             worker = self.server.worker
             if self.command == "POST":
-                size = self._length(_MAX_JSON)
+                size = self._length(_MAX_JSON, allow_zstd=True)
                 raw = self.rfile.read(size)
                 if len(raw) != size:
                     raise ValueError("truncated JSON")
+                if self.headers.get("Content-Encoding") == "zstd":
+                    try:
+                        info = zstd.get_frame_info(raw)
+                        if info.decompressed_size is None or info.decompressed_size > _MAX_JSON:
+                            raise ValueError("decoded JSON exceeds size limit")
+                        decoder = zstd.ZstdDecompressor(options={zstd.DecompressionParameter.window_log_max: 16})
+                        raw = decoder.decompress(raw, max_length=_MAX_JSON + 1)
+                        if len(raw) > _MAX_JSON or not decoder.eof or decoder.unused_data:
+                            raise ValueError("invalid bounded Zstd frame")
+                    except (zstd.ZstdError, EOFError) as exc:
+                        raise ValueError("invalid Zstd frame") from exc
                 value = json.loads(raw)
                 if not isinstance(value, dict):
                     raise ValueError("JSON object required")
