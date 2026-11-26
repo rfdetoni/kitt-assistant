@@ -47,7 +47,7 @@ _IPC_BATCH_MAX_BYTES = 512 * 1024
 _COMPUTER_ACTIONS = frozenset({
     "status", "health", "provision", "attach", "pause", "resume",
     "snapshot", "terminate", "operation_status", "acknowledge_interrupted",
-    "hibernate_idle",
+    "hibernate_idle", "artifact_push", "artifact_pull", "auto_provision",
 })
 
 
@@ -1122,6 +1122,12 @@ class DaemonServer:
             if session_id in self._active_turns and operation not in {"status", "health", "operation_status"}:
                 raise RuntimeError("Cannot change an environment during an active turn")
             loop = asyncio.get_running_loop()
+            if operation == "auto_provision":
+                from kitt.remote.runtime_pool import provision_best_worker
+
+                return await loop.run_in_executor(
+                    self._blocking_executor, provision_best_worker, rpc, scoped,
+                )
             return await loop.run_in_executor(
                 self._blocking_executor, rpc.dispatch, f"runtime.{operation}", scoped,
             )

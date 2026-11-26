@@ -36,6 +36,12 @@ def test_remote_worker_policy_and_content_addressed_cache(tmp_path):
             call("provision", "POST", json.dumps({"config": {"image": "evil"}}).encode())
         assert denied.value.code == 403
         worker.manager.provision.assert_not_called()
+        worker.manager.operation_status.return_value = {"active": False}
+        with patch("kitt.remote.runtime_worker._local_capacity", return_value=(4000, 1024 ** 3)):
+            with call("capacity", "POST", b"{}") as response:
+                capacity = json.load(response)
+                assert capacity["available"] is True
+                assert capacity["policy"]["gpu_count"] == 0
         with call("provision", "POST", b"{}") as response:
             assert json.load(response)["runtime_id"] == "lab"
         policy = worker.manager.provision.call_args.args[1]
@@ -81,5 +87,20 @@ def test_worker_container_flags_are_fixed(tmp_path):
         assert argv[argv.index("--pull") + 1] == "never"
         assert argv[argv.index("--security-opt") + 1] == "no-new-privileges"
         assert image in argv
+    finally:
+        worker.db.close()
+
+
+def test_gpu_count_is_operator_fixed(tmp_path):
+    image = "example@sha256:" + "a" * 64
+    with patch("kitt.remote.runtime_worker.shutil.which", return_value="/bin/docker"):
+        worker = Worker(tmp_path, "gpu", image=image, gpu_count=2)
+    try:
+        with patch("kitt.remote.runtime_worker._run_host", return_value={"success": True}) as run:
+            worker.driver.provision(worker.policy)
+        argv = run.call_args.args[0]
+        assert argv[argv.index("--gpus") + 1] == "2"
+        with pytest.raises(ValueError):
+            worker.dispatch("provision", {"config": {"gpu_count": 3}})
     finally:
         worker.db.close()

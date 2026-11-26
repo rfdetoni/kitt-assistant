@@ -17,7 +17,7 @@ from pathlib import Path
 
 from kitt.history.database import HistoryDatabase
 from kitt.runtime.conversation_runtime import (
-    ContainerCliRuntimeDriver, ConversationRuntimeManager, _run_host,
+    ContainerCliRuntimeDriver, ConversationRuntimeManager, _local_capacity, _run_host,
 )
 from kitt_protocol import RuntimeBackend
 
@@ -51,6 +51,9 @@ class WorkerDriver(ContainerCliRuntimeDriver):
             "-w", "/workspace", "--entrypoint", "sleep",
             config["image"], "infinity",
         ]
+        if config.get("gpu_count", 0):
+            # Fixed operator policy, never accept device IDs or engine flags from clients.
+            argv[3:3] = ["--gpus", str(config["gpu_count"])]
         result = _run_host(argv, cwd=self.root, timeout=120)
         if not result["success"]:
             raise RuntimeError("container provision failed")
@@ -59,7 +62,7 @@ class WorkerDriver(ContainerCliRuntimeDriver):
 
 class Worker:
     def __init__(self, root, runtime_id, *, image, engine="docker",
-                 cpu_millis=1000, memory_bytes=256 * 1024 * 1024, pids_limit=64):
+                 cpu_millis=1000, memory_bytes=256 * 1024 * 1024, pids_limit=64, gpu_count=0):
         if not _ID.fullmatch(runtime_id):
             raise ValueError("invalid worker runtime ID")
         if engine not in {"docker", "podman"}:
@@ -70,6 +73,8 @@ class Worker:
             raise ValueError("invalid worker resource limits")
         if not 16 <= pids_limit <= 65536:
             raise ValueError("invalid worker PID limit")
+        if type(gpu_count) is not int or not 0 <= gpu_count <= 16 or (gpu_count and engine != "docker"):
+            raise ValueError("GPU count requires Docker and must be 0..16")
         root = Path(root).expanduser().resolve()
         if root == Path(root.anchor):
             raise ValueError("worker requires a dedicated non-root state directory")
@@ -101,11 +106,37 @@ class Worker:
                 (str(root) + "\0" + runtime_id).encode()
             ).hexdigest()[:24],
             "image": image, "cpu_millis": cpu_millis, "memory_bytes": memory_bytes,
-            "pids_limit": pids_limit, "network_disabled": True,
+            "pids_limit": pids_limit, "gpu_count": gpu_count, "network_disabled": True,
             "hibernate_on_pause": True, "auto_resume": True, "timeout_seconds": 120,
         }
 
+    def capacity(self):
+        # Admission hint only. The provision operation is the authoritative
+        # reservation; never make another scheduler wait behind a running command.
+        if not self.lock.acquire(blocking=False):
+            return {"available": False, "state": "BUSY"}
+        try:
+            binding = self.manager.binding()
+            operation = self.manager.operation_status()
+            cpu, memory = _local_capacity()
+            policy = {key: self.policy[key] for key in (
+                "image", "cpu_millis", "memory_bytes", "pids_limit", "gpu_count",
+            )}
+            return {
+                "available": binding is None and not operation.get("active")
+                and cpu >= policy["cpu_millis"]
+                and memory is not None and memory >= policy["memory_bytes"],
+                "state": binding.state if binding is not None else "UNBOUND",
+                "policy": policy,
+                "host_available_cpu_millis": cpu,
+                "host_available_memory_bytes": memory,
+            }
+        finally:
+            self.lock.release()
+
     def dispatch(self, action, payload):
+        if action == "capacity":
+            return self.capacity()
         with self.lock:
             binding = self.manager.binding()
             if action == "provision":
@@ -116,7 +147,7 @@ class Worker:
                     raise PermissionError("image not authorized by worker")
                 if requested.get("readonly_mounts") or requested.get("network_disabled") is False:
                     raise PermissionError("worker does not accept host mounts or network elevation")
-                for key in ("cpu_millis", "memory_bytes", "pids_limit"):
+                for key in ("cpu_millis", "memory_bytes", "pids_limit", "gpu_count"):
                     if key in requested and (type(requested[key]) is not int
                             or requested[key] != self.policy[key]):
                         raise ValueError("requested resource limits must match worker policy")
@@ -355,6 +386,8 @@ def main():
     parser.add_argument("--cpu-millis", type=int, default=1000)
     parser.add_argument("--memory-bytes", type=int, default=256 * 1024 * 1024)
     parser.add_argument("--pids-limit", type=int, default=64)
+    parser.add_argument("--gpu-count", type=int, default=0,
+                        help="Operator-reserved Docker GPU count; requires installed GPU runtime")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7348)
     parser.add_argument("--tls-cert")
@@ -370,7 +403,7 @@ def main():
         parser.error("set KITT_REMOTE_RUNTIME_TOKEN to a high-entropy token (at least 32 characters)")
     worker = Worker(args.state_dir, args.runtime_id, image=args.image, engine=args.engine,
                     cpu_millis=args.cpu_millis, memory_bytes=args.memory_bytes,
-                    pids_limit=args.pids_limit)
+                    pids_limit=args.pids_limit, gpu_count=args.gpu_count)
     try:
         with RuntimeHTTPServer((str(host), args.port), worker, token) as server:
             if args.tls_cert:
