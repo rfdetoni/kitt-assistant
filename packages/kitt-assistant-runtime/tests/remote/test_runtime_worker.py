@@ -68,6 +68,12 @@ def test_remote_worker_policy_and_content_addressed_cache(tmp_path):
                 call("execute", "POST", malformed, extra_headers=headers)
             assert rejected.value.code == 400
         assert worker.manager.execute.call_count == calls
+        from kitt.runtime.conversation_runtime import RemoteRuntimeDriver
+        driver = RemoteRuntimeDriver(lambda _: token)
+        assert driver.execute("lab", ["echo", "a" * 4096], {
+            "endpoint": f"http://127.0.0.1:{server.server_port}",
+            "transport_zstd": True,
+        })["stdout"] == "b" * 4096
         data = b"payload" * 10000
         digest = sha256(data).hexdigest()
         with call("blobs/" + digest, "PUT", data) as response:
