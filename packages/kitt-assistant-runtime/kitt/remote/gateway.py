@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import re
 import threading
 from pathlib import Path
 from typing import Callable
@@ -114,6 +117,52 @@ class DaemonGateway:
             "artifact.read",
             {"session_id": session_id, "artifact_id": artifact_id, "offset": max(0, int(offset))},
         )
+
+    def download_artifact(self, session_id: str, artifact_id: str, begin, write) -> None:
+        """Forward bounded byte chunks from a single authenticated IPC connection."""
+        async def transfer():
+            client = DaemonClient(workspace_root=self.workspace_root)
+            try:
+                if not await client.connect():
+                    raise ConnectionError("KITT daemon unavailable")
+                async def request(action, params=None):
+                    result = await client.send_request(action, {
+                        "workspace": self.workspace_root, **(params or {}),
+                    }, timeout=30)
+                    if result.get("status") != "ok":
+                        raise RuntimeError(str(result.get("error") or "Artifact transfer failed"))
+                    return result
+                opened = await request("artifact.open", {
+                    "session_id": session_id, "artifact_id": artifact_id,
+                })
+                remaining = opened.get("size_bytes")
+                expected = opened.get("content_hash")
+                if (type(remaining) is not int or not 0 <= remaining <= 8 * 1024 * 1024
+                        or not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)):
+                    raise ValueError("Invalid artifact stream metadata")
+                begin(remaining, expected)
+                digest = hashlib.sha256()
+                while remaining:
+                    page = await request("artifact.next")
+                    encoded = page.get("data")
+                    if not isinstance(encoded, str) or len(encoded) > 32 * 1024:
+                        raise ValueError("Artifact frame exceeds limit")
+                    chunk = base64.b64decode(encoded, validate=True)
+                    if not 1 <= len(chunk) <= min(24 * 1024, remaining):
+                        raise ValueError("Artifact stream returned invalid chunk")
+                    remaining -= len(chunk)
+                    if type(page.get("remaining")) is not int or page["remaining"] != remaining:
+                        raise ValueError("Artifact stream offset mismatch")
+                    digest.update(chunk)
+                    if not remaining and digest.hexdigest() != expected:
+                        # Do not send the final chunk if integrity has failed.
+                        raise ValueError("Artifact download integrity failure")
+                    write(chunk)
+                if digest.hexdigest() != expected:
+                    raise ValueError("Artifact download integrity failure")
+            finally:
+                await client.close()
+        asyncio.run(transfer())
 
     def surface_capabilities(self) -> dict:
         return self.request("surface.capabilities")

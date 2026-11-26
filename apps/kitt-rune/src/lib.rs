@@ -29,13 +29,14 @@ enum Screen {
     Memory,
     Sessions,
     Settings,
+    Workers,
 }
 
 impl Screen {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Overview, Self::Assistant, Self::Models, Self::Gateway,
         Self::Cortex, Self::Agents, Self::Memory, Self::Sessions,
-        Self::Settings,
+        Self::Settings, Self::Workers,
     ];
     fn title(self) -> &'static str {
         match self {
@@ -48,6 +49,7 @@ impl Screen {
             Self::Memory => "Memória",
             Self::Sessions => "Sessões",
             Self::Settings => "Configurações",
+            Self::Workers => "Workers",
         }
     }
     fn slug(self) -> &'static str {
@@ -57,6 +59,7 @@ impl Screen {
             Self::Cortex => "cortex", Self::Agents => "agents",
             Self::Memory => "memory", Self::Sessions => "sessions",
             Self::Settings => "settings",
+            Self::Workers => "workers",
         }
     }
 }
@@ -76,6 +79,13 @@ struct Summary {
     gateway_online: bool,
     gateway_phase: String,
     gateway_managed: bool,
+    worker_available: bool,
+    worker_state: String,
+    worker_executions: u64,
+    worker_failures: u64,
+    worker_cache_bytes: u64,
+    worker_uploaded_bytes: u64,
+    worker_downloaded_bytes: u64,
 }
 
 #[derive(Default)]
@@ -93,7 +103,7 @@ fn bounded_str(value: &Value, path: &str) -> String {
 
 impl State {
     fn ingest(&mut self, source: &str, raw: &str) {
-        if !matches!(source, "health" | "service" | "proxy")
+        if !matches!(source, "health" | "service" | "proxy" | "worker")
             || raw.len() > MAX_SNAPSHOT_BYTES
         {
             return;
@@ -127,6 +137,15 @@ impl State {
                 self.data.gateway_phase = bounded_str(&value, "/phase");
                 self.data.gateway_managed = value.get("managed")
                     .and_then(Value::as_bool).unwrap_or(false);
+            }
+            "worker" => {
+                self.data.worker_available = value.get("available").and_then(Value::as_bool) == Some(true);
+                self.data.worker_state = bounded_str(&value, "/state");
+                self.data.worker_executions = value.get("executions").and_then(Value::as_u64).unwrap_or(0);
+                self.data.worker_failures = value.get("execution_failures").and_then(Value::as_u64).unwrap_or(0);
+                self.data.worker_cache_bytes = value.get("cache_bytes").and_then(Value::as_u64).unwrap_or(0);
+                self.data.worker_uploaded_bytes = value.get("uploaded_bytes").and_then(Value::as_u64).unwrap_or(0);
+                self.data.worker_downloaded_bytes = value.get("downloaded_bytes").and_then(Value::as_u64).unwrap_or(0);
             }
             _ => unreachable!(),
         }
@@ -204,6 +223,7 @@ fn screen_content(s: &State) -> El {
             "Persistência e isolamento permanecem sob o serviço de memória"),
         Screen::Sessions => section_heading("Sessões de conversação",
             "Sessões e aprovações continuam disponíveis na interface remota segura"),
+        Screen::Workers => section_heading("Worker remoto", "Métricas do worker configurado pelo operador"),
         Screen::Settings => section_heading("Configurações do ecossistema",
             "Alterações versionadas continuam no Control Center até paridade"),
     });
@@ -257,6 +277,20 @@ fn screen_content(s: &State) -> El {
             body = body.child(note_card("Compatibilidade",
                     "A migração de editor, streaming e aprovações requer testes de paridade com o backend remoto; nenhum dado de sessão é exposto sem autenticação."));
         }
+        Screen::Workers => {
+            if d.worker_available {
+                body = body.child(row().w_full().gap(14.0)
+                    .child(tile("Estado", d.worker_state.clone(), "Runtime remoto"))
+                    .child(tile("Execuções", d.worker_executions.to_string(), "Desde o início do worker"))
+                    .child(tile("Falhas", d.worker_failures.to_string(), "Execuções com falha")))
+                    .child(row().w_full().gap(14.0)
+                        .child(tile("Cache", format!("{} KiB", d.worker_cache_bytes / 1024), "Armazenamento"))
+                        .child(tile("Upload", format!("{} KiB", d.worker_uploaded_bytes / 1024), "Dados recebidos"))
+                        .child(tile("Download", format!("{} KiB", d.worker_downloaded_bytes / 1024), "Dados enviados")));
+            } else {
+                body = body.child(note_card("Indisponível", "Configure KITT_RUNE_WORKER_ENDPOINT e KITT_RUNE_WORKER_ID no serviço local."));
+            }
+        }
         Screen::Settings => {
             body = body.child(note_card("Alterações seguras",
                     "Configurações sensíveis não são carregadas nessa visualização read-only. Utilize o Control Center clássico até a implantação das mutações com CSRF e revisão de diff."));
@@ -293,7 +327,7 @@ thread_local! {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn update_snapshot(source: &str, raw: &str) {
-    if !matches!(source, "health" | "service" | "proxy") ||
+    if !matches!(source, "health" | "service" | "proxy" | "worker") ||
         raw.len() > MAX_SNAPSHOT_BYTES { return; }
     let source = source.to_owned();
     let raw = raw.to_owned();
@@ -322,6 +356,7 @@ fn native_refresh(handle: rune::AppHandle<State>, alive: std::sync::Arc<std::syn
         ("health", "/api/v1/health"),
         ("service", "/api/v1/service/status"),
         ("proxy", "/api/v1/reverse-proxy/status"),
+        ("worker", "/api/v1/runtime-worker/status"),
     ];
     while alive.load(Ordering::Relaxed) {
         for (source, path) in sources {

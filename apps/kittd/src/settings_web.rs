@@ -265,6 +265,9 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
         ("GET", "/api/v1/service/status") => {
             write_json(&mut stream, 200, get_service_status(state), None)
         }
+        ("GET", "/api/v1/runtime-worker/status") => {
+            write_json(&mut stream, 200, runtime_worker_status(), None)
+        }
         ("GET", "/api/v1/service/logs") => write_json(&mut stream, 200, get_service_logs(), None),
         ("GET", "/api/v1/reverse-proxy/status") => {
             write_json(&mut stream, 200, reverse_proxy_status(state), None)
@@ -1079,6 +1082,65 @@ fn stop_reverse_proxy(state: &State) -> Result<Value, String> {
     let mut response = reverse_proxy_status(state);
     response["message"] = json!("Reverse Proxy e sessão Chromium encerrados.");
     Ok(response)
+}
+
+// Operator-configured worker only; browser input can never select an endpoint
+// or receive a token. Use the existing client dependency and strict limits.
+fn runtime_worker_status() -> Value {
+    fn probe() -> Option<Value> {
+        let endpoint = url::Url::parse(&std::env::var("KITT_RUNE_WORKER_ENDPOINT").ok()?).ok()?;
+        let id = std::env::var("KITT_RUNE_WORKER_ID").ok()?;
+        let token = std::env::var("KITT_REMOTE_RUNTIME_TOKEN").ok()?;
+        if id.is_empty()
+            || id.len() > 64
+            || !id.as_bytes()[0].is_ascii_alphanumeric()
+            || !id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
+            || token.len() < 32
+            || !endpoint.username().is_empty()
+            || endpoint.password().is_some()
+            || endpoint.query().is_some()
+            || endpoint.fragment().is_some()
+            || endpoint.path() != "/"
+            || !(endpoint.scheme() == "https"
+                || (endpoint.scheme() == "http"
+                    && matches!(endpoint.host_str(), Some("127.0.0.1") | Some("[::1]"))))
+        {
+            return None;
+        }
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .ok()?;
+        let response = client
+            .post(endpoint.join(&format!("v1/runtimes/{id}/metrics")).ok()?)
+            .bearer_auth(token)
+            .json(&json!({}))
+            .send()
+            .ok()?
+            .error_for_status()
+            .ok()?;
+        let mut body = Vec::new();
+        response.take(65537).read_to_end(&mut body).ok()?;
+        if body.len() > 65536 {
+            return None;
+        }
+        let value: Value = serde_json::from_slice(&body).ok()?;
+        let state = value.get("state")?.as_str()?;
+        if !matches!(state, "UNBOUND" | "RUNNING" | "PAUSED" | "FAILED" | "BUSY") {
+            return None;
+        }
+        Some(json!({"available": true, "state": state,
+            "executions": value.get("executions")?.as_u64()?,
+            "execution_failures": value.get("execution_failures")?.as_u64()?,
+            "cache_bytes": value.get("cache_bytes")?.as_u64()?,
+            "uploaded_bytes": value.get("uploaded_bytes")?.as_u64()?,
+            "downloaded_bytes": value.get("downloaded_bytes")?.as_u64()?}))
+    }
+    probe().unwrap_or_else(|| json!({"available":false}))
 }
 
 fn get_service_status(state: &State) -> Value {

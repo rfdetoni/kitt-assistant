@@ -36,6 +36,7 @@ _INPUT_RE = re.compile(r"^/api/sessions/([A-Za-z0-9_-]{1,128})/input$")
 _CANCEL_RE = re.compile(r"^/api/turns/([A-Za-z0-9_-]{1,160})/cancel$")
 _APPROVAL_RE = re.compile(r"^/api/approvals/([A-Za-z0-9_-]{1,160})/(approve|deny)$")
 _ARTIFACT_RE = re.compile(r"^/api/artifacts/([A-Za-z0-9_-]{1,180})$")
+_ARTIFACT_DOWNLOAD_RE = re.compile(r"^/api/artifacts/([A-Za-z0-9_-]{1,180})/download$")
 _SURFACE_ACTION_RE = re.compile(
     r"^/api/surfaces/([A-Za-z0-9_.:-]{1,128})/actions/([A-Za-z0-9_.:-]{1,128})$"
 )
@@ -348,6 +349,14 @@ class RemoteRequestHandler(BaseHTTPRequestHandler):
             if path == "/api/diff":
                 self._json(HTTPStatus.OK, self.app.gateway.workspace_diff())
                 return
+            download_match = _ARTIFACT_DOWNLOAD_RE.fullmatch(path)
+            if download_match:
+                session_id = (parse_qs(parsed.query).get("session_id") or [""])[0]
+                if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", session_id):
+                    self._error(HTTPStatus.BAD_REQUEST, "valid session_id is required")
+                    return
+                self._download_artifact(session_id, download_match.group(1))
+                return
             artifact_match = _ARTIFACT_RE.match(path)
             if artifact_match:
                 params = parse_qs(parsed.query)
@@ -389,6 +398,31 @@ class RemoteRequestHandler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.BAD_GATEWAY, str(exc))
             return
         self._error(HTTPStatus.NOT_FOUND, "Not found")
+
+    def _download_artifact(self, session_id, artifact_id):
+        started = False
+        def begin(size, digest):
+            nonlocal started
+            started = True
+            self.send_response(HTTPStatus.OK)
+            headers = self._base_headers()
+            headers.update({
+                "Content-Type": "application/octet-stream",
+                "Content-Disposition": f'attachment; filename="{artifact_id}.bin"',
+                "Content-Length": str(size), "X-Content-SHA256": digest,
+                "Cache-Control": "no-store", "Connection": "close",
+            })
+            for name, value in headers.items():
+                self.send_header(name, value)
+            self.end_headers()
+        try:
+            self.app.gateway.download_artifact(session_id, artifact_id, begin, self.wfile.write)
+        except (OSError, ConnectionError, RuntimeError, ValueError, TimeoutError):
+            if not started:
+                self._error(HTTPStatus.BAD_GATEWAY, "Artifact download unavailable")
+            # Once headers are committed, close on failure instead of appending JSON.
+        finally:
+            self.close_connection = True
 
     def do_POST(self) -> None:
         if not self._security_gate():

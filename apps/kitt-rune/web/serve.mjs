@@ -21,6 +21,7 @@ const API = Object.freeze({
   "/api/v1/health": "health",
   "/api/v1/service/status": "service",
   "/api/v1/reverse-proxy/status": "proxy",
+  "/api/v1/runtime-worker/status": "worker",
 });
 const MAX_API_BYTES = 262_144;
 const MAX_ASSET_BYTES = 64 * 1024 * 1024;
@@ -50,6 +51,10 @@ function safeProjection(route, source) {
     memory: { exists: s.memory?.exists === true,
       size_bytes: Number(s.memory?.size_bytes) || 0 },
   };
+  if (route === "worker") return { available: s.available === true,
+    state: ["UNBOUND","RUNNING","PAUSED","FAILED","BUSY"].includes(s.state) ? s.state : "UNKNOWN",
+    ...Object.fromEntries(["executions","execution_failures","cache_bytes","uploaded_bytes","downloaded_bytes"]
+      .map(key => [key, Number.isSafeInteger(s[key]) && s[key] >= 0 ? s[key] : 0])) };
   return { api_online: s.api_online === true,
     managed: s.managed === true,
     phase: String(s.phase || "").slice(0, 120) };

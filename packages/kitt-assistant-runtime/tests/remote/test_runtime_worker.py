@@ -23,8 +23,9 @@ def test_remote_worker_policy_and_content_addressed_cache(tmp_path):
     thread.start()
     base = f"http://127.0.0.1:{server.server_port}/v1/runtimes/lab"
 
-    def call(path, method="GET", body=None, auth=True):
+    def call(path, method="GET", body=None, auth=True, extra_headers=None):
         headers = {"Authorization": "Bearer " + token} if auth else {}
+        headers.update(extra_headers or {})
         return urlopen(Request(base + "/" + path, data=body, method=method,
                                headers=headers), timeout=3)
 
@@ -53,6 +54,26 @@ def test_remote_worker_policy_and_content_addressed_cache(tmp_path):
         with call("execute", "POST", b'{"argv":["true"]}') as response:
             assert json.load(response)["success"]
         worker.manager.execute.assert_called_once_with(["true"], request_id=None)
+        from compression import zstd
+        raw = json.dumps({"argv": ["echo", "a" * 4096]}).encode()
+        packed = zstd.compress(raw, level=1)
+        worker.manager.execute.return_value = {"success": True, "stdout": "b" * 4096}
+        headers = {"Content-Encoding": "zstd", "Accept-Encoding": "zstd"}
+        with call("execute", "POST", packed, extra_headers=headers) as response:
+            assert response.headers["Content-Encoding"] == "zstd"
+            assert json.loads(zstd.decompress(response.read()))["stdout"] == "b" * 4096
+        calls = worker.manager.execute.call_count
+        for malformed in (packed[:-1], packed + packed, zstd.compress(b"x" * 65537)):
+            with pytest.raises(HTTPError) as rejected:
+                call("execute", "POST", malformed, extra_headers=headers)
+            assert rejected.value.code == 400
+        assert worker.manager.execute.call_count == calls
+        from kitt.runtime.conversation_runtime import RemoteRuntimeDriver
+        driver = RemoteRuntimeDriver(lambda _: token)
+        assert driver.execute("lab", ["echo", "a" * 4096], {
+            "endpoint": f"http://127.0.0.1:{server.server_port}",
+            "transport_zstd": True,
+        })["stdout"] == "b" * 4096
         data = b"payload" * 10000
         digest = sha256(data).hexdigest()
         with call("blobs/" + digest, "PUT", data) as response:
@@ -106,10 +127,17 @@ def test_gpu_count_is_operator_fixed(tmp_path):
     with patch("kitt.remote.runtime_worker.shutil.which", return_value="/bin/docker"):
         worker = Worker(tmp_path, "gpu", image=image, gpu_count=2)
     try:
-        with patch("kitt.remote.runtime_worker._run_host", return_value={"success": True}) as run:
-            worker.driver.provision({**worker.policy, "gpu_devices": "GPU-a,GPU-b"})
+        gpus = ["GPU-12345678-1234-1234-1234-123456789abc",
+                "GPU-22345678-1234-1234-1234-123456789abc"]
+        with patch("kitt.remote.runtime_worker._run_host", side_effect=[
+            {"success": True, "stdout": "a" * 64},
+            {"success": True, "stdout": "b" * 64},
+            {"success": True},
+        ]) as run:
+            worker.driver.provision({**worker.policy, "gpu_devices": ",".join(gpus)})
         argv = run.call_args.args[0]
-        assert argv[argv.index("--gpus") + 1] == '"device=GPU-a,GPU-b"'
+        assert argv[argv.index("--gpus") + 1] == '"device=' + ",".join(gpus) + '"'
+        assert [call.args[0][1] for call in run.call_args_list] == ["create", "create", "run"]
         with pytest.raises(ValueError):
             worker.dispatch("provision", {"config": {"gpu_count": 3}})
     finally:
@@ -139,9 +167,76 @@ def test_physical_gpu_discovery_and_rechecked_admission(tmp_path):
             "kitt.remote.runtime_worker.discover_nvidia", return_value=[
                 {"uuid": gpu, "free_bytes": 4 * 1024 ** 3, "total_bytes": 8 * 1024 ** 3}
             ]
-        ), patch.object(worker.manager, "provision") as provision:
+        ), patch.object(worker.driver, "leased_gpus", return_value=set()), patch.object(worker.manager, "provision") as provision:
             assert worker.capacity()["gpu_min_available_vram_bytes"] == 4 * 1024 ** 3
             worker.dispatch("provision", {"config": {"gpu_min_free_bytes": 2 * 1024 ** 3}})
             assert provision.call_args.args[1]["gpu_devices"] == gpu
     finally:
         worker.db.close()
+
+
+def test_gpu_lease_conflict_rolls_back_only_own_new_leases(tmp_path):
+    from kitt.remote.runtime_worker import WorkerDriver
+    from kitt_protocol import RuntimeBackend
+    driver = WorkerDriver(RuntimeBackend.DOCKER, "/bin/docker", tmp_path, tmp_path)
+    gpus = ["GPU-12345678-1234-1234-1234-123456789abc",
+            "GPU-22345678-1234-1234-1234-123456789abc"]
+    with patch("kitt.remote.runtime_worker._run_host", side_effect=[
+        {"success": True, "stdout": "a" * 64},
+        {"success": False, "stderr": "conflict"},
+        {"success": True},
+    ]) as run:
+        with pytest.raises(RuntimeError, match="leased"):
+            driver._reserve_gpus(gpus, "worker-a", "example@sha256:" + "b" * 64)
+    assert run.call_args_list[-1].args[0] == ["/bin/docker", "rm", "a" * 64]
+
+
+def test_gpu_lease_ownership_mismatch_refuses_release(tmp_path):
+    from kitt.remote.runtime_worker import WorkerDriver
+    from kitt.runtime.conversation_runtime import RuntimeOutcomeUnknown
+    from kitt_protocol import RuntimeBackend
+    driver = WorkerDriver(RuntimeBackend.DOCKER, "/bin/docker", tmp_path, tmp_path)
+    gpu = "GPU-12345678-1234-1234-1234-123456789abc"
+    with patch("kitt.remote.runtime_worker._run_host", return_value={
+        "success": True, "stdout": "a" * 64 + " worker-other",
+    }) as run:
+        with pytest.raises(RuntimeOutcomeUnknown, match="ownership mismatch"):
+            driver.terminate("worker-a", {"gpu_count": 1, "gpu_devices": gpu})
+    assert run.call_count == 1
+
+
+def test_drm_discovers_amd_and_intel_without_fabricating_vram(tmp_path):
+    from pathlib import Path
+    from kitt.remote.runtime_worker import discover_drm
+    sysfs = tmp_path / "drm"
+    sysfs.mkdir()
+    for name, vendor, pci in (("renderD128", "0x1002", "0000:03:00.0"),
+                              ("renderD129", "0x8086", "0000:04:00.0")):
+        entry = sysfs / name
+        entry.mkdir()
+        device = tmp_path / pci
+        device.mkdir()
+        (device / "vendor").write_text(vendor)
+        (entry / "device").symlink_to(device, target_is_directory=True)
+    (tmp_path / "0000:03:00.0" / "mem_info_vram_total").write_text("8589934592")
+    (tmp_path / "0000:03:00.0" / "mem_info_vram_used").write_text("1073741824")
+    with patch("kitt.remote.runtime_worker.sys.platform", "linux"), patch.object(Path, "is_char_device", return_value=True):
+        amd = discover_drm("amd", sysfs=sysfs, devroot=tmp_path)
+        intel = discover_drm("intel", sysfs=sysfs, devroot=tmp_path)
+    assert amd == [{"uuid": "AMD-0000:03:00.0", "render_node": "/dev/dri/renderD128",
+                    "total_bytes": 8589934592, "free_bytes": 7516192768}]
+    assert intel == [{"uuid": "INTEL-0000:04:00.0", "render_node": "/dev/dri/renderD129",
+                      "total_bytes": None, "free_bytes": None}]
+
+
+def test_drm_gpu_mapping_change_blocks_resume(tmp_path):
+    from kitt.remote.runtime_worker import WorkerDriver
+    from kitt_protocol import RuntimeBackend
+    driver = WorkerDriver(RuntimeBackend.DOCKER, "/bin/docker", tmp_path, tmp_path)
+    config = {"gpu_vendor": "intel", "gpu_count": 1,
+              "gpu_devices": "INTEL-0000:04:00.0", "gpu_render_nodes": "/dev/dri/renderD129"}
+    with patch("kitt.remote.runtime_worker.discover_drm", return_value=[
+        {"uuid": "INTEL-0000:04:00.0", "render_node": "/dev/dri/renderD130"}
+    ]), patch.object(driver, "_owned_lease_ids"):
+        with pytest.raises(RuntimeError, match="mapping changed"):
+            driver.resume("worker-a", config)

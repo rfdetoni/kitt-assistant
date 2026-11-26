@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import dataclasses
+from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor
 import json
 from importlib.metadata import PackageNotFoundError, version as package_version
@@ -48,6 +50,7 @@ _COMPUTER_ACTIONS = frozenset({
     "status", "health", "provision", "attach", "pause", "resume",
     "snapshot", "terminate", "operation_status", "acknowledge_interrupted",
     "hibernate_idle", "artifact_push", "artifact_pull", "auto_provision",
+    "snapshot_export", "snapshot_restore",
 })
 
 
@@ -1103,6 +1106,17 @@ class DaemonServer:
         )
         return {"artifact": self._artifact_metadata(artifact), **page}
 
+    def _artifact_open(self, rt, session_id, artifact_id, resources):
+        self._require_session(rt, session_id)
+        artifact = rt.artifacts.get(artifact_id)
+        if (artifact is None or artifact.workspace_id != rt.workspace_id
+                or artifact.conversation_id != session_id):
+            raise ValueError("Artifact not found in this session")
+        if not 0 <= artifact.size_bytes <= min(rt.artifacts.max_artifact_bytes, 8 * 1024 * 1024):
+            raise ValueError("Artifact download exceeds size limit")
+        source = resources.enter_context(rt.artifacts.open_verified(artifact.id))
+        return source, artifact.size_bytes, artifact.content_hash
+
     async def _computer_action(self, rt, action: str, msg: dict) -> dict:
         operation = action.removeprefix("computer.")
         if operation not in _COMPUTER_ACTIONS:
@@ -1329,6 +1343,9 @@ class DaemonServer:
     async def _handle_client(self, reader, writer):
         authenticated = False
         attached_session = None
+        artifact_resources = ExitStack()
+        artifact_stream = None
+        artifact_remaining = 0
         q = asyncio.Queue(maxsize=500)
         self._client_queues[writer] = q
         writer_task = asyncio.create_task(self._client_writer_loop(writer, q))
@@ -1564,6 +1581,45 @@ class DaemonServer:
                         "status": "ok", "action": action,
                         "artifacts": artifacts,
                     }))
+                elif action in {"artifact.open", "artifact.next", "artifact.close"}:
+                    try:
+                        payload = {}
+                        if action == "artifact.open":
+                            if artifact_stream is not None:
+                                raise ValueError("Artifact stream already open")
+                            artifact_stream, artifact_remaining, digest = self._artifact_open(
+                                rt, str(msg.get("session_id", "")), str(msg.get("artifact_id", "")),
+                                artifact_resources,
+                            )
+                            payload = {"size_bytes": artifact_remaining, "content_hash": digest}
+                        elif action == "artifact.next":
+                            if artifact_stream is None:
+                                raise ValueError("No artifact stream")
+                            chunk = artifact_stream.read(min(24 * 1024, artifact_remaining))
+                            if not chunk and artifact_remaining:
+                                raise ValueError("Artifact stream ended early")
+                            artifact_remaining -= len(chunk)
+                            payload = {"data": base64.b64encode(chunk).decode("ascii"),
+                                       "remaining": artifact_remaining}
+                            if not artifact_remaining:
+                                artifact_resources.close()
+                                artifact_stream = None
+                        else:
+                            artifact_resources.close()
+                            artifact_stream = None
+                            artifact_remaining = 0
+                        await q.put(encode_message({
+                            "type": "RESPONSE", "request_id": req_id,
+                            "status": "ok", "action": action, **payload,
+                        }))
+                    except Exception as exc:
+                        artifact_resources.close()
+                        artifact_stream = None
+                        artifact_remaining = 0
+                        await q.put(encode_message({
+                            "type": "RESPONSE", "request_id": req_id,
+                            "status": "error", "error": str(exc),
+                        }))
                 elif action == "artifact.read":
                     try:
                         payload = self._artifact_read(
@@ -1914,6 +1970,7 @@ class DaemonServer:
                 else:
                     await q.put(encode_message({"type": "RESPONSE", "request_id": req_id, "status": "error", "error": f"Unknown action '{action}'"}))
         finally:
+            artifact_resources.close()
             if attached_session in self._subscribers:
                 self._subscribers[attached_session].discard(q)
             self._client_queues.pop(writer, None)
