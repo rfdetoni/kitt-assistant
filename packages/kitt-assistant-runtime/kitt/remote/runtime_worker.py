@@ -19,7 +19,7 @@ from pathlib import Path
 
 from kitt.history.database import HistoryDatabase
 from kitt.runtime.conversation_runtime import (
-    ContainerCliRuntimeDriver, ConversationRuntimeManager, _local_capacity, _run_host,
+    ContainerCliRuntimeDriver, ConversationRuntimeManager, RuntimeOutcomeUnknown, _local_capacity, _run_host,
 )
 from kitt_protocol import RuntimeBackend
 
@@ -28,6 +28,15 @@ _MAX_BLOB = 8 * 1024 * 1024
 _MAX_CACHE = 128 * 1024 * 1024
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 _HASH = re.compile(r"[0-9a-f]{64}")
+_GPU_ID = re.compile(r"GPU-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_GPU_LEASE = "io.kitt.gpu-lease"
+_GPU_OWNER = "io.kitt.gpu-owner"
+
+
+def _gpu_lease_name(identifier):
+    if not _GPU_ID.fullmatch(identifier):
+        raise ValueError("invalid physical GPU UUID")
+    return "kitt-gpu-lease-" + hashlib.sha256(identifier.lower().encode("ascii")).hexdigest()[:32]
 
 
 def discover_nvidia(workspace):
@@ -56,7 +65,7 @@ def discover_nvidia(workspace):
         if len(fields) != 3:
             return []
         identifier, total, free = fields
-        if (not re.fullmatch(r"GPU-[0-9a-fA-F-]{36}", identifier)
+        if (not _GPU_ID.fullmatch(identifier)
                 or identifier in seen or not total.isdecimal() or not free.isdecimal()):
             return []
         total, free = int(total), int(free)
@@ -75,6 +84,79 @@ class WorkerDriver(ContainerCliRuntimeDriver):
         super().__init__(backend, binary, workspace)
         self.cache = cache
 
+    def leased_gpus(self):
+        result = _run_host([self.binary, "ps", "-a", "--filter", f"label={_GPU_LEASE}=1",
+                            "--format", "{{.Names}}"], cwd=self.root, timeout=3)
+        if not result.get("success") or result.get("truncated"):
+            raise RuntimeError("GPU lease discovery failed")
+        names = set(result.get("stdout", "").splitlines())
+        if any(not re.fullmatch(r"kitt-gpu-lease-[0-9a-f]{32}", name) for name in names):
+            raise RuntimeError("invalid GPU lease inventory")
+        return names
+
+    def _gpu_devices(self, config):
+        value = config.get("gpu_devices", "")
+        devices = value.split(",") if value else []
+        if len(devices) != config.get("gpu_count", 0) or len({d.lower() for d in devices}) != len(devices):
+            raise ValueError("invalid physical GPU selection")
+        for identifier in devices:
+            _gpu_lease_name(identifier)
+        return sorted(devices, key=str.lower)
+
+    def _release_lease_ids(self, identifiers):
+        for identifier in identifiers:
+            result = _run_host([self.binary, "rm", identifier], cwd=self.root, timeout=10)
+            if not result.get("success") and "No such" not in result.get("stderr", ""):
+                raise RuntimeOutcomeUnknown("GPU lease cleanup requires operator recovery")
+
+    def _reserve_gpus(self, devices, runtime_id, image):
+        # Docker's unique container names act as atomic daemon-local leases.
+        # Never start these metadata-only containers or release on uncertain effects.
+        created = []
+        for identifier in devices:
+            name = _gpu_lease_name(identifier)
+            result = _run_host([self.binary, "create", "--name", name,
+                                "--label", f"{_GPU_LEASE}=1", "--label", f"{_GPU_OWNER}={runtime_id}",
+                                "--pull", "never", "--network", "none", "--read-only",
+                                "--cap-drop", "ALL", "--entrypoint", "sleep",
+                                image, "infinity"], cwd=self.root, timeout=30)
+            if not result.get("success"):
+                self._release_lease_ids(created)
+                raise RuntimeError("physical GPU is already leased or lease creation failed")
+            container_id = result.get("stdout", "").strip()
+            if not _HASH.fullmatch(container_id):
+                raise RuntimeOutcomeUnknown("GPU lease creation returned an invalid ID")
+            created.append(container_id)
+
+    def _owned_lease_ids(self, devices, runtime_id, *, allow_missing=False):
+        identifiers = []
+        for device in devices:
+            name = _gpu_lease_name(device)
+            result = _run_host([self.binary, "inspect", "--format",
+                                '{{.Id}} {{index .Config.Labels "io.kitt.gpu-owner"}}',
+                                name], cwd=self.root, timeout=10)
+            if not result.get("success"):
+                if allow_missing and "No such" in result.get("stderr", ""):
+                    continue
+                raise RuntimeOutcomeUnknown("GPU lease is unavailable; operator recovery required")
+            fields = result.get("stdout", "").split()
+            if len(fields) != 2 or not _HASH.fullmatch(fields[0]) or fields[1] != runtime_id:
+                raise RuntimeOutcomeUnknown("GPU lease ownership mismatch")
+            identifiers.append(fields[0])
+        return identifiers
+
+    def resume(self, runtime_id, config):
+        devices = self._gpu_devices(config)
+        if devices:
+            self._owned_lease_ids(devices, runtime_id)
+        super().resume(runtime_id, config)
+
+    def terminate(self, runtime_id, config):
+        devices = self._gpu_devices(config)
+        identifiers = self._owned_lease_ids(devices, runtime_id, allow_missing=True)
+        super().terminate(runtime_id, config)
+        self._release_lease_ids(identifiers)
+
     def provision(self, config):
         runtime_id = config["runtime_id"]
         argv = [
@@ -91,17 +173,17 @@ class WorkerDriver(ContainerCliRuntimeDriver):
             "-w", "/workspace", "--entrypoint", "sleep",
             config["image"], "infinity",
         ]
-        if config.get("gpu_count", 0):
-            # Fixed operator policy, never accept device IDs or engine flags from clients.
-            devices = config.get("gpu_devices")
-            if devices:
-                # Docker's --gpus flag parses CSV; quote the device field so
-                # comma-separated UUIDs remain one option.
-                argv[3:3] = ["--gpus", '"device=' + devices + '"']
-            else:
-                raise RuntimeError("physical GPU reservation is missing")
+        devices = self._gpu_devices(config)
+        if devices:
+            # Reserve all physical UUIDs before starting the actual workload.
+            self._reserve_gpus(devices, runtime_id, config["image"])
+            argv[3:3] = ["--gpus", '"device=' + ",".join(devices) + '"']
         result = _run_host(argv, cwd=self.root, timeout=120)
         if not result["success"]:
+            if devices:
+                # docker run may have created a stopped container; do not release
+                # the durable leases or retry until an operator verifies outcome.
+                raise RuntimeOutcomeUnknown("GPU container provision failed; leases retained")
             raise RuntimeError("container provision failed")
         return runtime_id
 
@@ -167,6 +249,14 @@ class Worker:
     def _admission(self):
         cpu, memory = _local_capacity()
         devices = discover_nvidia(self.workspace) if self.policy["gpu_count"] else []
+        if devices:
+            try:
+                leased = self.driver.leased_gpus()
+                devices = [item for item in devices if _gpu_lease_name(item["uuid"]) not in leased]
+            except (OSError, RuntimeError, TimeoutError):
+                devices = []
+            except Exception:
+                devices = []
         selected = [item for item in devices
                     if item["free_bytes"] >= self.policy["gpu_min_free_bytes"]][:self.policy["gpu_count"]]
         available = (cpu >= self.policy["cpu_millis"] and memory is not None
