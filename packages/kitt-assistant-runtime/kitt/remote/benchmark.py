@@ -17,6 +17,8 @@ def main():
     parser.add_argument("--transfer", action="store_true", help="Upload and verify a fresh 1 MiB cache blob")
     parser.add_argument("--compute", action="store_true", help="Run fixed CPU/RAM probes in an already-running dedicated Python worker")
     parser.add_argument("--nvidia", action="store_true", help="Verify actual nvidia-smi visibility inside the running worker")
+    parser.add_argument("--gpu-compute", choices=["cuda", "xpu"],
+                        help="Run a small synchronized PyTorch matrix workload on NVIDIA/ROCm or Intel")
     args = parser.parse_args()
     token = os.environ.get("KITT_REMOTE_RUNTIME_TOKEN", "")
     if len(token) < 32:
@@ -43,7 +45,7 @@ def main():
             raise RuntimeError("network benchmark integrity failure")
         result["network"] = {"bytes": len(data), "upload_mib_s": 1 / max(upload, 1e-9),
                              "download_mib_s": 1 / max(download, 1e-9), "sha256": digest}
-    if args.compute or args.nvidia:
+    if args.compute or args.nvidia or args.gpu_compute:
         if result["metrics"]["state"] != "RUNNING":
             raise RuntimeError("compute probes require an already-running dedicated worker")
     if args.compute:
@@ -64,6 +66,20 @@ def main():
         if not probe.get("success") or not probe.get("stdout", "").strip():
             raise RuntimeError("NVIDIA GPU is not visible inside worker")
         result["nvidia_inside_worker"] = probe["stdout"].strip()
+    if args.gpu_compute:
+        code = (
+            "import sys,time,json,torch; d=sys.argv[1]; "
+            "backend=getattr(torch,d); assert backend.is_available(); "
+            "a=torch.ones((512,512),device=d,dtype=torch.float32); "
+            "a@a; backend.synchronize(); t=time.perf_counter(); "
+            "[a@a for _ in range(16)]; backend.synchronize(); "
+            "print(json.dumps({'device':d,'iterations':16,'matrix_size':512,"
+            "'seconds':time.perf_counter()-t}))"
+        )
+        probe = driver.execute(args.runtime_id, ["python3", "-c", code, args.gpu_compute], config)
+        if not probe.get("success"):
+            raise RuntimeError("GPU workload requires a compatible PyTorch build and physical device")
+        result["gpu_compute"] = json.loads(probe["stdout"])
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
