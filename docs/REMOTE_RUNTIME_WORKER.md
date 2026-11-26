@@ -44,3 +44,27 @@ uncertain effects, or delete the state database while an operation may still
 run. Inspect the worker container and recover locally before starting again.
 Tests exercise HTTP authentication, the fixed policy and blob integrity with
 mocked engine execution; actual Docker/Podman and TLS need lab validation.
+
+## Resource-aware operator selection
+
+The authenticated capacity action reports configured CPU, RAM, PID and GPU
+limits, binding state, and host CPU/RAM availability. Busy or uncertain
+workers are not candidates. The Assistant local IPC computer.auto_provision
+accepts up to eight explicitly configured worker endpoints and a requested
+minimum resource vector (cpu_millis, memory_bytes, pids_limit, gpu_count),
+plus a digest-pinned image. It chooses the least excess configured GPU/RAM/CPU
+capacity and dispatches provision exactly once; a concurrent reservation can
+still fail and is never automatically replayed elsewhere. Each token comes
+from a KITT_REMOTE_RUNTIME_TOKEN environment reference.
+
+Docker workers may opt in to --gpu-count N (0..16). This is an operator
+reservation and Docker engine request, not a VRAM measurement or automatic
+GPU discovery. Podman GPU is not enabled. Validate NVIDIA/container support
+and actual capacity in the lab. Artifact push/pull IPC actions require the
+Agent version containing the matching operator RPC methods.
+
+The authenticated remote web workspace now has a COMPUTER inspector for
+read-only session runtime status. It returns only backend, state, runtime ID
+and update time. Provisioning, recovery, artifact transfer and execution
+remain operator IPC operations, never remote web actions. Rune's independent
+control-center bridge is not granted access to session data.

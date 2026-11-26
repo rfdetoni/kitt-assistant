@@ -328,6 +328,13 @@ class RemoteRequestHandler(BaseHTTPRequestHandler):
                 session_id = (parse_qs(parsed.query).get("session_id") or [None])[0]
                 self._json(HTTPStatus.OK, self.app.gateway.approvals(session_id))
                 return
+            if path == "/api/computer/status":
+                session_id = (parse_qs(parsed.query).get("session_id") or [""])[0]
+                if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", session_id):
+                    self._error(HTTPStatus.BAD_REQUEST, "valid session_id is required")
+                    return
+                self._json(HTTPStatus.OK, self.app.gateway.computer_status(session_id))
+                return
             if path == "/api/artifacts":
                 session_id = (parse_qs(parsed.query).get("session_id") or [""])[0]
                 if not session_id:

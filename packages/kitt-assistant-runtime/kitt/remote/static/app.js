@@ -17,6 +17,7 @@ const state = {
   status: {},
   extensions: {},
   artifacts: [],
+  computer: null,
   diff: {loaded: false, available: false, content: ""},
   messagesNextBefore: "",
   messagesHasMore: false,
@@ -171,6 +172,7 @@ async function selectSession(sessionId) {
   state.tools = [];
   state.children.clear();
   state.artifacts = [];
+  state.computer = null;
   state.diff = {loaded: false, available: false, content: ""};
   surfaceRenderer.reset();
   state.messagesNextBefore = "";
@@ -191,6 +193,7 @@ async function selectSession(sessionId) {
     for (const approval of detail.approvals || []) state.approvals.set(approval.approval_id, approval);
     renderApprovalsInConversation();
     await loadArtifacts();
+    if (state.inspectorTab === "computer") await loadComputer();
     if (state.sessionId !== sessionId) return;
     renderInspector();
     openEventSource();
@@ -506,6 +509,17 @@ async function loadArtifacts() {
   } catch (_) { if (state.sessionId === sessionId) state.artifacts = []; }
 }
 
+async function loadComputer() {
+  const sessionId = state.sessionId;
+  if (!sessionId) { state.computer = null; return; }
+  try {
+    const payload = await api(`/api/computer/status?session_id=${encodeURIComponent(sessionId)}`);
+    if (state.sessionId === sessionId) state.computer = payload;
+  } catch (_) {
+    if (state.sessionId === sessionId) state.computer = {unavailable: true};
+  }
+}
+
 async function loadDiff() {
   if (state.diff.loaded) return;
   try {
@@ -562,6 +576,32 @@ function renderInspector() {
     card.append(node("h3", "", state.diff.available ? "WORKSPACE DIFF" : "DIFF UNAVAILABLE"));
     card.append(node("pre", "", state.diff.content || state.diff.error || "Working tree sem alterações rastreadas."));
     if (state.diff.truncated) card.append(node("div", "empty-state", "Diff truncado no limite seguro de 256 KiB."));
+    els.inspectorContent.append(card);
+  } else if (state.inspectorTab === "computer") {
+    const card = node("div", "inspector-card");
+    card.append(node("h3", "", "AMBIENTE DE EXECUÇÃO"));
+    const data = state.computer;
+    if (!data || data.unavailable) {
+      card.append(node("div", "empty-state", "Estado indisponível"));
+    } else if (!data.bound) {
+      card.append(node("div", "empty-state", "Nenhum ambiente vinculado à sessão"));
+    } else {
+      const details = node("div", "content");
+      for (const [label, value] of [["Backend", data.backend], ["Estado", data.state], ["Runtime", data.runtime_id]]) {
+        const row = node("div", "status-row");
+        row.append(node("span", "muted", label), node("span", "", String(value || "—")));
+        details.append(row);
+      }
+      card.append(details);
+    }
+    const refresh = node("button", "small-button", "ATUALIZAR");
+    refresh.type = "button";
+    refresh.addEventListener("click", async () => {
+      refresh.disabled = true;
+      await loadComputer();
+      if (state.inspectorTab === "computer") renderInspector();
+    });
+    card.append(refresh);
     els.inspectorContent.append(card);
   } else if (state.inspectorTab === "artifacts") {
     if (!state.artifacts.length) els.inspectorContent.append(node("div", "empty-state", "Nenhum artefato nesta sessão"));
@@ -764,6 +804,7 @@ for (const tab of document.querySelectorAll(".tab")) {
     state.inspectorTab = tab.dataset.tab || "events";
     if (state.inspectorTab === "diff") state.diff = {loaded: false, available: false, content: ""};
     if (state.inspectorTab === "artifacts") loadArtifacts().then(renderInspector);
+    else if (state.inspectorTab === "computer") loadComputer().then(renderInspector);
     else renderInspector();
   });
   tab.addEventListener("keydown", (event) => {
