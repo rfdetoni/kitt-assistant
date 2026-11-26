@@ -5,7 +5,7 @@
 
 use serde_json::{Map, Value, json};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fs::{self, OpenOptions},
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
@@ -36,6 +36,8 @@ struct State {
     catalog: Arc<Value>,
     started_at: Instant,
     reverse_proxy: Arc<Mutex<ManagedReverseProxy>>,
+    http_client: reqwest::blocking::Client,
+    runtime_ops: Arc<Mutex<VecDeque<Value>>>,
 }
 
 #[derive(Default)]
@@ -73,6 +75,13 @@ pub fn start(config_root: &Path) -> Result<(), String> {
     let overlay_path = dir.join("overrides.json");
     ensure_overlay(&overlay_path)?;
 
+    let http_client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .build()
+        .map_err(|e| format!("init Control Center HTTP client: {e}"))?;
+
     let state = State {
         bind,
         config_root: config_root.to_path_buf(),
@@ -85,6 +94,8 @@ pub fn start(config_root: &Path) -> Result<(), String> {
         catalog: Arc::new(catalog),
         started_at: Instant::now(),
         reverse_proxy: Arc::new(Mutex::new(ManagedReverseProxy::default())),
+        http_client,
+        runtime_ops: Arc::new(Mutex::new(VecDeque::with_capacity(64))),
     };
     let listener =
         TcpListener::bind(bind).map_err(|e| format!("Control Center bind {bind}: {e}"))?;
@@ -265,8 +276,31 @@ fn handle(mut stream: TcpStream, state: &State) -> Result<(), String> {
         ("GET", "/api/v1/service/status") => {
             write_json(&mut stream, 200, get_service_status(state), None)
         }
-        ("GET", "/api/v1/runtime-worker/status") => {
-            write_json(&mut stream, 200, runtime_worker_status(), None)
+        ("GET", "/api/v1/runtime-worker/status") => write_json(
+            &mut stream,
+            200,
+            runtime_worker_status(&state.http_client),
+            None,
+        ),
+        ("GET", "/api/v1/runtime/workers") => {
+            write_json(&mut stream, 200, list_runtime_workers(state), None)
+        }
+        ("GET", "/api/v1/runtime/operations") => {
+            write_json(&mut stream, 200, list_runtime_operations(state), None)
+        }
+        ("GET", "/api/v1/runtime/snapshots") => {
+            write_json(&mut stream, 200, list_runtime_snapshots(state), None)
+        }
+        ("GET", "/api/v1/runtime/mounts") => {
+            write_json(&mut stream, 200, list_runtime_mounts(state), None)
+        }
+        ("POST", "/api/v1/runtime/workers/action") => {
+            let result = parse_json_body(&request.body)
+                .and_then(|payload| dispatch_runtime_worker_action(state, &payload));
+            match result {
+                Ok(value) => write_json(&mut stream, 200, value, None),
+                Err(error) => write_json(&mut stream, 400, json!({"error": error}), None),
+            }
         }
         ("GET", "/api/v1/service/logs") => write_json(&mut stream, 200, get_service_logs(), None),
         ("GET", "/api/v1/reverse-proxy/status") => {
@@ -347,7 +381,18 @@ fn read_request(stream: &TcpStream) -> Result<Request, String> {
         let Some((name, value)) = line.split_once(':') else {
             return Err("invalid header".into());
         };
-        headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+        let key = name.trim().to_ascii_lowercase();
+        if key == "transfer-encoding" {
+            return Err("Transfer-Encoding not supported".into());
+        }
+        if matches!(
+            key.as_str(),
+            "host" | "content-length" | "origin" | "x-kitt-csrf"
+        ) && headers.contains_key(&key)
+        {
+            return Err(format!("duplicate {key} header"));
+        }
+        headers.insert(key, value.trim().to_string());
     }
     let length = headers
         .get("content-length")
@@ -1086,35 +1131,197 @@ fn stop_reverse_proxy(state: &State) -> Result<Value, String> {
 
 // Operator-configured worker only; browser input can never select an endpoint
 // or receive a token. Use the existing client dependency and strict limits.
-fn runtime_worker_status() -> Value {
-    fn probe() -> Option<Value> {
-        let endpoint = url::Url::parse(&std::env::var("KITT_RUNE_WORKER_ENDPOINT").ok()?).ok()?;
+#[derive(Clone)]
+struct WorkerTargetSpec {
+    id: String,
+    label: String,
+    endpoint: url::Url,
+    token_env: String,
+}
+
+fn valid_worker_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.as_bytes()[0].is_ascii_alphanumeric()
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
+}
+
+fn valid_worker_endpoint(raw: &str) -> Option<url::Url> {
+    let endpoint = url::Url::parse(raw.trim()).ok()?;
+    if !endpoint.username().is_empty()
+        || endpoint.password().is_some()
+        || endpoint.query().is_some()
+        || endpoint.fragment().is_some()
+        || endpoint.path() != "/"
+        || !(endpoint.scheme() == "https"
+            || (endpoint.scheme() == "http"
+                && matches!(endpoint.host_str(), Some("127.0.0.1") | Some("[::1]"))))
+    {
+        return None;
+    }
+    Some(endpoint)
+}
+
+fn valid_token_env_name(name: &str) -> bool {
+    name == "KITT_REMOTE_RUNTIME_TOKEN"
+        || (name.starts_with("KITT_REMOTE_RUNTIME_TOKEN_")
+            && name.len() <= 96
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_'))
+}
+
+fn configured_worker_targets() -> Vec<WorkerTargetSpec> {
+    let mut specs = Vec::new();
+    if let Ok(raw) = std::env::var("KITT_RUNE_WORKERS_JSON")
+        && let Ok(Value::Array(items)) = serde_json::from_str::<Value>(&raw)
+    {
+        for item in items.into_iter().take(16) {
+            let Some(obj) = item.as_object() else {
+                continue;
+            };
+            let Some(id) = obj.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(ep) = obj.get("endpoint").and_then(Value::as_str) else {
+                continue;
+            };
+            let token_env = obj
+                .get("token_env")
+                .and_then(Value::as_str)
+                .unwrap_or("KITT_REMOTE_RUNTIME_TOKEN");
+            if !valid_worker_id(id) || !valid_token_env_name(token_env) {
+                continue;
+            }
+            let Some(endpoint) = valid_worker_endpoint(ep) else {
+                continue;
+            };
+            let label = obj
+                .get("label")
+                .and_then(Value::as_str)
+                .unwrap_or(id)
+                .chars()
+                .take(64)
+                .collect();
+            specs.push(WorkerTargetSpec {
+                id: id.to_string(),
+                label,
+                endpoint,
+                token_env: token_env.to_string(),
+            });
+        }
+    }
+    if specs.is_empty()
+        && let (Ok(ep), Ok(id)) = (
+            std::env::var("KITT_RUNE_WORKER_ENDPOINT"),
+            std::env::var("KITT_RUNE_WORKER_ID"),
+        )
+        && valid_worker_id(&id)
+        && let Some(endpoint) = valid_worker_endpoint(&ep)
+    {
+        specs.push(WorkerTargetSpec {
+            id: id.clone(),
+            label: id,
+            endpoint,
+            token_env: "KITT_REMOTE_RUNTIME_TOKEN".to_string(),
+        });
+    }
+    specs
+}
+
+fn worker_post_json(
+    client: &reqwest::blocking::Client,
+    spec: &WorkerTargetSpec,
+    action: &str,
+    payload: Value,
+) -> Result<Value, String> {
+    let token =
+        std::env::var(&spec.token_env).map_err(|_| "worker token unavailable".to_string())?;
+    if token.len() < 32 {
+        return Err("worker token invalid".into());
+    }
+    let url = spec
+        .endpoint
+        .join(&format!("v1/runtimes/{}/{action}", spec.id))
+        .map_err(|e| format!("invalid worker path: {e}"))?;
+    let response = client
+        .post(url)
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .map_err(|e| format!("worker request failed: {e}"))?;
+    let status = response.status();
+    let mut body = Vec::new();
+    response
+        .take(65537)
+        .read_to_end(&mut body)
+        .map_err(|e| format!("worker read failed: {e}"))?;
+    if body.len() > 65536 {
+        return Err("worker response exceeds 64 KiB limit".into());
+    }
+    let parsed: Value =
+        serde_json::from_slice(&body).map_err(|_| "invalid worker JSON".to_string())?;
+    if !status.is_success() {
+        let msg = parsed
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("worker returned error");
+        return Err(msg.chars().take(180).collect());
+    }
+    Ok(parsed)
+}
+
+fn probe_worker_summary(client: &reqwest::blocking::Client, spec: &WorkerTargetSpec) -> Value {
+    let cap = worker_post_json(client, spec, "capacity", json!({})).ok();
+    let metrics = worker_post_json(client, spec, "metrics", json!({})).ok();
+    let leases = worker_post_json(client, spec, "leases", json!({})).ok();
+    let state = metrics
+        .as_ref()
+        .and_then(|m| m.get("state"))
+        .and_then(Value::as_str)
+        .filter(|s| matches!(*s, "UNBOUND" | "RUNNING" | "PAUSED" | "FAILED" | "BUSY"))
+        .unwrap_or("UNAVAILABLE");
+    let available = cap
+        .as_ref()
+        .and_then(|c| c.get("available"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let lease_count = leases
+        .as_ref()
+        .and_then(|l| l.get("leases"))
+        .and_then(Value::as_object)
+        .map_or(0, |m| m.len());
+    json!({
+        "id": spec.id,
+        "label": spec.label,
+        "os": std::env::consts::OS,
+        "backend": "remote",
+        "available": cap.is_some() || metrics.is_some(),
+        "capacity_available": available,
+        "state": state,
+        "cpu_millis": cap.as_ref().and_then(|c| c.pointer("/policy/cpu_millis")).and_then(Value::as_u64).unwrap_or(0),
+        "memory_bytes": cap.as_ref().and_then(|c| c.pointer("/policy/memory_bytes")).and_then(Value::as_u64).unwrap_or(0),
+        "gpu_count": cap.as_ref().and_then(|c| c.pointer("/policy/gpu_count")).and_then(Value::as_u64).unwrap_or(0),
+        "gpu_detected_count": cap.as_ref().and_then(|c| c.get("gpu_detected_count")).and_then(Value::as_u64).unwrap_or(0),
+        "gpu_vendor": cap.as_ref().and_then(|c| c.pointer("/policy/gpu_vendor")).and_then(Value::as_str).unwrap_or("none"),
+        "gpu_min_free_bytes": cap.as_ref().and_then(|c| c.get("gpu_min_available_vram_bytes")).cloned().unwrap_or(Value::Null),
+        "active_leases": lease_count,
+        "executions": metrics.as_ref().and_then(|m| m.get("executions")).and_then(Value::as_u64).unwrap_or(0),
+        "execution_failures": metrics.as_ref().and_then(|m| m.get("execution_failures")).and_then(Value::as_u64).unwrap_or(0),
+        "cache_bytes": metrics.as_ref().and_then(|m| m.get("cache_bytes")).and_then(Value::as_u64).unwrap_or(0),
+    })
+}
+
+fn runtime_worker_status(client: &reqwest::blocking::Client) -> Value {
+    fn probe(client: &reqwest::blocking::Client) -> Option<Value> {
+        let endpoint = valid_worker_endpoint(&std::env::var("KITT_RUNE_WORKER_ENDPOINT").ok()?)?;
         let id = std::env::var("KITT_RUNE_WORKER_ID").ok()?;
         let token = std::env::var("KITT_REMOTE_RUNTIME_TOKEN").ok()?;
-        if id.is_empty()
-            || id.len() > 64
-            || !id.as_bytes()[0].is_ascii_alphanumeric()
-            || !id
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
-            || token.len() < 32
-            || !endpoint.username().is_empty()
-            || endpoint.password().is_some()
-            || endpoint.query().is_some()
-            || endpoint.fragment().is_some()
-            || endpoint.path() != "/"
-            || !(endpoint.scheme() == "https"
-                || (endpoint.scheme() == "http"
-                    && matches!(endpoint.host_str(), Some("127.0.0.1") | Some("[::1]"))))
-        {
+        if !valid_worker_id(&id) || token.len() < 32 {
             return None;
         }
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(2))
-            .redirect(reqwest::redirect::Policy::none())
-            .no_proxy()
-            .build()
-            .ok()?;
         let response = client
             .post(endpoint.join(&format!("v1/runtimes/{id}/metrics")).ok()?)
             .bearer_auth(token)
@@ -1140,7 +1347,170 @@ fn runtime_worker_status() -> Value {
             "uploaded_bytes": value.get("uploaded_bytes")?.as_u64()?,
             "downloaded_bytes": value.get("downloaded_bytes")?.as_u64()?}))
     }
-    probe().unwrap_or_else(|| json!({"available":false}))
+    probe(client).unwrap_or_else(|| json!({"available":false}))
+}
+
+fn push_runtime_op(state: &State, entry: Value) {
+    if let Ok(mut ops) = state.runtime_ops.lock() {
+        while ops.len() >= 64 {
+            ops.pop_back();
+        }
+        ops.push_front(entry);
+    }
+}
+
+fn list_runtime_operations(state: &State) -> Value {
+    let ops: Vec<Value> = state
+        .runtime_ops
+        .lock()
+        .map(|q| q.iter().cloned().collect())
+        .unwrap_or_default();
+    json!({"status": "ok", "operations": ops})
+}
+
+fn list_runtime_workers(state: &State) -> Value {
+    let specs = configured_worker_targets();
+    let workers: Vec<Value> = specs
+        .iter()
+        .map(|spec| probe_worker_summary(&state.http_client, spec))
+        .collect();
+    let ops: Vec<Value> = state
+        .runtime_ops
+        .lock()
+        .map(|q| q.iter().take(16).cloned().collect())
+        .unwrap_or_default();
+    json!({
+        "status": "ok",
+        "os": std::env::consts::OS,
+        "workers": workers,
+        "operations": ops,
+    })
+}
+
+fn read_bounded_meta_json(path: &Path) -> Option<Value> {
+    let meta = fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > 64 * 1024 {
+        return None;
+    }
+    serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
+}
+
+fn list_runtime_snapshots(state: &State) -> Value {
+    let items = read_bounded_meta_json(&state.config_root.join("snapshots.json"))
+        .and_then(|v| v.get("snapshots").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .take(64)
+        .filter_map(|v| {
+            let obj = v.as_object()?;
+            Some(json!({
+                "snapshot_id": obj.get("snapshot_id").and_then(Value::as_str).unwrap_or("").chars().take(80).collect::<String>(),
+                "workspace_id": obj.get("workspace_id").and_then(Value::as_str).unwrap_or("").chars().take(64).collect::<String>(),
+                "version": obj.get("version").and_then(Value::as_u64).unwrap_or(1),
+                "total_bytes": obj.get("total_bytes").and_then(Value::as_u64).unwrap_or(0),
+            }))
+        })
+        .collect::<Vec<_>>();
+    json!({"status": "ok", "snapshots": items})
+}
+
+fn list_runtime_mounts(state: &State) -> Value {
+    let items = read_bounded_meta_json(&state.config_root.join("mounts.json"))
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .take(32)
+        .filter_map(|v| {
+            let obj = v.as_object()?;
+            let kind = obj.get("kind").and_then(Value::as_str).unwrap_or("");
+            if !matches!(kind, "github" | "s3") {
+                return None;
+            }
+            Some(json!({
+                "alias": obj.get("alias").and_then(Value::as_str).unwrap_or("").chars().take(64).collect::<String>(),
+                "kind": kind,
+                "source": obj.get("repository").or_else(|| obj.get("bucket")).and_then(Value::as_str).unwrap_or("").chars().take(120).collect::<String>(),
+            }))
+        })
+        .collect::<Vec<_>>();
+    json!({"status": "ok", "mounts": items})
+}
+
+fn dispatch_runtime_worker_action(state: &State, payload: &Value) -> Result<Value, String> {
+    let worker_id = payload
+        .get("worker_id")
+        .and_then(Value::as_str)
+        .ok_or("worker_id is required")?;
+    let action = payload
+        .get("action")
+        .and_then(Value::as_str)
+        .ok_or("action is required")?;
+    let spec = configured_worker_targets()
+        .into_iter()
+        .find(|w| w.id == worker_id)
+        .ok_or_else(|| format!("worker {worker_id} is not configured"))?;
+
+    let (worker_action, forward_payload) = match action {
+        "provision" => (
+            "provision",
+            payload.get("params").cloned().unwrap_or_else(|| json!({})),
+        ),
+        "pause" => ("pause", json!({})),
+        "hibernate" => ("pause", json!({"hibernate": true})),
+        "resume" => ("resume", json!({})),
+        "terminate" => ("terminate", json!({})),
+        "health" => ("health", json!({})),
+        "reconnect" => ("attach", json!({})),
+        "leases_reconcile" => (
+            "leases_reconcile",
+            payload
+                .get("params")
+                .cloned()
+                .unwrap_or_else(|| json!({"release_orphans": false})),
+        ),
+        "leases_force_release" => (
+            "leases_force_release",
+            payload.get("params").cloned().unwrap_or_else(|| json!({})),
+        ),
+        "migrate" => (
+            "migrate",
+            payload
+                .get("params")
+                .cloned()
+                .unwrap_or_else(|| json!({"mode": "cold"})),
+        ),
+        "snapshot_export" => (
+            "snapshot_export",
+            payload.get("params").cloned().unwrap_or_else(|| json!({})),
+        ),
+        "snapshot_import" => (
+            "snapshot_import",
+            payload.get("params").cloned().unwrap_or_else(|| json!({})),
+        ),
+        "cas_gc" => ("cas_gc", json!({})),
+        _ => return Err(format!("unsupported runtime action: {action}")),
+    };
+
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let res = worker_post_json(&state.http_client, &spec, worker_action, forward_payload);
+    match &res {
+        Ok(data) => {
+            push_runtime_op(
+                state,
+                json!({"at_ms": ts, "worker_id": worker_id, "action": action, "ok": true, "summary": data.get("state").or_else(|| data.get("runtime_id")).and_then(Value::as_str).unwrap_or("ok")}),
+            );
+        }
+        Err(err) => {
+            push_runtime_op(
+                state,
+                json!({"at_ms": ts, "worker_id": worker_id, "action": action, "ok": false, "summary": err.chars().take(120).collect::<String>()}),
+            );
+        }
+    }
+    res.map(|result| json!({"status": "ok", "worker_id": worker_id, "action": action, "result": result}))
 }
 
 fn get_service_status(state: &State) -> Value {
@@ -1287,10 +1657,52 @@ mod tests {
             catalog: Arc::new(Value::Null),
             started_at: Instant::now(),
             reverse_proxy: Arc::new(Mutex::new(ManagedReverseProxy::default())),
+            http_client: reqwest::blocking::Client::new(),
+            runtime_ops: Arc::new(Mutex::new(VecDeque::new())),
         });
         let status = get_service_status(&state);
         assert!(status.get("logs").is_none());
         assert_eq!(status.get("status").and_then(Value::as_str), Some("ok"));
+    }
+
+    #[test]
+    fn rejects_duplicate_host_content_length_and_transfer_encoding() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        for raw in [
+            "POST /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nHost: evil.local\r\nContent-Length: 0\r\n\r\n",
+            "POST /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nContent-Length: 5\r\n\r\nhello",
+            "POST /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+        ] {
+            let mut client = TcpStream::connect(addr).unwrap();
+            client.write_all(raw.as_bytes()).unwrap();
+            let (server_stream, _) = listener.accept().unwrap();
+            assert!(read_request(&server_stream).is_err());
+        }
+    }
+
+    #[test]
+    fn runtime_workers_and_action_validate_allowlist() {
+        let state = State {
+            bind: SocketAddr::from(([127, 0, 0, 1], 41828)),
+            config_root: PathBuf::from("/tmp/nonexistent-kitt-test"),
+            overlay_path: PathBuf::from("/tmp/overrides.json"),
+            csrf: Arc::new("csrf".to_string()),
+            catalog: Arc::new(Value::Null),
+            started_at: Instant::now(),
+            reverse_proxy: Arc::new(Mutex::new(ManagedReverseProxy::default())),
+            http_client: reqwest::blocking::Client::new(),
+            runtime_ops: Arc::new(Mutex::new(VecDeque::new())),
+        };
+        let workers = list_runtime_workers(&state);
+        assert_eq!(workers.get("status").and_then(Value::as_str), Some("ok"));
+        assert!(
+            dispatch_runtime_worker_action(
+                &state,
+                &json!({"worker_id":"unknown","action":"pause"})
+            )
+            .is_err()
+        );
     }
 
     #[test]

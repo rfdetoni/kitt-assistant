@@ -1,25 +1,28 @@
 """Operator-only immutable GitHub/S3 mount materialization; no guest credentials."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import gzip
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
-import subprocess
 import tarfile
 import tempfile
 import time
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
+import xml.etree.ElementTree as ET
 
 _LIMIT = 128 * 1024 * 1024
 _ARCHIVE_LIMIT = 32 * 1024 * 1024
 _HASH = re.compile(r"[0-9a-f]{64}")
 _ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
+_EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
 
 def _relative(value):
@@ -126,14 +129,76 @@ def _extract_github(archive, target, budget):
     return total
 
 
+def _s3_sign_headers(
+    method: str,
+    endpoint: str,
+    bucket: str,
+    path_Suffix: str,
+    query_params: dict[str, str],
+    region: str,
+    access_key: str,
+    secret_key: str,
+    session_token: str | None = None,
+) -> tuple[str, dict[str, str]]:
+    parsed = urlsplit(endpoint)
+    if parsed.scheme not in {"https", "http"}:
+        raise ValueError("S3 endpoint must use HTTPS or loopback HTTP")
+    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("non-loopback HTTP S3 endpoint rejected")
+    now = datetime.now(UTC)
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    canonical_uri = f"/{quote(bucket, safe='-_.~')}{path_Suffix}"
+    canonical_qs = "&".join(
+        f"{quote(k, safe='-_.~')}={quote(v, safe='-_.~')}"
+        for k, v in sorted(query_params.items())
+    )
+    host = parsed.netloc
+    headers: dict[str, str] = {
+        "host": host,
+        "x-amz-content-sha256": _EMPTY_SHA256,
+        "x-amz-date": amz_date,
+    }
+    if session_token:
+        headers["x-amz-security-token"] = session_token
+    signed_headers = ";".join(sorted(headers))
+    canonical_headers = "".join(f"{k}:{headers[k]}\n" for k in sorted(headers))
+    canonical_req = "\n".join([method, canonical_uri, canonical_qs, canonical_headers, signed_headers, _EMPTY_SHA256])
+    scope = f"{date_stamp}/{region}/s3/aws4_request"
+    string_to_sign = "\n".join(["AWS4-HMAC-SHA256", amz_date, scope, hashlib.sha256(canonical_req.encode()).hexdigest()])
+
+    def _hmac(key: bytes, msg: str) -> bytes:
+        return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+    signing_key = _hmac(_hmac(_hmac(_hmac(("AWS4" + secret_key).encode("utf-8"), date_stamp), region), "s3"), "aws4_request")
+    sig = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    auth = f"AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed_headers}, Signature={sig}"
+    req_headers = {
+        "Host": host,
+        "x-amz-date": amz_date,
+        "x-amz-content-sha256": _EMPTY_SHA256,
+        "Authorization": auth,
+    }
+    if session_token:
+        req_headers["x-amz-security-token"] = session_token
+    url = f"{parsed.scheme}://{host}{canonical_uri}" + (f"?{canonical_qs}" if canonical_qs else "")
+    return url, req_headers
+
+
 def _s3_objects(spec, target, budget):
-    bucket, objects = spec.get("bucket"), spec.get("objects")
+    bucket = spec.get("bucket")
+    objects = spec.get("objects")
     if (not isinstance(bucket, str) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket)
             or not isinstance(objects, list) or not 1 <= len(objects) <= 128):
         raise ValueError("S3 mount requires explicit bucket and 1..128 versioned objects")
-    aws = shutil.which("aws")
-    if aws is None:
-        raise RuntimeError("AWS CLI is required for operator S3 mounts")
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+    session_token = os.environ.get("AWS_SESSION_TOKEN", "").strip() or None
+    if not access_key or not secret_key:
+        raise RuntimeError("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required for S3 mounts")
+    region = (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1").strip()
+    endpoint = (os.environ.get("KITT_S3_ENDPOINT_URL") or f"https://s3.{region}.amazonaws.com").rstrip("/")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     total = 0
     for item in objects:
         if not isinstance(item, dict) or set(item) != {"key", "version_id", "sha256", "path"}:
@@ -148,25 +213,61 @@ def _s3_objects(spec, target, budget):
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
             raise ValueError("duplicate S3 mount path")
-        flags = ["--bucket=" + bucket, "--key=" + key, "--version-id=" + version,
-                 "--no-cli-pager", "--no-cli-auto-prompt", "--output", "json"]
-        head = subprocess.run([aws, "s3api", "head-object", *flags], stdout=subprocess.PIPE,
-                              stderr=subprocess.DEVNULL, timeout=30, check=False)
-        if head.returncode or len(head.stdout) > 64 * 1024:
-            raise RuntimeError("S3 object preflight failed")
-        size = json.loads(head.stdout).get("ContentLength")
-        if type(size) is not int or not 0 <= size <= budget - total:
-            raise ValueError("S3 mount exceeds size limit")
-        result = subprocess.run([aws, "s3api", "get-object", *flags, str(destination)],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                timeout=120, check=False)
-        if result.returncode or not destination.is_file() or destination.stat().st_size != size:
-            raise RuntimeError("S3 object transfer failed")
-        with destination.open("rb") as source:
-            if hashlib.file_digest(source, "sha256").hexdigest() != expected:
-                raise ValueError("S3 object digest mismatch")
-        total += size
+        quoted_key = "/" + "/".join(quote(seg, safe="-_.~") for seg in key.lstrip("/").split("/"))
+        url, headers = _s3_sign_headers(
+            "GET", endpoint, bucket, quoted_key, {"versionId": version},
+            region, access_key, secret_key, session_token,
+        )
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        digest = hashlib.sha256()
+        obj_size = 0
+        with opener.open(req, timeout=30) as response, destination.open("xb") as out:
+            if response.status != 200:
+                raise RuntimeError("S3 object transfer failed")
+            clen_hdr = response.headers.get("Content-Length")
+            if clen_hdr is not None and clen_hdr.isdigit() and int(clen_hdr) > budget - total:
+                raise ValueError("S3 mount exceeds size limit")
+            while chunk := response.read(64 * 1024):
+                obj_size += len(chunk)
+                if obj_size > budget - total:
+                    raise ValueError("S3 mount exceeds size limit")
+                digest.update(chunk)
+                out.write(chunk)
+        if digest.hexdigest() != expected:
+            raise ValueError("S3 object digest mismatch")
+        total += obj_size
     return total
+
+
+def list_s3_prefix(bucket: str, prefix: str = "") -> list[dict[str, str]]:
+    """Bounded stdlib S3 ListObjectsV2 helper for operator inspection."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
+        raise ValueError("invalid S3 bucket")
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+    if not access_key or not secret_key:
+        raise RuntimeError("AWS credentials required")
+    region = (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1").strip()
+    endpoint = (os.environ.get("KITT_S3_ENDPOINT_URL") or f"https://s3.{region}.amazonaws.com").rstrip("/")
+    url, headers = _s3_sign_headers(
+        "GET", endpoint, bucket, "/", {"list-type": "2", "max-keys": "128", "prefix": prefix},
+        region, access_key, secret_key, os.environ.get("AWS_SESSION_TOKEN", "").strip() or None,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(urllib.request.Request(url, headers=headers, method="GET"), timeout=15) as resp:
+        xml_bytes = resp.read(256 * 1024)
+    root = ET.fromstring(xml_bytes)
+    ns = {"s3": root.tag.split("}")[0].lstrip("{")} if "}" in root.tag else {}
+    contents_tag = "s3:Contents" if ns else "Contents"
+    key_tag = "s3:Key" if ns else "Key"
+    size_tag = "s3:Size" if ns else "Size"
+    items: list[dict[str, str]] = []
+    for node in root.findall(contents_tag, ns):
+        k = node.findtext(key_tag, default="", namespaces=ns)
+        s = node.findtext(size_tag, default="0", namespaces=ns)
+        if k:
+            items.append({"key": k, "size": s})
+    return items
 
 
 def prepare_mounts(root: Path, manifest: Path):
