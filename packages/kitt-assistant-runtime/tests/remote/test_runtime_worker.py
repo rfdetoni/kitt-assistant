@@ -23,8 +23,9 @@ def test_remote_worker_policy_and_content_addressed_cache(tmp_path):
     thread.start()
     base = f"http://127.0.0.1:{server.server_port}/v1/runtimes/lab"
 
-    def call(path, method="GET", body=None, auth=True):
+    def call(path, method="GET", body=None, auth=True, extra_headers=None):
         headers = {"Authorization": "Bearer " + token} if auth else {}
+        headers.update(extra_headers or {})
         return urlopen(Request(base + "/" + path, data=body, method=method,
                                headers=headers), timeout=3)
 
@@ -53,6 +54,20 @@ def test_remote_worker_policy_and_content_addressed_cache(tmp_path):
         with call("execute", "POST", b'{"argv":["true"]}') as response:
             assert json.load(response)["success"]
         worker.manager.execute.assert_called_once_with(["true"], request_id=None)
+        from compression import zstd
+        raw = json.dumps({"argv": ["echo", "a" * 4096]}).encode()
+        packed = zstd.compress(raw, level=1)
+        worker.manager.execute.return_value = {"success": True, "stdout": "b" * 4096}
+        headers = {"Content-Encoding": "zstd", "Accept-Encoding": "zstd"}
+        with call("execute", "POST", packed, extra_headers=headers) as response:
+            assert response.headers["Content-Encoding"] == "zstd"
+            assert json.loads(zstd.decompress(response.read()))["stdout"] == "b" * 4096
+        calls = worker.manager.execute.call_count
+        for malformed in (packed[:-1], packed + packed, zstd.compress(b"x" * 65537)):
+            with pytest.raises(HTTPError) as rejected:
+                call("execute", "POST", malformed, extra_headers=headers)
+            assert rejected.value.code == 400
+        assert worker.manager.execute.call_count == calls
         data = b"payload" * 10000
         digest = sha256(data).hexdigest()
         with call("blobs/" + digest, "PUT", data) as response:
