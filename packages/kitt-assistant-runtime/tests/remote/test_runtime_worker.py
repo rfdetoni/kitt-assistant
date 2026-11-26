@@ -127,10 +127,17 @@ def test_gpu_count_is_operator_fixed(tmp_path):
     with patch("kitt.remote.runtime_worker.shutil.which", return_value="/bin/docker"):
         worker = Worker(tmp_path, "gpu", image=image, gpu_count=2)
     try:
-        with patch("kitt.remote.runtime_worker._run_host", return_value={"success": True}) as run:
-            worker.driver.provision({**worker.policy, "gpu_devices": "GPU-a,GPU-b"})
+        gpus = ["GPU-12345678-1234-1234-1234-123456789abc",
+                "GPU-22345678-1234-1234-1234-123456789abc"]
+        with patch("kitt.remote.runtime_worker._run_host", side_effect=[
+            {"success": True, "stdout": "a" * 64},
+            {"success": True, "stdout": "b" * 64},
+            {"success": True},
+        ]) as run:
+            worker.driver.provision({**worker.policy, "gpu_devices": ",".join(gpus)})
         argv = run.call_args.args[0]
-        assert argv[argv.index("--gpus") + 1] == '"device=GPU-a,GPU-b"'
+        assert argv[argv.index("--gpus") + 1] == '"device=' + ",".join(gpus) + '"'
+        assert [call.args[0][1] for call in run.call_args_list] == ["create", "create", "run"]
         with pytest.raises(ValueError):
             worker.dispatch("provision", {"config": {"gpu_count": 3}})
     finally:
@@ -160,9 +167,39 @@ def test_physical_gpu_discovery_and_rechecked_admission(tmp_path):
             "kitt.remote.runtime_worker.discover_nvidia", return_value=[
                 {"uuid": gpu, "free_bytes": 4 * 1024 ** 3, "total_bytes": 8 * 1024 ** 3}
             ]
-        ), patch.object(worker.manager, "provision") as provision:
+        ), patch.object(worker.driver, "leased_gpus", return_value=set()), patch.object(worker.manager, "provision") as provision:
             assert worker.capacity()["gpu_min_available_vram_bytes"] == 4 * 1024 ** 3
             worker.dispatch("provision", {"config": {"gpu_min_free_bytes": 2 * 1024 ** 3}})
             assert provision.call_args.args[1]["gpu_devices"] == gpu
     finally:
         worker.db.close()
+
+
+def test_gpu_lease_conflict_rolls_back_only_own_new_leases(tmp_path):
+    from kitt.remote.runtime_worker import WorkerDriver
+    from kitt_protocol import RuntimeBackend
+    driver = WorkerDriver(RuntimeBackend.DOCKER, "/bin/docker", tmp_path, tmp_path)
+    gpus = ["GPU-12345678-1234-1234-1234-123456789abc",
+            "GPU-22345678-1234-1234-1234-123456789abc"]
+    with patch("kitt.remote.runtime_worker._run_host", side_effect=[
+        {"success": True, "stdout": "a" * 64},
+        {"success": False, "stderr": "conflict"},
+        {"success": True},
+    ]) as run:
+        with pytest.raises(RuntimeError, match="leased"):
+            driver._reserve_gpus(gpus, "worker-a", "example@sha256:" + "b" * 64)
+    assert run.call_args_list[-1].args[0] == ["/bin/docker", "rm", "a" * 64]
+
+
+def test_gpu_lease_ownership_mismatch_refuses_release(tmp_path):
+    from kitt.remote.runtime_worker import WorkerDriver
+    from kitt.runtime.conversation_runtime import RuntimeOutcomeUnknown
+    from kitt_protocol import RuntimeBackend
+    driver = WorkerDriver(RuntimeBackend.DOCKER, "/bin/docker", tmp_path, tmp_path)
+    gpu = "GPU-12345678-1234-1234-1234-123456789abc"
+    with patch("kitt.remote.runtime_worker._run_host", return_value={
+        "success": True, "stdout": "a" * 64 + " worker-other",
+    }) as run:
+        with pytest.raises(RuntimeOutcomeUnknown, match="ownership mismatch"):
+            driver.terminate("worker-a", {"gpu_count": 1, "gpu_devices": gpu})
+    assert run.call_count == 1
