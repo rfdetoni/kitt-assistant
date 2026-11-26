@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kitt-assistant-runtime"
-version = "0.4.46"
+version = "0.4.47"
 description = "K.I.T.T. Python assistant daemon and remote runtime"
 requires-python = ">=3.14"
 license = {text = "MIT"}
-dependencies = ["kitt-agent-cli>=0.89.13,<0.90"]
+dependencies = ["kitt-agent-cli>=0.89.14,<0.90"]
 
 [project.scripts]
 kitt-cortex = "kitt.cortex.cli:main"

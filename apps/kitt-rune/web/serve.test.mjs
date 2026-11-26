@@ -52,6 +52,23 @@ test("Rune WebGPU bridge is read only and strips server secrets", async () => {
     assert.equal(invalidHostCode, 400);
     await symlink(path.join(folder, "..", "escaped.js"), path.join(folder, "leak.js"));
     assert.notEqual((await fetch(base + "/leak.js")).status, 200);
+
+    // Runtime fleet & operations projections + guarded action dispatch
+    const workersResp = await fetch(base + "/api/v1/runtime/workers");
+    assert.equal(workersResp.status, 200);
+    assert.equal(JSON.stringify(await workersResp.json()).includes("PRIVATE"), false);
+    const badAction = await fetch(base + "/api/v1/runtime/workers/action", {
+      method: "POST",
+      headers: { Origin: base, "Content-Type": "application/json" },
+      body: JSON.stringify({ worker_id: "w1", action: "pause" }),
+    });
+    assert.equal(badAction.status, 403);
+    const okAction = await fetch(base + "/api/v1/runtime/workers/action", {
+      method: "POST",
+      headers: { Origin: base, "X-Kitt-Rune-Action": "1", "Content-Type": "application/json" },
+      body: JSON.stringify({ worker_id: "w1", action: "pause" }),
+    });
+    assert.equal(okAction.status, 200);
   } finally {
     await close(server); await close(control); await rm(folder, {recursive:true,force:true});
   }

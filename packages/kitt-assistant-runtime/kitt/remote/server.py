@@ -202,10 +202,14 @@ class RemoteRequestHandler(BaseHTTPRequestHandler):
         if not is_private_client(client_ip):
             self._error(HTTPStatus.FORBIDDEN, "Remote access is restricted to private/local network clients")
             return False
-        if not is_allowed_host(self.headers.get("Host", "")):
+        hosts = self.headers.get_all("Host") or []
+        if len(hosts) != 1 or not is_allowed_host(hosts[0]):
             self._error(HTTPStatus.BAD_REQUEST, "Invalid Host header")
             return False
-        if not origin_matches_host(self.headers.get("Origin"), self.headers.get("Host", "")):
+        if self.headers.get("Transfer-Encoding"):
+            self._error(HTTPStatus.BAD_REQUEST, "Transfer-Encoding not supported")
+            return False
+        if not origin_matches_host(self.headers.get("Origin"), hosts[0]):
             self._error(HTTPStatus.FORBIDDEN, "Cross-origin request blocked")
             return False
         return True
@@ -227,7 +231,10 @@ class RemoteRequestHandler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         if content_type != "application/json":
             raise ValueError("Content-Type must be application/json")
-        raw_length = self.headers.get("Content-Length", "")
+        lengths = self.headers.get_all("Content-Length") or []
+        if len(lengths) != 1:
+            raise ValueError("Single Content-Length required")
+        raw_length = lengths[0]
         try:
             length = int(raw_length)
         except ValueError as exc:

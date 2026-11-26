@@ -1,13 +1,20 @@
 """Operator-only bounded selection of a dedicated remote worker."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import os
 import re
+import threading
+import time
 
 from kitt.runtime.conversation_runtime import RemoteRuntimeDriver, _remote_endpoint, _runtime_id
 
 _RESOURCE_KEYS = ("cpu_millis", "memory_bytes", "pids_limit", "gpu_count")
 _BOUNDS = ((10, 256000), (16 * 1024 * 1024, 1024 ** 4), (16, 65536), (0, 16))
+_CB_LOCK = threading.Lock()
+_CIRCUIT_BREAKER: dict[tuple[str, str], dict[str, float | int]] = {}
+_CB_THRESHOLD = 3
+_CB_COOLDOWN_SECONDS = 30.0
 
 
 def _resources(value):
@@ -65,36 +72,65 @@ def provision_best_worker(rpc, params):
         seen.add((endpoint, rid))
         configs.append({"endpoint": endpoint, "runtime_id": rid, "token_env": token_env})
     driver = RemoteRuntimeDriver()
-    candidates = []
-    for index, config in enumerate(configs):
+    now = time.monotonic()
+
+    def _probe(indexed):
+        index, config = indexed
+        key = (config["endpoint"], config["runtime_id"])
+        with _CB_LOCK:
+            cb = _CIRCUIT_BREAKER.get(key)
+            if cb and float(cb.get("open_until", 0.0)) > now:
+                return None
         try:
-            report = driver._request(config["runtime_id"], "capacity",
-                                     {**config, "timeout_seconds": 8})
+            report = driver._request(config["runtime_id"], "capacity", {**config, "timeout_seconds": 8})
             policy = report.get("policy")
+            with _CB_LOCK:
+                _CIRCUIT_BREAKER.pop(key, None)
             if report.get("available") is not True or not isinstance(policy, dict) or policy.get("image") != image:
-                continue
+                return None
             capacity = _resources(policy)
         except (ValueError, RuntimeError, OSError):
-            continue
+            with _CB_LOCK:
+                entry = _CIRCUIT_BREAKER.setdefault(key, {"failures": 0, "open_until": 0.0})
+                entry["failures"] = int(entry["failures"]) + 1
+                if entry["failures"] >= _CB_THRESHOLD:
+                    entry["open_until"] = time.monotonic() + _CB_COOLDOWN_SECONDS
+            return None
         if any(have < need for have, need in zip(capacity, requested, strict=True)):
-            continue
+            return None
         if requested[3]:
             detected = report.get("gpu_detected_count")
             free = report.get("gpu_min_available_vram_bytes")
             vendor = policy.get("gpu_vendor", "nvidia")
             if vendor not in ("nvidia", "amd", "intel") or (gpu_vendor is not None and vendor != gpu_vendor):
-                continue
+                return None
             if type(detected) is not int or detected < requested[3]:
-                continue
+                return None
             if minimum_vram and (type(free) is not int or free < minimum_vram):
-                continue
-        # Reserve scarce configured GPUs first, then minimize excess RAM/CPU.
-        score = (capacity[3] - requested[3], capacity[1] - requested[1],
-                 capacity[0] - requested[0], capacity[2] - requested[2], index)
-        candidates.append((score, config, capacity, policy.get("gpu_vendor", "nvidia")))
+                return None
+        gpu_excess = capacity[3] - requested[3]
+        mem_excess = capacity[1] - requested[1]
+        cpu_excess = capacity[0] - requested[0]
+        pids_excess = capacity[2] - requested[2]
+        score = (gpu_excess, mem_excess, cpu_excess, pids_excess, index)
+        breakdown = {
+            "gpu_excess": gpu_excess,
+            "memory_excess_bytes": mem_excess,
+            "cpu_excess_millis": cpu_excess,
+            "pids_excess": pids_excess,
+            "rank_index": index,
+        }
+        return (score, config, capacity, policy.get("gpu_vendor", "nvidia"), breakdown)
+
+    if len(configs) <= 1:
+        probed = [_probe((0, configs[0]))]
+    else:
+        with ThreadPoolExecutor(max_workers=min(8, len(configs))) as pool:
+            probed = list(pool.map(_probe, enumerate(configs)))
+    candidates = [item for item in probed if item is not None]
     if not candidates:
         raise RuntimeError("no available permitted worker meets requested resources")
-    _, selected, capacity, selected_vendor = min(candidates, key=lambda item: item[0])
+    _, selected, capacity, selected_vendor, breakdown = min(candidates, key=lambda item: item[0])
     config = {
         **selected, **dict(zip(_RESOURCE_KEYS, capacity, strict=True)),
         "image": image, "network_disabled": True, "timeout_seconds": 120,
@@ -107,4 +143,4 @@ def provision_best_worker(rpc, params):
     })
     return {"worker": {"runtime_id": selected["runtime_id"],
                        **dict(zip(_RESOURCE_KEYS, capacity, strict=True))},
-            "runtime": result}
+            "runtime": result, "score_breakdown": breakdown}

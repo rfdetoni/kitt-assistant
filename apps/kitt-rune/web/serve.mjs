@@ -1,6 +1,7 @@
-// Local development server for Rune WebGPU. Never proxies mutations.
-// This is a read-only compatibility bridge, not another execution authority.
+// Local server for Rune WebGPU. Proxies only allowlisted read projections and
+// explicit operator runtime actions via existing Control Center CSRF boundaries.
 import http from "node:http";
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -22,9 +23,19 @@ const API = Object.freeze({
   "/api/v1/service/status": "service",
   "/api/v1/reverse-proxy/status": "proxy",
   "/api/v1/runtime-worker/status": "worker",
+  "/api/v1/runtime/workers": "workers",
+  "/api/v1/runtime/operations": "operations",
+  "/api/v1/runtime/snapshots": "snapshots",
+  "/api/v1/runtime/mounts": "mounts",
 });
 const MAX_API_BYTES = 262_144;
+const MAX_ACTION_BODY = 16_384;
 const MAX_ASSET_BYTES = 64 * 1024 * 1024;
+const ALLOWED_ACTIONS = new Set([
+  "provision", "pause", "resume", "hibernate", "terminate", "health",
+  "reconnect", "leases_reconcile", "leases_force_release", "migrate",
+  "snapshot_export", "snapshot_import", "cas_gc",
+]);
 
 function plain(res, status, message) {
   res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8",
@@ -55,6 +66,62 @@ function safeProjection(route, source) {
     state: ["UNBOUND","RUNNING","PAUSED","FAILED","BUSY"].includes(s.state) ? s.state : "UNKNOWN",
     ...Object.fromEntries(["executions","execution_failures","cache_bytes","uploaded_bytes","downloaded_bytes"]
       .map(key => [key, Number.isSafeInteger(s[key]) && s[key] >= 0 ? s[key] : 0])) };
+  if (route === "workers") return {
+    status: "ok",
+    os: String(s.os || "").slice(0, 32),
+    workers: Array.isArray(s.workers) ? s.workers.slice(0, 16).map(w => ({
+      id: String(w?.id || "").slice(0, 64),
+      label: String(w?.label || "").slice(0, 64),
+      os: String(w?.os || "").slice(0, 32),
+      backend: String(w?.backend || "remote").slice(0, 32),
+      available: w?.available === true,
+      capacity_available: w?.capacity_available === true,
+      state: String(w?.state || "UNAVAILABLE").slice(0, 24),
+      cpu_millis: Number(w?.cpu_millis) || 0,
+      memory_bytes: Number(w?.memory_bytes) || 0,
+      gpu_count: Number(w?.gpu_count) || 0,
+      gpu_detected_count: Number(w?.gpu_detected_count) || 0,
+      gpu_vendor: String(w?.gpu_vendor || "none").slice(0, 24),
+      active_leases: Number(w?.active_leases) || 0,
+      executions: Number(w?.executions) || 0,
+      execution_failures: Number(w?.execution_failures) || 0,
+      cache_bytes: Number(w?.cache_bytes) || 0,
+    })) : [],
+    operations: Array.isArray(s.operations) ? s.operations.slice(0, 16).map(o => ({
+      at_ms: Number(o?.at_ms) || 0,
+      worker_id: String(o?.worker_id || "").slice(0, 64),
+      action: String(o?.action || "").slice(0, 32),
+      ok: o?.ok === true,
+      summary: String(o?.summary || "").slice(0, 120),
+    })) : [],
+  };
+  if (route === "operations") return {
+    status: "ok",
+    operations: Array.isArray(s.operations) ? s.operations.slice(0, 64).map(o => ({
+      at_ms: Number(o?.at_ms) || 0,
+      worker_id: String(o?.worker_id || "").slice(0, 64),
+      action: String(o?.action || "").slice(0, 32),
+      ok: o?.ok === true,
+      summary: String(o?.summary || "").slice(0, 120),
+    })) : [],
+  };
+  if (route === "snapshots") return {
+    status: "ok",
+    snapshots: Array.isArray(s.snapshots) ? s.snapshots.slice(0, 64).map(x => ({
+      snapshot_id: String(x?.snapshot_id || "").slice(0, 80),
+      workspace_id: String(x?.workspace_id || "").slice(0, 64),
+      version: Number(x?.version) || 1,
+      total_bytes: Number(x?.total_bytes) || 0,
+    })) : [],
+  };
+  if (route === "mounts") return {
+    status: "ok",
+    mounts: Array.isArray(s.mounts) ? s.mounts.slice(0, 32).map(m => ({
+      alias: String(m?.alias || "").slice(0, 64),
+      kind: String(m?.kind || "").slice(0, 16),
+      source: String(m?.source || "").slice(0, 120),
+    })) : [],
+  };
   return { api_online: s.api_online === true,
     managed: s.managed === true,
     phase: String(s.phase || "").slice(0, 120) };
@@ -67,14 +134,51 @@ export function createRuneServer({ port = 41931, controlPort = 41828,
   const root = path.resolve(dist);
   return http.createServer(async (req, res) => {
     const addr = req.socket.localPort;
-    if (!["127.0.0.1:" + addr, "localhost:" + addr].includes(req.headers.host)) {
+    if (!["127.0.0.1:" + addr, "localhost:" + addr, "[::1]:" + addr].includes(req.headers.host)) {
       return plain(res, 400, "Invalid Host");
     }
-    if (req.method !== "GET" && req.method !== "HEAD") return plain(res, 405, "Read only");
     let route;
     try { route = new URL(req.url || "/", "http://localhost"); }
     catch { return plain(res, 400, "Invalid URL"); }
     if (route.search || route.hash) return plain(res, 400, "Query not allowed");
+    if (req.method === "POST" && route.pathname === "/api/v1/runtime/workers/action") {
+      const origin = req.headers.origin;
+      const expectedOrigins = new Set(["http://127.0.0.1:" + addr, "http://localhost:" + addr, "http://[::1]:" + addr]);
+      if (!origin || !expectedOrigins.has(origin) || req.headers["x-kitt-rune-action"] !== "1") {
+        return json(res, 403, { error: "cross-origin or missing action header" });
+      }
+      try {
+        const chunks = [];
+        let len = 0;
+        for await (const ch of req) {
+          len += ch.byteLength;
+          if (len > MAX_ACTION_BODY) return json(res, 413, { error: "payload too large" });
+          chunks.push(ch);
+        }
+        const payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+        if (!ALLOWED_ACTIONS.has(payload.action)) return json(res, 400, { error: "unsupported action" });
+        const healthResp = await fetcher("http://127.0.0.1:" + controlPort + "/api/v1/health", { redirect: "error" });
+        if (!healthResp.ok) return json(res, 503, { error: "control center unavailable" });
+        const healthJson = await healthResp.json();
+        const csrf = String(healthJson?.csrf_token || "");
+        if (!csrf) return json(res, 503, { error: "csrf unavailable" });
+        const fwd = await fetcher("http://127.0.0.1:" + controlPort + "/api/v1/runtime/workers/action", {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            "Content-Type": "application/json",
+            "Origin": "http://127.0.0.1:" + controlPort,
+            "X-KITT-CSRF": csrf,
+          },
+          body: JSON.stringify(payload),
+        });
+        const out = await fwd.json().catch(() => ({ error: "invalid upstream json" }));
+        return json(res, fwd.status, out);
+      } catch {
+        return json(res, 502, { error: "action proxy failed" });
+      }
+    }
+    if (req.method !== "GET" && req.method !== "HEAD") return plain(res, 405, "Read only");
     const endpoint = API[route.pathname];
     if (endpoint) {
       if (req.method !== "GET") return plain(res, 405, "Read only");
@@ -118,7 +222,6 @@ export function createRuneServer({ port = 41931, controlPort = 41828,
       const info = await fs.stat(real);
       if (!info.isFile() || info.size > MAX_ASSET_BYTES)
         return plain(res, 404, "Asset not available");
-      const contents = req.method === "HEAD" ? null : await fs.readFile(real);
       res.writeHead(200, {
         "Content-Type": MIME[ext], "Cache-Control": "no-store",
         "Content-Length": info.size,
@@ -128,7 +231,11 @@ export function createRuneServer({ port = 41931, controlPort = 41828,
         "Cross-Origin-Resource-Policy": "same-origin",
         "Content-Security-Policy": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'",
       });
-      res.end(contents);
+      if (req.method === "HEAD") {
+        res.end();
+      } else {
+        createReadStream(real).pipe(res);
+      }
     } catch { return plain(res, 404, "Not found"); }
   });
 }

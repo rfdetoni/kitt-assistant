@@ -1,4 +1,4 @@
-// Same-origin, read-only bridge. No secrets, browser credentials, or tool execution.
+// Same-origin bridge for Rune WebGPU. No secrets or browser credentials.
 import init, { update_snapshot } from "./app.js";
 
 const SOURCES = Object.freeze({
@@ -6,9 +6,36 @@ const SOURCES = Object.freeze({
   service: "/api/v1/service/status",
   proxy: "/api/v1/reverse-proxy/status",
   worker: "/api/v1/runtime-worker/status",
+  workers: "/api/v1/runtime/workers",
+  operations: "/api/v1/runtime/operations",
+  snapshots: "/api/v1/runtime/snapshots",
+  mounts: "/api/v1/runtime/mounts",
 });
 const LIMIT = 262_144;
 let active = false;
+let pollMs = 15000;
+let timerId = null;
+
+window.__kittRuneAction = async function dispatchRuntimeAction(workerId, action) {
+  try {
+    const resp = await fetch("/api/v1/runtime/workers/action", {
+      method: "POST",
+      mode: "same-origin",
+      credentials: "same-origin",
+      cache: "no-store",
+      redirect: "error",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Kitt-Rune-Action": "1",
+      },
+      body: JSON.stringify({ worker_id: String(workerId), action: String(action) }),
+    });
+    await refresh();
+    return resp.ok;
+  } catch {
+    return false;
+  }
+};
 
 async function request(name, path) {
   const controller = new AbortController();
@@ -49,8 +76,20 @@ async function request(name, path) {
 }
 
 async function refresh() {
-  if (document.hidden || !active) return;
-  await Promise.all(Object.entries(SOURCES).map(([k,v]) => request(k,v)));
+  if (document.hidden || !active || !navigator.onLine) return;
+  let hadError = false;
+  await Promise.all(Object.entries(SOURCES).map(async ([k, v]) => {
+    try { await request(k, v); } catch { hadError = true; }
+  }));
+  pollMs = hadError ? Math.min(60000, pollMs * 2) : 15000;
+  scheduleNext();
+}
+
+function scheduleNext() {
+  if (timerId) clearTimeout(timerId);
+  if (!document.hidden && active) {
+    timerId = setTimeout(refresh, pollMs);
+  }
 }
 
 async function boot() {
@@ -59,8 +98,8 @@ async function boot() {
     active = true;
     document.getElementById("fallback")?.remove();
     await refresh();
-    setInterval(refresh, 15000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) void refresh(); });
+    window.addEventListener("online", () => { pollMs = 15000; void refresh(); });
   } catch (error) {
     const fallback = document.getElementById("fallback");
     if (fallback) fallback.textContent =
