@@ -23,7 +23,7 @@ _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 
 
 def _relative(value):
-    if not isinstance(value, str) or not value or len(value) > 1024 or "\\" in value:
+    if not isinstance(value, str) or not value or len(value) > 1024 or "\\" in value or ":" in value:
         raise ValueError("invalid mount member path")
     parts = value.split("/")
     if any(part in {"", ".", ".."} or any(ord(c) < 32 for c in part) for part in parts):
