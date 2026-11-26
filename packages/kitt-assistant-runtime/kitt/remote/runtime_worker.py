@@ -407,6 +407,31 @@ class Worker:
                         removed += 1
                         freed += stat.st_size
                 return {"removed": removed, "freed_bytes": freed}
+            if action == "snapshot_export":
+                from kitt.remote.workspace_snapshot import export_workspace
+                if (binding is None or binding.state != "PAUSED"
+                        or self.manager.operation_status().get("active")
+                        or not self.manager.health().get("hibernated")):
+                    raise RuntimeError("snapshot requires a stopped, hibernated runtime")
+                if payload.get("allow_sensitive") is not True:
+                    raise PermissionError("snapshot requires explicit sensitive-data authorization")
+                with tempfile.TemporaryFile(dir=self.cache) as source:
+                    digest, size = export_workspace(self.workspace, source, self.policy["image"])
+                    self.put_blob(digest, source, size)
+                return {"sha256": digest, "bytes": size, "image": self.policy["image"]}
+            if action == "snapshot_import":
+                from kitt.remote.workspace_snapshot import import_workspace
+                if binding is not None or self.manager.operation_status().get("active"):
+                    raise RuntimeError("snapshot restore requires an unbound worker")
+                if payload.get("allow_sensitive") is not True:
+                    raise PermissionError("snapshot requires explicit sensitive-data authorization")
+                digest = payload.get("sha256")
+                path = self.blob(digest)
+                if path.is_symlink() or not path.is_file() or path.stat().st_size > _MAX_BLOB:
+                    raise ValueError("snapshot blob unavailable")
+                with path.open("rb") as source:
+                    import_workspace(self.workspace, source, digest, self.policy["image"])
+                return {"ok": True, "sha256": digest}
             if action == "provision":
                 requested = payload.get("config", {})
                 if not isinstance(requested, dict):
