@@ -1091,22 +1091,43 @@ fn runtime_worker_status() -> Value {
         let endpoint = url::Url::parse(&std::env::var("KITT_RUNE_WORKER_ENDPOINT").ok()?).ok()?;
         let id = std::env::var("KITT_RUNE_WORKER_ID").ok()?;
         let token = std::env::var("KITT_REMOTE_RUNTIME_TOKEN").ok()?;
-        if id.is_empty() || id.len() > 64 || !id.as_bytes()[0].is_ascii_alphanumeric()
-            || !id.bytes().all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
-            || token.len() < 32 || !endpoint.username().is_empty() || endpoint.password().is_some()
-            || endpoint.query().is_some() || endpoint.fragment().is_some() || endpoint.path() != "/"
-            || !(endpoint.scheme() == "https" || (endpoint.scheme() == "http"
-                && matches!(endpoint.host_str(), Some("127.0.0.1") | Some("[::1]")))) {
+        if id.is_empty()
+            || id.len() > 64
+            || !id.as_bytes()[0].is_ascii_alphanumeric()
+            || !id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
+            || token.len() < 32
+            || !endpoint.username().is_empty()
+            || endpoint.password().is_some()
+            || endpoint.query().is_some()
+            || endpoint.fragment().is_some()
+            || endpoint.path() != "/"
+            || !(endpoint.scheme() == "https"
+                || (endpoint.scheme() == "http"
+                    && matches!(endpoint.host_str(), Some("127.0.0.1") | Some("[::1]"))))
+        {
             return None;
         }
         let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(2)).redirect(reqwest::redirect::Policy::none())
-            .no_proxy().build().ok()?;
-        let response = client.post(endpoint.join(&format!("v1/runtimes/{id}/metrics")).ok()?)
-            .bearer_auth(token).json(&json!({})).send().ok()?.error_for_status().ok()?;
+            .timeout(Duration::from_secs(2))
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .ok()?;
+        let response = client
+            .post(endpoint.join(&format!("v1/runtimes/{id}/metrics")).ok()?)
+            .bearer_auth(token)
+            .json(&json!({}))
+            .send()
+            .ok()?
+            .error_for_status()
+            .ok()?;
         let mut body = Vec::new();
         response.take(65537).read_to_end(&mut body).ok()?;
-        if body.len() > 65536 { return None; }
+        if body.len() > 65536 {
+            return None;
+        }
         let value: Value = serde_json::from_slice(&body).ok()?;
         let state = value.get("state")?.as_str()?;
         if !matches!(state, "UNBOUND" | "RUNNING" | "PAUSED" | "FAILED" | "BUSY") {
