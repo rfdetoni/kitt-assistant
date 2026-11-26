@@ -20,7 +20,7 @@ from pathlib import Path
 
 from kitt.history.database import HistoryDatabase
 from kitt.runtime.conversation_runtime import (
-    ContainerCliRuntimeDriver, ConversationRuntimeManager, RuntimeOutcomeUnknown, _local_capacity, _run_host,
+    ContainerCliRuntimeDriver, ConversationRuntimeManager, RuntimeOutcomeUnknown, _local_capacity, _readonly_mounts, _run_host,
 )
 from kitt_protocol import RuntimeBackend
 
@@ -233,6 +233,10 @@ class WorkerDriver(ContainerCliRuntimeDriver):
             "-w", "/workspace", "--entrypoint", "sleep",
             config["image"], "infinity",
         ]
+        for alias, source in _readonly_mounts(config):
+            if alias.lower() == "cache":
+                raise ValueError("cache mount alias is reserved")
+            argv[3:3] = ["--mount", f"type=bind,src={source},dst=/mnt/kitt/{alias},readonly"]
         devices = self._gpu_devices(config)
         if devices:
             # Reserve all physical UUIDs before starting the actual workload.
@@ -257,7 +261,7 @@ class WorkerDriver(ContainerCliRuntimeDriver):
 
 class Worker:
     def __init__(self, root, runtime_id, *, image, engine="docker",
-                 cpu_millis=1000, memory_bytes=256 * 1024 * 1024, pids_limit=64, gpu_count=0, gpu_min_free_bytes=0, gpu_vendor="nvidia"):
+                 cpu_millis=1000, memory_bytes=256 * 1024 * 1024, pids_limit=64, gpu_count=0, gpu_min_free_bytes=0, gpu_vendor="nvidia", mount_manifest=None):
         if not _ID.fullmatch(runtime_id):
             raise ValueError("invalid worker runtime ID")
         if engine not in {"docker", "podman"}:
@@ -288,6 +292,10 @@ class Worker:
             path.mkdir(exist_ok=True, mode=0o700)
             if path.is_symlink() or not path.is_dir() or any(c in str(path) for c in ',"\n\r'):
                 raise ValueError("unsafe worker directory")
+        mounts = {}
+        if mount_manifest is not None:
+            from kitt.remote.mount_sources import prepare_mounts
+            mounts = prepare_mounts(root, Path(mount_manifest).expanduser())
         self.runtime_id = runtime_id
         self.lock = threading.RLock()
         self.started_at = time.monotonic()
@@ -313,6 +321,7 @@ class Worker:
             "pids_limit": pids_limit, "gpu_count": gpu_count,
             "gpu_min_free_bytes": gpu_min_free_bytes, "gpu_vendor": gpu_vendor, "network_disabled": True,
             "hibernate_on_pause": True, "auto_resume": True, "timeout_seconds": 120,
+            **({"readonly_mounts": mounts} if mounts else {}),
         }
 
     def _admission(self):
@@ -358,6 +367,7 @@ class Worker:
                 and available,
                 "state": binding.state if binding is not None else "UNBOUND",
                 "policy": policy,
+                "mount_aliases": sorted(self.policy.get("readonly_mounts", {})),
                 "host_available_cpu_millis": cpu,
                 "host_available_memory_bytes": memory,
                 "gpu_detected_count": len(devices),
@@ -702,6 +712,7 @@ def main():
     parser.add_argument("--gpu-count", type=int, default=0,
                         help="Operator-reserved Docker GPU count; requires installed GPU runtime")
     parser.add_argument("--gpu-vendor", choices=["nvidia", "amd", "intel"], default="nvidia")
+    parser.add_argument("--mount-manifest", type=Path, help="Operator-only pinned GitHub/S3 mount manifest")
     parser.add_argument("--gpu-min-free-bytes", type=int, default=0,
                         help="Minimum free VRAM per selected physical NVIDIA GPU")
     parser.add_argument("--host", default="127.0.0.1")
@@ -720,7 +731,8 @@ def main():
     worker = Worker(args.state_dir, args.runtime_id, image=args.image, engine=args.engine,
                     cpu_millis=args.cpu_millis, memory_bytes=args.memory_bytes,
                     pids_limit=args.pids_limit, gpu_count=args.gpu_count,
-                    gpu_min_free_bytes=args.gpu_min_free_bytes, gpu_vendor=args.gpu_vendor)
+                    gpu_min_free_bytes=args.gpu_min_free_bytes, gpu_vendor=args.gpu_vendor,
+                    mount_manifest=args.mount_manifest)
     try:
         with RuntimeHTTPServer((str(host), args.port), worker, token) as server:
             if args.tls_cert:
