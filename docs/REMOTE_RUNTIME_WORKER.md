@@ -68,3 +68,9 @@ read-only session runtime status. It returns only backend, state, runtime ID
 and update time. Provisioning, recovery, artifact transfer and execution
 remain operator IPC operations, never remote web actions. Rune's independent
 control-center bridge is not granted access to session data.
+
+## Coordinated release lock alignment
+
+Native Assistant and HUD locks pin Protocol 0.14.3 and Memory 0.10.3.
+The Python Assistant lock pins Agent 0.89.13 and Protocol 0.14.3 at
+the same immutable Protocol revision as the native and HUD locks. Rust workspace minimum is now 1.89 because of SQLite/UUID.

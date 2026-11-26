@@ -987,8 +987,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-memory-core"
-version = "0.10.2"
-source = "git+https://github.com/rfdetoni/kitt-memory?branch=main#646a213672833c42f0e4eacf1faf048261e5a4c6"
+version = "0.10.3"
+source = "git+https://github.com/rfdetoni/kitt-memory?branch=main#a85df54a9f90ee406b95b34d3076037dd6f99f7a"
 dependencies = [
  "hex",
  "serde",
@@ -1000,8 +1000,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-memory-sqlite"
-version = "0.10.2"
-source = "git+https://github.com/rfdetoni/kitt-memory?branch=main#646a213672833c42f0e4eacf1faf048261e5a4c6"
+version = "0.10.3"
+source = "git+https://github.com/rfdetoni/kitt-memory?branch=main#a85df54a9f90ee406b95b34d3076037dd6f99f7a"
 dependencies = [
  "kitt-memory-core",
  "rusqlite",
@@ -1011,8 +1011,8 @@ dependencies = [
 
 [[package]]
 name = "kitt-protocol"
-version = "0.14.2"
-source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#ac9baf8b4b8f03e839471c7bbb7d5e52e970a9ec"
+version = "0.14.3"
+source = "git+https://github.com/rfdetoni/kitt-protocol?branch=main#113d893a18b8859b153f9518b26354090cccb979"
 dependencies = [
  "serde",
  "serde_json",
@@ -1079,9 +1079,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.38.2"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+checksum = "b06e69070b7e12262b0cd90832f0a7396f142a2b330181255562decf9f0c6215"
 dependencies = [
  "cc",
  "pkg-config",
@@ -1686,9 +1686,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.40.2"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
+checksum = "f172c4812a19b26d1c23cdb0070e69db335503dfa378b910eb857386e5b8beba"
 dependencies = [
  "bitflags 2.13.1",
  "fallible-iterator",
@@ -2232,9 +2232,9 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "uuid"
-version = "1.26.0"
+version = "1.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5772d71c9be8a8a6ac2117d949c5b224c1b72241bb611d9a3012edcf8af7812"
+checksum = "3c14b15dffa2f4bd712103e857140aa04a4f2ff6e955c77d7eb8e53ee02a3b64"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
