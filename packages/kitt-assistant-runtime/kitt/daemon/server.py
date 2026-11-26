@@ -50,6 +50,7 @@ _COMPUTER_ACTIONS = frozenset({
     "status", "health", "provision", "attach", "pause", "resume",
     "snapshot", "terminate", "operation_status", "acknowledge_interrupted",
     "hibernate_idle", "artifact_push", "artifact_pull", "auto_provision",
+    "snapshot_export", "snapshot_restore",
 })
 
 
