@@ -10,6 +10,7 @@ import re
 import secrets
 import shutil
 import ssl
+import sys
 import tempfile
 import threading
 import time
@@ -29,13 +30,15 @@ _MAX_CACHE = 128 * 1024 * 1024
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 _HASH = re.compile(r"[0-9a-f]{64}")
 _GPU_ID = re.compile(r"GPU-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_DRM_ID = re.compile(r"(AMD|INTEL)-[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]")
+_RENDER = re.compile(r"/dev/dri/renderD[0-9]{1,5}")
 _GPU_LEASE = "io.kitt.gpu-lease"
 _GPU_OWNER = "io.kitt.gpu-owner"
 
 
 def _gpu_lease_name(identifier):
-    if not _GPU_ID.fullmatch(identifier):
-        raise ValueError("invalid physical GPU UUID")
+    if not (_GPU_ID.fullmatch(identifier) or _DRM_ID.fullmatch(identifier)):
+        raise ValueError("invalid physical GPU identifier")
     return "kitt-gpu-lease-" + hashlib.sha256(identifier.lower().encode("ascii")).hexdigest()[:32]
 
 
@@ -75,6 +78,46 @@ def discover_nvidia(workspace):
         devices.append({"uuid": identifier, "total_bytes": total * 1024 ** 2,
                         "free_bytes": free * 1024 ** 2})
     return sorted(devices, key=lambda item: (-item["free_bytes"], item["uuid"]))
+
+
+def discover_drm(vendor, *, sysfs=Path("/sys/class/drm"), devroot=Path("/dev/dri")):
+    """Linux DRM render-node discovery; unknown VRAM is not fabricated."""
+    if sys.platform != "linux" or vendor not in {"amd", "intel"}:
+        return []
+    expected = {"amd": "0x1002", "intel": "0x8086"}[vendor]
+    devices = []
+    seen = set()
+    try:
+        entries = sorted(sysfs.glob("renderD*"))
+        if len(entries) > 64:
+            return []
+        for entry in entries:
+            if not re.fullmatch(r"renderD[0-9]{1,5}", entry.name):
+                continue
+            device = (entry / "device").resolve(strict=True)
+            node = devroot / entry.name
+            if (device / "vendor").read_text().strip() != expected or not node.is_char_device():
+                continue
+            identifier = vendor.upper() + "-" + device.name.lower()
+            if not _DRM_ID.fullmatch(identifier) or identifier in seen:
+                continue
+            total = free = None
+            try:
+                total = int((device / "mem_info_vram_total").read_text())
+                used = int((device / "mem_info_vram_used").read_text())
+                if not 0 <= used <= total <= 1024 ** 4 or total == 0:
+                    total = free = None
+                else:
+                    free = total - used
+            except (OSError, ValueError):
+                total = free = None
+            seen.add(identifier)
+            devices.append({"uuid": identifier, "total_bytes": total, "free_bytes": free,
+                            "render_node": "/dev/dri/" + entry.name})
+    except (OSError, ValueError):
+        return []
+    return sorted(devices, key=lambda item: (-(item["free_bytes"] if item["free_bytes"] is not None else -1),
+                                             item["uuid"]))
 
 
 class WorkerDriver(ContainerCliRuntimeDriver):
@@ -145,10 +188,27 @@ class WorkerDriver(ContainerCliRuntimeDriver):
             identifiers.append(fields[0])
         return identifiers
 
+    def _drm_nodes(self, config, devices):
+        vendor = config.get("gpu_vendor", "nvidia")
+        if vendor == "nvidia":
+            if any(not _GPU_ID.fullmatch(device) for device in devices):
+                raise ValueError("invalid NVIDIA GPU identity")
+            return []
+        if vendor not in {"amd", "intel"} or any(not device.startswith(vendor.upper() + "-") for device in devices):
+            raise ValueError("GPU vendor does not match selected devices")
+        nodes = config.get("gpu_render_nodes", "").split(",")
+        if len(nodes) != len(devices) or len(set(nodes)) != len(nodes) or any(not _RENDER.fullmatch(node) for node in nodes):
+            raise ValueError("invalid GPU render node selection")
+        discovered = {item["uuid"]: item["render_node"] for item in discover_drm(vendor)}
+        if any(discovered.get(device) != node for device, node in zip(devices, nodes, strict=True)):
+            raise RuntimeError("GPU render node mapping changed")
+        return nodes
+
     def resume(self, runtime_id, config):
         devices = self._gpu_devices(config)
         if devices:
             self._owned_lease_ids(devices, runtime_id)
+            self._drm_nodes(config, devices)
         super().resume(runtime_id, config)
 
     def terminate(self, runtime_id, config):
@@ -176,8 +236,15 @@ class WorkerDriver(ContainerCliRuntimeDriver):
         devices = self._gpu_devices(config)
         if devices:
             # Reserve all physical UUIDs before starting the actual workload.
+            nodes = self._drm_nodes(config, devices)
             self._reserve_gpus(devices, runtime_id, config["image"])
-            argv[3:3] = ["--gpus", '"device=' + ",".join(devices) + '"']
+            if nodes:
+                flags = [flag for node in nodes for flag in ("--device", node + ":" + node + ":rw")]
+                if config.get("gpu_vendor") == "amd" and Path("/dev/kfd").is_char_device():
+                    flags += ["--device", "/dev/kfd:/dev/kfd:rw"]
+                argv[3:3] = flags
+            else:
+                argv[3:3] = ["--gpus", '"device=' + ",".join(devices) + '"']
         result = _run_host(argv, cwd=self.root, timeout=120)
         if not result["success"]:
             if devices:
@@ -190,7 +257,7 @@ class WorkerDriver(ContainerCliRuntimeDriver):
 
 class Worker:
     def __init__(self, root, runtime_id, *, image, engine="docker",
-                 cpu_millis=1000, memory_bytes=256 * 1024 * 1024, pids_limit=64, gpu_count=0, gpu_min_free_bytes=0):
+                 cpu_millis=1000, memory_bytes=256 * 1024 * 1024, pids_limit=64, gpu_count=0, gpu_min_free_bytes=0, gpu_vendor="nvidia"):
         if not _ID.fullmatch(runtime_id):
             raise ValueError("invalid worker runtime ID")
         if engine not in {"docker", "podman"}:
@@ -203,6 +270,8 @@ class Worker:
             raise ValueError("invalid worker PID limit")
         if type(gpu_count) is not int or not 0 <= gpu_count <= 16 or (gpu_count and engine != "docker"):
             raise ValueError("GPU count requires Docker and must be 0..16")
+        if gpu_vendor not in {"nvidia", "amd", "intel"} or (gpu_count and gpu_vendor != "nvidia" and sys.platform != "linux"):
+            raise ValueError("AMD/Intel GPU support requires Linux Docker")
         if (type(gpu_min_free_bytes) is not int or not 0 <= gpu_min_free_bytes <= 1024 ** 4
                 or (gpu_min_free_bytes and not gpu_count)):
             raise ValueError("invalid minimum per-GPU free VRAM")
@@ -242,13 +311,16 @@ class Worker:
             ).hexdigest()[:24],
             "image": image, "cpu_millis": cpu_millis, "memory_bytes": memory_bytes,
             "pids_limit": pids_limit, "gpu_count": gpu_count,
-            "gpu_min_free_bytes": gpu_min_free_bytes, "network_disabled": True,
+            "gpu_min_free_bytes": gpu_min_free_bytes, "gpu_vendor": gpu_vendor, "network_disabled": True,
             "hibernate_on_pause": True, "auto_resume": True, "timeout_seconds": 120,
         }
 
     def _admission(self):
         cpu, memory = _local_capacity()
-        devices = discover_nvidia(self.workspace) if self.policy["gpu_count"] else []
+        devices = []
+        if self.policy["gpu_count"]:
+            vendor = self.policy["gpu_vendor"]
+            devices = discover_nvidia(self.workspace) if vendor == "nvidia" else discover_drm(vendor)
         if devices:
             try:
                 leased = self.driver.leased_gpus()
@@ -257,8 +329,9 @@ class Worker:
                 devices = []
             except Exception:
                 devices = []
+        floor = self.policy["gpu_min_free_bytes"]
         selected = [item for item in devices
-                    if item["free_bytes"] >= self.policy["gpu_min_free_bytes"]][:self.policy["gpu_count"]]
+                    if not floor or (item["free_bytes"] is not None and item["free_bytes"] >= floor)][:self.policy["gpu_count"]]
         available = (cpu >= self.policy["cpu_millis"] and memory is not None
                      and memory >= self.policy["memory_bytes"]
                      and len(selected) == self.policy["gpu_count"])
@@ -278,7 +351,7 @@ class Worker:
             operation = self.manager.operation_status()
             available, cpu, memory, devices = self._admission()
             policy = {key: self.policy[key] for key in (
-                "image", "cpu_millis", "memory_bytes", "pids_limit", "gpu_count",
+                "image", "cpu_millis", "memory_bytes", "pids_limit", "gpu_count", "gpu_vendor",
             )}
             return {
                 "available": binding is None and not operation.get("active")
@@ -288,8 +361,10 @@ class Worker:
                 "host_available_cpu_millis": cpu,
                 "host_available_memory_bytes": memory,
                 "gpu_detected_count": len(devices),
-                "gpu_min_available_vram_bytes": min((item["free_bytes"] for item in devices), default=0),
-                "gpu_total_available_vram_bytes": sum(item["free_bytes"] for item in devices),
+                "gpu_min_available_vram_bytes": min((item["free_bytes"] for item in devices), default=0)
+                if all(item["free_bytes"] is not None for item in devices) else None,
+                "gpu_total_available_vram_bytes": sum(item["free_bytes"] for item in devices)
+                if all(item["free_bytes"] is not None for item in devices) else None,
             }
         finally:
             self.lock.release()
@@ -328,6 +403,8 @@ class Worker:
                     raise ValueError("invalid provision config")
                 if requested.get("image", self.policy["image"]) != self.policy["image"]:
                     raise PermissionError("image not authorized by worker")
+                if requested.get("gpu_vendor", self.policy["gpu_vendor"]) != self.policy["gpu_vendor"]:
+                    raise PermissionError("GPU vendor not authorized by worker")
                 if requested.get("readonly_mounts") or requested.get("network_disabled") is False:
                     raise PermissionError("worker does not accept host mounts or network elevation")
                 for key in ("cpu_millis", "memory_bytes", "pids_limit", "gpu_count"):
@@ -342,11 +419,14 @@ class Worker:
                 minimum = requested.get("gpu_min_free_bytes", 0)
                 if type(minimum) is not int or not 0 <= minimum <= 1024 ** 4:
                     raise ValueError("invalid minimum requested VRAM")
-                if minimum and (not devices or min(item["free_bytes"] for item in devices) < minimum):
+                if minimum and (not devices or any(item["free_bytes"] is None or item["free_bytes"] < minimum for item in devices)):
                     raise RuntimeError("worker free VRAM no longer meets request")
                 policy = dict(self.policy)
                 if devices:
+                    devices = sorted(devices, key=lambda item: item["uuid"].lower())
                     policy["gpu_devices"] = ",".join(item["uuid"] for item in devices)
+                    if self.policy["gpu_vendor"] != "nvidia":
+                        policy["gpu_render_nodes"] = ",".join(item["render_node"] for item in devices)
                 self.manager.provision(self.backend, policy)
                 return {"runtime_id": self.runtime_id}
             if action == "health":
@@ -621,6 +701,7 @@ def main():
     parser.add_argument("--pids-limit", type=int, default=64)
     parser.add_argument("--gpu-count", type=int, default=0,
                         help="Operator-reserved Docker GPU count; requires installed GPU runtime")
+    parser.add_argument("--gpu-vendor", choices=["nvidia", "amd", "intel"], default="nvidia")
     parser.add_argument("--gpu-min-free-bytes", type=int, default=0,
                         help="Minimum free VRAM per selected physical NVIDIA GPU")
     parser.add_argument("--host", default="127.0.0.1")
@@ -639,7 +720,7 @@ def main():
     worker = Worker(args.state_dir, args.runtime_id, image=args.image, engine=args.engine,
                     cpu_millis=args.cpu_millis, memory_bytes=args.memory_bytes,
                     pids_limit=args.pids_limit, gpu_count=args.gpu_count,
-                    gpu_min_free_bytes=args.gpu_min_free_bytes)
+                    gpu_min_free_bytes=args.gpu_min_free_bytes, gpu_vendor=args.gpu_vendor)
     try:
         with RuntimeHTTPServer((str(host), args.port), worker, token) as server:
             if args.tls_cert:
