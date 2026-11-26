@@ -531,14 +531,28 @@ async function loadDiff() {
   renderInspector();
 }
 
-async function openArtifact(artifact, card) {
+async function openArtifact(artifact, card, offset = 0, sessionId = state.sessionId) {
   try {
-    const payload = await api(`/api/artifacts/${encodeURIComponent(artifact.id)}?session_id=${encodeURIComponent(state.sessionId)}&offset=0`);
-    const existing = card.querySelector("pre");
-    const pre = existing || node("pre", "");
+    const payload = await api(`/api/artifacts/${encodeURIComponent(artifact.id)}?session_id=${encodeURIComponent(sessionId)}&offset=${offset}`);
+    if (state.sessionId !== sessionId || !card.isConnected) return;
+    card.querySelector(".artifact-preview")?.remove();
+    const preview = node("div", "artifact-preview");
+    const pre = node("pre", "");
     pre.textContent = payload.content || "(empty artifact)";
-    if (!existing) card.append(pre);
-    if (payload.has_more) card.append(node("div", "muted", `Preview limited to ${payload.bytes_returned} / ${payload.total_bytes} bytes`));
+    preview.append(pre);
+    const end = payload.offset + payload.bytes_returned;
+    preview.append(node("div", "muted", `${payload.offset}–${end} / ${payload.total_bytes} bytes`));
+    if (payload.offset > 0) {
+      const prev = node("button", "secondary", "Anterior");
+      prev.addEventListener("click", () => openArtifact(artifact, card, Math.max(0, payload.offset - 32768), sessionId));
+      preview.append(prev);
+    }
+    if (payload.has_more && payload.bytes_returned > 0) {
+      const next = node("button", "secondary", "Próximo");
+      next.addEventListener("click", () => openArtifact(artifact, card, end, sessionId));
+      preview.append(next);
+    }
+    card.append(preview);
   } catch (err) { toast(err.message, "bad"); }
 }
 
@@ -612,6 +626,10 @@ function renderInspector() {
       const button = node("button", "small-button", "OPEN PREVIEW");
       button.type = "button";
       button.addEventListener("click", () => openArtifact(artifact, card));
+      const download = node("a", "secondary", "Baixar");
+      download.href = `/api/artifacts/${encodeURIComponent(artifact.id)}/download?session_id=${encodeURIComponent(state.sessionId)}`;
+      download.download = `${artifact.id}.bin`;
+      card.append(download);
       card.append(meta, button);
       els.inspectorContent.append(card);
     }
