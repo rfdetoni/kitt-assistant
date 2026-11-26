@@ -5,6 +5,7 @@ const SOURCES = Object.freeze({
   health: "/api/v1/health",
   service: "/api/v1/service/status",
   proxy: "/api/v1/reverse-proxy/status",
+  worker: "/api/v1/runtime-worker/status",
 });
 const LIMIT = 262_144;
 let active = false;
