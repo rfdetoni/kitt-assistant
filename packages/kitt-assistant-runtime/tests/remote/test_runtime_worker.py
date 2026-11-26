@@ -203,3 +203,40 @@ def test_gpu_lease_ownership_mismatch_refuses_release(tmp_path):
         with pytest.raises(RuntimeOutcomeUnknown, match="ownership mismatch"):
             driver.terminate("worker-a", {"gpu_count": 1, "gpu_devices": gpu})
     assert run.call_count == 1
+
+
+def test_drm_discovers_amd_and_intel_without_fabricating_vram(tmp_path):
+    from pathlib import Path
+    from kitt.remote.runtime_worker import discover_drm
+    sysfs = tmp_path / "drm"
+    sysfs.mkdir()
+    for name, vendor, pci in (("renderD128", "0x1002", "0000:03:00.0"),
+                              ("renderD129", "0x8086", "0000:04:00.0")):
+        entry = sysfs / name
+        entry.mkdir()
+        device = tmp_path / pci
+        device.mkdir()
+        (device / "vendor").write_text(vendor)
+        (entry / "device").symlink_to(device, target_is_directory=True)
+    (tmp_path / "0000:03:00.0" / "mem_info_vram_total").write_text("8589934592")
+    (tmp_path / "0000:03:00.0" / "mem_info_vram_used").write_text("1073741824")
+    with patch("kitt.remote.runtime_worker.sys.platform", "linux"), patch.object(Path, "is_char_device", return_value=True):
+        amd = discover_drm("amd", sysfs=sysfs, devroot=tmp_path)
+        intel = discover_drm("intel", sysfs=sysfs, devroot=tmp_path)
+    assert amd == [{"uuid": "AMD-0000:03:00.0", "render_node": "/dev/dri/renderD128",
+                    "total_bytes": 8589934592, "free_bytes": 7516192768}]
+    assert intel == [{"uuid": "INTEL-0000:04:00.0", "render_node": "/dev/dri/renderD129",
+                      "total_bytes": None, "free_bytes": None}]
+
+
+def test_drm_gpu_mapping_change_blocks_resume(tmp_path):
+    from kitt.remote.runtime_worker import WorkerDriver
+    from kitt_protocol import RuntimeBackend
+    driver = WorkerDriver(RuntimeBackend.DOCKER, "/bin/docker", tmp_path, tmp_path)
+    config = {"gpu_vendor": "intel", "gpu_count": 1,
+              "gpu_devices": "INTEL-0000:04:00.0", "gpu_render_nodes": "/dev/dri/renderD129"}
+    with patch("kitt.remote.runtime_worker.discover_drm", return_value=[
+        {"uuid": "INTEL-0000:04:00.0", "render_node": "/dev/dri/renderD130"}
+    ]), patch.object(driver, "_owned_lease_ids"):
+        with pytest.raises(RuntimeError, match="mapping changed"):
+            driver.resume("worker-a", config)
