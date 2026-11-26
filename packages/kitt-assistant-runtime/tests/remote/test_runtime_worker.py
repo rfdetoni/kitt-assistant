@@ -42,8 +42,9 @@ def test_remote_worker_policy_and_content_addressed_cache(tmp_path):
                 capacity = json.load(response)
                 assert capacity["available"] is True
                 assert capacity["policy"]["gpu_count"] == 0
-        with call("provision", "POST", b"{}") as response:
-            assert json.load(response)["runtime_id"] == "lab"
+        with patch("kitt.remote.runtime_worker._local_capacity", return_value=(4000, 1024 ** 3)):
+            with call("provision", "POST", b"{}") as response:
+                assert json.load(response)["runtime_id"] == "lab"
         policy = worker.manager.provision.call_args.args[1]
         assert policy["network_disabled"] is True
         assert policy["image"] == image
@@ -106,10 +107,41 @@ def test_gpu_count_is_operator_fixed(tmp_path):
         worker = Worker(tmp_path, "gpu", image=image, gpu_count=2)
     try:
         with patch("kitt.remote.runtime_worker._run_host", return_value={"success": True}) as run:
-            worker.driver.provision(worker.policy)
+            worker.driver.provision({**worker.policy, "gpu_devices": "GPU-a,GPU-b"})
         argv = run.call_args.args[0]
-        assert argv[argv.index("--gpus") + 1] == "2"
+        assert argv[argv.index("--gpus") + 1] == '"device=GPU-a,GPU-b"'
         with pytest.raises(ValueError):
             worker.dispatch("provision", {"config": {"gpu_count": 3}})
+    finally:
+        worker.db.close()
+
+
+def test_physical_gpu_discovery_and_rechecked_admission(tmp_path):
+    from kitt.remote.runtime_worker import discover_nvidia
+    image = "example@sha256:" + "a" * 64
+    gpu = "GPU-12345678-1234-1234-1234-123456789abc"
+    with patch("kitt.remote.runtime_worker.shutil.which", return_value="/bin/nvidia-smi"), patch(
+        "kitt.remote.runtime_worker._run_host",
+        return_value={"success": True, "stdout": f"{gpu}, 8192, 4096\n"},
+    ):
+        assert discover_nvidia(tmp_path) == [{"uuid": gpu, "total_bytes": 8192 * 1024 ** 2,
+                                             "free_bytes": 4096 * 1024 ** 2}]
+    with patch("kitt.remote.runtime_worker.shutil.which", return_value="/bin/docker"):
+        worker = Worker(tmp_path, "gpu", image=image, gpu_count=1, gpu_min_free_bytes=1024 ** 3)
+    try:
+        with patch("kitt.remote.runtime_worker._local_capacity", return_value=(4000, 1024 ** 3)), patch(
+            "kitt.remote.runtime_worker.discover_nvidia", return_value=[]
+        ):
+            assert not worker.capacity()["available"]
+            with pytest.raises(RuntimeError, match="physical capacity"):
+                worker.dispatch("provision", {})
+        with patch("kitt.remote.runtime_worker._local_capacity", return_value=(4000, 1024 ** 3)), patch(
+            "kitt.remote.runtime_worker.discover_nvidia", return_value=[
+                {"uuid": gpu, "free_bytes": 4 * 1024 ** 3, "total_bytes": 8 * 1024 ** 3}
+            ]
+        ), patch.object(worker.manager, "provision") as provision:
+            assert worker.capacity()["gpu_min_available_vram_bytes"] == 4 * 1024 ** 3
+            worker.dispatch("provision", {"config": {"gpu_min_free_bytes": 2 * 1024 ** 3}})
+            assert provision.call_args.args[1]["gpu_devices"] == gpu
     finally:
         worker.db.close()

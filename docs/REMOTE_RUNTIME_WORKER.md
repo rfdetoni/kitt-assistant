@@ -74,3 +74,26 @@ control-center bridge is not granted access to session data.
 Native Assistant and HUD locks pin Protocol 0.14.3 and Memory 0.10.3.
 The Python Assistant lock pins Agent 0.89.13 and Protocol 0.14.3 at
 the same immutable Protocol revision as the native and HUD locks. Rust workspace minimum is now 1.89 because of SQLite/UUID.
+
+## Physical GPU admission, metrics and cache maintenance
+
+GPU-enabled workers probe NVIDIA UUIDs and free/total VRAM using a bounded
+`nvidia-smi` call on demand. Unavailable/invalid discovery is fail-closed.
+`--gpu-min-free-bytes` sets a per-device floor; the pool's resource vector
+may additionally request `gpu_min_free_bytes`. The worker rechecks CPU/RAM/GPU
+capacity while holding its provision lock, and sends explicit selected UUIDs
+to Docker. No background GPU polling. This covers NVIDIA Docker hosts;
+AMD/Intel, Podman GPU, Docker Desktop VM capacity and cross-worker GPU
+exclusivity are not established. Free VRAM is an admission observation,
+not a driver-enforced VRAM quota.
+
+Authenticated `POST .../metrics` returns bounded process-local execution
+counts, aggregate execution time, bytes uploaded/downloaded, cache hits,
+uptime and cache usage. `POST .../cache_prune` with min_age_seconds
+(3600..31536000) removes only old content-addressed blobs while the worker
+is unbound and has no active operation. Successful cache accesses refresh
+mtime. No eviction while a container may use the cache and no resident
+cleanup daemon. Counters reset on worker restart.
+
+The resource pool can set agent_execute=true explicitly for the new
+approval-bound Agent computer.run capability; it remains disabled by default.

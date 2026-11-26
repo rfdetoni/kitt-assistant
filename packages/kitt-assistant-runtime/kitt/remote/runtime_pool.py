@@ -33,6 +33,12 @@ def provision_best_worker(rpc, params):
     if not isinstance(nodes, list) or not 1 <= len(nodes) <= 8:
         raise ValueError("provide 1..8 explicit worker configurations")
     requested = _resources(params.get("resources", {}))
+    minimum_vram = params["resources"].get("gpu_min_free_bytes", 0)
+    if type(minimum_vram) is not int or not 0 <= minimum_vram <= 1024 ** 4 or (minimum_vram and not requested[3]):
+        raise ValueError("invalid minimum per-GPU VRAM")
+    allow_agent_execution = params.get("agent_execute", False)
+    if type(allow_agent_execution) is not bool:
+        raise ValueError("agent_execute must be boolean")
     image = params.get("image")
     if not isinstance(image, str) or not re.fullmatch(r"[^\s,]+@sha256:[0-9a-f]{64}", image):
         raise ValueError("image must be pinned by digest")
@@ -66,6 +72,11 @@ def provision_best_worker(rpc, params):
             continue
         if any(have < need for have, need in zip(capacity, requested, strict=True)):
             continue
+        if requested[3]:
+            detected = report.get("gpu_detected_count")
+            free = report.get("gpu_min_available_vram_bytes")
+            if type(detected) is not int or detected < requested[3] or type(free) is not int or free < minimum_vram:
+                continue
         # Reserve scarce configured GPUs first, then minimize excess RAM/CPU.
         score = (capacity[3] - requested[3], capacity[1] - requested[1],
                  capacity[0] - requested[0], capacity[2] - requested[2], index)
@@ -76,6 +87,7 @@ def provision_best_worker(rpc, params):
     config = {
         **selected, **dict(zip(_RESOURCE_KEYS, capacity, strict=True)),
         "image": image, "network_disabled": True, "timeout_seconds": 120,
+        "gpu_min_free_bytes": minimum_vram, "agent_execute": allow_agent_execution,
     }
     result = rpc.dispatch("runtime.provision", {
         "conversation_id": conversation, "backend": "REMOTE", "config": config,
